@@ -139,10 +139,11 @@ export default function CreatePage() {
                 className="flex-1 rounded-lg border border-gray-700 px-4 py-2.5 text-gray-300 hover:bg-gray-800 transition text-center text-sm">
                 View on GitHub →
               </a>
-              <Link href="/create"
-                className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-500 transition text-sm font-medium text-center">
+              <button
+                onClick={() => { setState("form"); setPreview(null); setRepoUrl(null); setError(null); }}
+                className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-500 transition text-sm font-medium">
                 Create another
-              </Link>
+              </button>
             </div>
           </div>
         )}
