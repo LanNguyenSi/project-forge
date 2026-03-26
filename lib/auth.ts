@@ -10,7 +10,7 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.GITHUB_ID ?? "",
       clientSecret: process.env.GITHUB_SECRET ?? "",
       authorization: {
-        params: { scope: "repo user:email" },
+        params: { scope: "repo workflow user:email" },
       },
     }),
     CredentialsProvider({
