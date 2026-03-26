@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 const features = [
   {
@@ -33,6 +36,15 @@ const steps = [
 ];
 
 export default function LandingPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === "authenticated") router.replace("/dashboard");
+  }, [status, router]);
+
+  if (status === "loading" || status === "authenticated") return null;
+
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100">
       {/* Nav */}
