@@ -1,0 +1,288 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "project-forge API",
+    "version": "1.0.0",
+    "description": "API for creating projects using planforge + scaffoldkit toolchain with automatic GitHub repository creation.",
+    "contact": {
+      "name": "project-forge",
+      "url": "https://project-forge.opentriologue.ai"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://project-forge.opentriologue.ai",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/projects": {
+      "post": {
+        "summary": "Create a new project",
+        "description": "Generate a new project using planforge and scaffoldkit, create a GitHub repository, and push the initial commit. Rate limit: 10 projects per day per API token.",
+        "operationId": "createProject",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRequest"
+              },
+              "examples": {
+                "basic": {
+                  "summary": "Basic project",
+                  "value": {
+                    "projectName": "my-awesome-app",
+                    "summary": "A web application for managing tasks",
+                    "features": [
+                      "User authentication",
+                      "Task CRUD operations",
+                      "Real-time updates"
+                    ],
+                    "constraints": [
+                      "Use TypeScript",
+                      "Deploy on Vercel"
+                    ]
+                  }
+                },
+                "minimal": {
+                  "summary": "Minimal project",
+                  "value": {
+                    "projectName": "simple-cli",
+                    "summary": "A command-line tool for file processing"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProjectResponse"
+                },
+                "example": {
+                  "ok": true,
+                  "result": {
+                    "repoUrl": "https://github.com/username/my-awesome-app",
+                    "cloneUrl": "https://github.com/username/my-awesome-app.git",
+                    "projectName": "my-awesome-app"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required fields or GitHub PAT not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingFields": {
+                    "summary": "Missing required fields",
+                    "value": {
+                      "error": "Missing required fields: projectName, summary"
+                    }
+                  },
+                  "missingPat": {
+                    "summary": "GitHub PAT not configured",
+                    "value": {
+                      "error": "GitHub PAT not configured. Please add it in your dashboard."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingKey": {
+                    "summary": "Missing API key",
+                    "value": {
+                      "error": "Missing X-API-Key header"
+                    }
+                  },
+                  "invalidKey": {
+                    "summary": "Invalid API key",
+                    "value": {
+                      "error": "Invalid or revoked API token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Rate limit exceeded",
+                  "details": "Maximum 10 projects per day. Used: 10/10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error - project generation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Project generation failed",
+                  "details": "planforge execution failed: timeout"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "API token generated from your dashboard. Format: pf_*"
+      }
+    },
+    "schemas": {
+      "ProjectRequest": {
+        "type": "object",
+        "required": [
+          "projectName",
+          "summary"
+        ],
+        "properties": {
+          "projectName": {
+            "type": "string",
+            "description": "Name of the project (will be used as GitHub repository name)",
+            "example": "my-awesome-app",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Brief description of what the project does",
+            "example": "A web application for managing tasks"
+          },
+          "features": {
+            "type": "array",
+            "description": "List of core features the project should have",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "User authentication",
+              "Task CRUD",
+              "Real-time updates"
+            ]
+          },
+          "constraints": {
+            "type": "array",
+            "description": "Technical constraints or requirements",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "Use TypeScript",
+              "Deploy on Vercel"
+            ]
+          },
+          "targetUsers": {
+            "type": "array",
+            "description": "Target user groups",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "developers",
+              "project managers"
+            ],
+            "default": [
+              "developers"
+            ]
+          }
+        }
+      },
+      "CreateProjectResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": true
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "repoUrl": {
+                "type": "string",
+                "description": "GitHub repository URL",
+                "example": "https://github.com/username/my-awesome-app"
+              },
+              "cloneUrl": {
+                "type": "string",
+                "description": "Git clone URL (HTTPS)",
+                "example": "https://github.com/username/my-awesome-app.git"
+              },
+              "projectName": {
+                "type": "string",
+                "description": "Name of the created project",
+                "example": "my-awesome-app"
+              }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message",
+            "example": "Invalid or revoked API token"
+          },
+          "details": {
+            "type": "string",
+            "description": "Additional error details (optional)",
+            "example": "Token was revoked on 2026-03-25"
+          }
+        }
+      }
+    }
+  }
+}
