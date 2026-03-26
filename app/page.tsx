@@ -1,193 +1,159 @@
 "use client";
 
-import { useState } from "react";
-import { ProjectForm } from "@/components/ProjectForm";
-import { PreviewPanel } from "@/components/PreviewPanel";
-import { ConfirmModal } from "@/components/ConfirmModal";
-import type { GenerationPreview, ProjectInput } from "@/lib/types";
+import Link from "next/link";
 
-type AppState = "form" | "loading" | "preview" | "confirming" | "publishing" | "done";
+const features = [
+  {
+    icon: "🧠",
+    title: "AI-Planned",
+    desc: "Every project is planned by agent-planforge — tasks, waves, and architecture automatically generated.",
+  },
+  {
+    icon: "⚒️",
+    title: "Scaffolded",
+    desc: "scaffoldkit generates the file structure, Makefile, CI, and docs. Ready to clone and build.",
+  },
+  {
+    icon: "🔑",
+    title: "Agent-Ready API",
+    desc: "One POST request from your agent creates a GitHub repo. No PAT required — just your project-forge token.",
+  },
+  {
+    icon: "🚀",
+    title: "Zero to Repo in Seconds",
+    desc: "From idea to a cloneable GitHub repository in under 30 seconds.",
+  },
+];
 
-function StepIndicator({ state }: { state: AppState }) {
-  const steps = [
-    { id: "form", label: "Describe", active: state === "form" || state === "loading" },
-    { id: "preview", label: "Review", active: state === "preview" || state === "confirming" },
-    { id: "done", label: "Done", active: state === "publishing" || state === "done" },
-  ];
+const steps = [
+  { n: "1", title: "Describe your project", desc: "Fill in name, summary, features, and constraints." },
+  { n: "2", title: "Review the plan", desc: "Browse tasks, architecture, and file tree. Regenerate if needed." },
+  { n: "3", title: "Confirm & publish", desc: "One click creates the GitHub repo and pushes the scaffold." },
+  { n: "4", title: "Clone & build", desc: "Hand off to your agent. The plan is already inside the repo." },
+];
+
+export default function LandingPage() {
   return (
-    <div className="flex items-center justify-center gap-4 mb-8 text-sm">
-      {steps.map((step, i) => (
-        <div key={step.id} className="flex items-center gap-2">
-          <div
-            className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-              step.active ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-400"
-            }`}
+    <main className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Nav */}
+      <nav className="border-b border-gray-800 px-6 py-4 flex items-center justify-between max-w-6xl mx-auto">
+        <div className="flex items-center gap-2 font-bold text-lg">
+          <span>⚒️</span> project-forge
+        </div>
+        <div className="flex items-center gap-4 text-sm">
+          <Link href="/docs" className="text-gray-400 hover:text-gray-200 transition">Docs</Link>
+          <Link href="/login" className="text-gray-400 hover:text-gray-200 transition">Login</Link>
+          <Link
+            href="/login"
+            className="rounded-lg bg-blue-600 px-4 py-1.5 text-white hover:bg-blue-500 transition font-medium"
           >
-            {i + 1}
-          </div>
-          <span className={step.active ? "text-gray-200" : "text-gray-500"}>{step.label}</span>
-          {i < 2 && <span className="text-gray-700">→</span>}
+            Get Started →
+          </Link>
         </div>
-      ))}
-    </div>
-  );
-}
+      </nav>
 
-export default function Home() {
-  const [state, setState] = useState<AppState>("form");
-  const [preview, setPreview] = useState<GenerationPreview | null>(null);
-  const [lastInput, setLastInput] = useState<ProjectInput | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [repoUrl, setRepoUrl] = useState<string | null>(null);
-
-  const handleGenerate = async (input: ProjectInput) => {
-    setState("loading");
-    setError(null);
-    setLastInput(input);
-    try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "Generation failed");
-      setPreview(data.preview);
-      setState("preview");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Generation failed. Please try again.");
-      setState("form");
-    }
-  };
-
-  const handlePublish = async () => {
-    if (!preview) return;
-    setState("publishing");
-    try {
-      const res = await fetch("/api/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: preview.sessionId,
-          projectName: preview.projectName,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "Publish failed");
-      setRepoUrl(data.result.repoUrl);
-      setState("done");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create repository. Please try again.");
-      setState("preview");
-    }
-  };
-
-  const handleBack = () => {
-    setState("form");
-    setPreview(null);
-    setError(null);
-  };
-
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-8">
-      <div className="max-w-2xl w-full">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold mb-2">project-forge</h1>
-          <p className="text-gray-400">
-            Create AI-toolchain projects with planforge + scaffoldkit
-          </p>
+      {/* Hero */}
+      <section className="max-w-4xl mx-auto px-6 py-24 text-center">
+        <div className="inline-flex items-center gap-2 rounded-full border border-blue-800 bg-blue-950/40 px-4 py-1.5 text-sm text-blue-300 mb-8">
+          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
+          AI-powered project scaffolding
+        </div>
+        <h1 className="text-5xl font-bold mb-6 leading-tight">
+          From idea to{" "}
+          <span className="text-blue-400">GitHub repo</span>
+          <br />in seconds
+        </h1>
+        <p className="text-gray-400 text-xl mb-10 max-w-2xl mx-auto">
+          project-forge uses planforge + scaffoldkit to turn your project description into a
+          fully planned, scaffolded, and committed repository — ready for your agent to build.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <Link
+            href="/login"
+            className="rounded-xl bg-blue-600 px-8 py-3.5 font-semibold text-white hover:bg-blue-500 transition text-lg"
+          >
+            Create a project →
+          </Link>
+          <Link
+            href="/docs"
+            className="rounded-xl border border-gray-700 px-8 py-3.5 font-semibold text-gray-300 hover:bg-gray-800 transition text-lg"
+          >
+            API Docs
+          </Link>
         </div>
 
-        {state !== "done" && <StepIndicator state={state} />}
+        {/* Code snippet */}
+        <div className="mt-14 rounded-2xl border border-gray-800 bg-gray-900 p-6 text-left max-w-2xl mx-auto">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="h-3 w-3 rounded-full bg-red-500" />
+            <div className="h-3 w-3 rounded-full bg-yellow-500" />
+            <div className="h-3 w-3 rounded-full bg-green-500" />
+            <span className="text-gray-500 text-xs ml-2">agent.sh</span>
+          </div>
+          <pre className="text-sm font-mono text-gray-300 leading-relaxed overflow-x-auto">{`curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \\
+  -H "X-API-Key: $PROJECTFORGE_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "projectName": "my-cli-tool",
+    "summary": "A CLI that syncs agent memory via Git",
+    "features": ["push", "pull", "conflict resolution"]
+  }'
 
-        {error && (
-          <div className="mb-6 rounded-lg border border-red-800 bg-red-950/50 p-4 flex items-start gap-3">
-            <span className="text-red-400 shrink-0 mt-0.5">⚠️</span>
-            <div>
-              <p className="text-red-300 text-sm font-medium">Something went wrong</p>
-              <p className="text-red-400 text-xs mt-1">{error}</p>
+# → { "ok": true, "result": { "repoUrl": "https://github.com/..." } }`}</pre>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="max-w-5xl mx-auto px-6 py-16">
+        <h2 className="text-2xl font-bold text-center mb-12">Everything your agent needs</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {features.map((f) => (
+            <div key={f.title} className="rounded-xl border border-gray-800 bg-gray-900 p-6">
+              <div className="text-3xl mb-3">{f.icon}</div>
+              <h3 className="font-semibold text-lg mb-2">{f.title}</h3>
+              <p className="text-gray-400 text-sm leading-relaxed">{f.desc}</p>
             </div>
-            <button
-              onClick={() => setError(null)}
-              className="ml-auto text-red-500 hover:text-red-300 transition text-lg leading-none"
-            >
-              ×
-            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className="max-w-4xl mx-auto px-6 py-16">
+        <h2 className="text-2xl font-bold text-center mb-12">How it works</h2>
+        <div className="relative">
+          <div className="absolute left-5 top-0 bottom-0 w-px bg-gray-800 hidden sm:block" />
+          <div className="space-y-8">
+            {steps.map((step) => (
+              <div key={step.n} className="flex gap-6">
+                <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-white shrink-0 z-10">
+                  {step.n}
+                </div>
+                <div className="pt-1.5">
+                  <h3 className="font-semibold mb-1">{step.title}</h3>
+                  <p className="text-gray-400 text-sm">{step.desc}</p>
+                </div>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
+      </section>
 
-        {(state === "form" || state === "loading") && (
-          <div className="rounded-xl border border-gray-700 bg-gray-900 p-8">
-            <ProjectForm
-              onSubmit={handleGenerate}
-              isLoading={state === "loading"}
-              initialValues={lastInput ?? undefined}
-            />
-          </div>
-        )}
+      {/* CTA */}
+      <section className="max-w-2xl mx-auto px-6 py-20 text-center">
+        <h2 className="text-3xl font-bold mb-4">Ready to forge your first project?</h2>
+        <p className="text-gray-400 mb-8">Register, connect GitHub, create an API token — and start building.</p>
+        <Link
+          href="/login"
+          className="inline-block rounded-xl bg-blue-600 px-10 py-4 font-semibold text-white hover:bg-blue-500 transition text-lg"
+        >
+          Get started for free →
+        </Link>
+      </section>
 
-        {(state === "preview" || state === "confirming") && preview && (
-          <PreviewPanel
-            preview={preview}
-            onConfirm={() => setState("confirming")}
-            onBack={handleBack}
-            isPublishing={false}
-          />
-        )}
-
-        {state === "confirming" && preview && (
-          <ConfirmModal
-            projectName={preview.projectName}
-            taskCount={preview.taskCount}
-            waveCount={preview.waveCount}
-            onConfirm={handlePublish}
-            onCancel={() => setState("preview")}
-          />
-        )}
-
-        {state === "publishing" && preview && (
-          <div className="rounded-xl border border-gray-700 bg-gray-900 p-12 text-center">
-            <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-500 border-t-transparent mx-auto mb-4" />
-            <p className="text-gray-300 font-medium">Creating repository...</p>
-            <p className="text-gray-500 text-sm mt-1">{preview.projectName}</p>
-          </div>
-        )}
-
-        {state === "done" && repoUrl && (
-          <div className="rounded-xl border border-green-800 bg-green-950/30 p-8 text-center">
-            <div className="text-5xl mb-4">✅</div>
-            <h2 className="text-2xl font-semibold mb-2">Project Created!</h2>
-            <p className="text-gray-400 mb-6">
-              Your project is ready. Clone it and hand off to your agent:
-            </p>
-            <code className="block rounded-lg bg-gray-900 px-4 py-3 text-sm text-green-400 mb-6 font-mono">
-              git clone {repoUrl}
-            </code>
-            <div className="flex gap-3">
-              <a
-                href={repoUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="flex-1 rounded-lg border border-gray-700 px-4 py-2.5 text-gray-300 hover:bg-gray-800 transition text-center text-sm"
-              >
-                View on GitHub →
-              </a>
-              <button
-                onClick={() => {
-                  setState("form");
-                  setPreview(null);
-                  setRepoUrl(null);
-                  setError(null);
-                  setLastInput(null);
-                }}
-                className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-500 transition text-sm font-medium"
-              >
-                Create another
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Footer */}
+      <footer className="border-t border-gray-800 px-6 py-8 text-center text-gray-600 text-sm">
+        <p>⚒️ project-forge · Built with planforge + scaffoldkit · <a href="https://github.com/LanNguyenSi/project-forge" className="hover:text-gray-400 transition">GitHub</a></p>
+      </footer>
     </main>
   );
 }
