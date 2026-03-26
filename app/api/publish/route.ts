@@ -121,7 +121,7 @@ async function runGitCommands(
     ["git", "config", "user.email", "forge@project-forge.dev"],
     ["git", "config", "user.name", "project-forge"],
     ["git", "add", "-A"],
-    ["git", "commit", "-m", `feat: initial scaffold\n\nGenerated with project-forge\nPlanned with agent-planforge · Scaffolded with scaffoldkit`],
+    ["git", "commit", "-m", `feat: initial scaffold\n\nGenerated with project-forge\nPlanned with agent-planforge (https://github.com/LanNguyenSi/agent-planforge) · Scaffolded with scaffoldkit (https://github.com/LanNguyenSi/scaffoldkit)`],
     ["git", "remote", "add", "origin", authedUrl],
     ["git", "push", "-u", "origin", "main"],
   ];

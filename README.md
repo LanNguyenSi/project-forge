@@ -1,218 +1,146 @@
-# project-forge
+# project-forge ⚒️
 
-A web UI for creating new software projects using the full agent toolchain (agent-planforge, scaffoldkit, agent-engineering-playbook). Users fill in a form, the server runs planforge and scaffoldkit in a temp directory, shows a preview of the generated structure (tasks, architecture, file tree), allows review and re-generation, then creates a GitHub repo and pushes on confirmation.
+A web platform for creating AI-toolchain projects. Describe your project — [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) and [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) do the rest.
 
-## Overview
+**Live:** [project-forge.opentriologue.ai](https://project-forge.opentriologue.ai)
 
-`project-forge` is a command-line tool built with **python** and **typer**.
-It is distributed as a Python package via PyPI.
+## What It Does
 
-## Installation
+1. **Describe** — Fill in a form (or use the ✨ AI magic fill)
+2. **Review** — Browse generated tasks, architecture overview, and file tree
+3. **Confirm** — Create a GitHub repo with the scaffold pushed
+4. **Build** — Clone and hand off to your agent
 
-### Via pip
+Also available as a REST API for agents: `POST /api/v1/projects`
+
+## Prerequisites
+
+project-forge requires two external tools to be installed on the same machine as the server:
+
+### 1. [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
 
 ```bash
-pip install project-forge
+git clone https://github.com/LanNguyenSi/agent-planforge.git
+cd agent-planforge
+npm install
 ```
 
-### Via pipx (recommended for isolated install)
+Set env: `PLANFORGE_PATH=/path/to/agent-planforge`
+
+### 2. [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit)
 
 ```bash
-pipx install project-forge
+git clone https://github.com/LanNguyenSi/scaffoldkit.git
+python3 -m venv sk-venv
+sk-venv/bin/pip install -e scaffoldkit
 ```
 
-### From source
+Set env: `SCAFFOLDKIT_PYTHON=/path/to/sk-venv/bin/python3`
+
+> **Note:** scaffoldkit requires Python 3.11+
+
+## Quick Start (Docker)
 
 ```bash
-git clone https://github.com/your-org/project-forge.git
+git clone https://github.com/LanNguyenSi/project-forge.git
 cd project-forge
-pip install -e ".[dev]"
+cp .env.example .env
+# Fill in required values (see below)
+make deploy
 ```
 
-## Quick Start
+### Required Environment Variables
 
-```bash
-# Show help
-project-forge --help
+| Variable | Description |
+|---|---|
+| `GITHUB_TOKEN` | GitHub PAT with `repo` scope (for the platform itself) |
+| `GITHUB_OWNER` | GitHub username for repo creation |
+| `NEXTAUTH_SECRET` | Random secret (`openssl rand -hex 32`) |
+| `NEXTAUTH_URL` | Public URL (e.g. `https://project-forge.example.com`) |
+| `DATABASE_URL` | SQLite path (e.g. `file:/data/project-forge.db`) |
+| `PLANFORGE_PATH` | Absolute path to agent-planforge repo |
+| `SCAFFOLDKIT_PYTHON` | Absolute path to scaffoldkit venv python3 |
 
-# Show version
-project-forge --version
+### Optional
 
-# Run the default command
-project-forge run
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | Enables AI magic fill (OpenAI GPT-4o-mini) |
+| `GROQ_API_KEY` | Enables AI magic fill (Groq, preferred — free) |
+| `GITHUB_ID` | GitHub OAuth app Client ID |
+| `GITHUB_SECRET` | GitHub OAuth app Client Secret |
 
-# Get help for a subcommand
-project-forge run --help
-```
+### Docker Compose Volumes
 
-## Usage
-
-### Global Options
-
-| Option | Description |
-|--------|-------------|
-| `--help` | Show help and exit |
-| `--version` | Show version and exit |
-| `--config PATH` | Path to config file (default: `~/.config/project-forge/config.yaml`) |
-| `--verbose` | Enable verbose output |
-| `--quiet` | Suppress non-error output |
-| `--no-color` | Disable colored output |
-
-### Commands
-
-#### `project-forge run`
-
-Execute the primary action.
-
-```bash
-project-forge run [OPTIONS] [ARGS]...
-
-Options:
-  --dry-run   Show what would happen without making changes
-  --output    Output format: text, json, yaml  [default: text]
-  --help      Show this message and exit
-```
-
-#### `project-forge config`
-
-Manage tool configuration.
-
-```bash
-project-forge config show              # Print current config
-project-forge config set KEY VALUE     # Set a config value
-project-forge config get KEY           # Get a config value
-project-forge config reset             # Reset to defaults
-```
-
-#### `project-forge version`
-
-Show detailed version information.
-
-```bash
-project-forge version
-# project-forge v0.1.0
-# Language: python
-# Framework: typer
-# Build: (commit hash)
-```
-
-## Configuration
-
-project-forge stores configuration at:
-
-- **Linux/macOS**: `~/.config/project-forge/config.yaml`
-- **Windows**: `%APPDATA%\project-forge\config.yaml`
-
-The `--config` flag overrides the default path.
-
-### Example config file
+The Docker container needs read access to the tool directories:
 
 ```yaml
-# project-forge configuration
-output_format: text
-color: true
-verbose: false
-# Add your settings here
+# docker-compose.override.yml
+services:
+  app:
+    environment:
+      PLANFORGE_PATH: /tools/agent-planforge
+      SCAFFOLDKIT_PYTHON: /tools/sk-venv/bin/python3
+    volumes:
+      - /path/to/agent-planforge:/tools/agent-planforge:ro
+      - /path/to/scaffoldkit:/tools/scaffoldkit:ro
+      - /path/to/sk-venv:/tools/sk-venv:ro
 ```
 
-### Environment Variables
+See `docker-compose.override.example.yml` for a full example.
 
-All config keys can be overridden via environment variables prefixed with `PROJECT_FORGE_`:
+## API
+
+### `POST /api/v1/projects`
+
+Create a project programmatically. Requires an API token generated in the dashboard.
 
 ```bash
-export PROJECT_FORGE_OUTPUT_FORMAT=json
-export PROJECT_FORGE_VERBOSE=true
+curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \
+  -H "X-API-Key: pf_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectName": "my-cli-tool",
+    "summary": "A CLI that syncs agent memory via Git",
+    "features": ["push memory files", "pull and merge", "conflict resolution"],
+    "constraints": ["TypeScript only", "no external databases"],
+    "targetUsers": ["developers", "AI agents"]
+  }'
 ```
 
-Priority order (highest to lowest): CLI flags > environment variables > config file > defaults.
-
-## Project Structure
-
+**Response:**
+```json
+{
+  "ok": true,
+  "result": {
+    "repoUrl": "https://github.com/your-username/my-cli-tool",
+    "cloneUrl": "https://github.com/your-username/my-cli-tool.git",
+    "projectName": "my-cli-tool"
+  }
+}
 ```
-project-forge/
-├── src/
-│   ├── commands/         # One file per subcommand
-│   ├── config/           # Config loading and validation
-│   └── main.py
-├── tests/
-│   └── ...               # Test files mirroring src/
-├── docs/
-│   ├── architecture.md
-│   ├── ways-of-working.md
-│   └── adrs/
-├── AI_CONTEXT.md
-└── README.md
-```
+
+Rate limit: 10 projects/day per API token.
+
+Full API documentation: [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs)
+
+## Tech Stack
+
+- **Frontend:** Next.js 14 + TypeScript + Tailwind CSS
+- **Auth:** next-auth (email/password + GitHub OAuth)
+- **Database:** SQLite via Prisma (API tokens, users)
+- **Planning:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) (Node.js)
+- **Scaffolding:** [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) (Python 3.11+)
+- **AI Fill:** Groq (llama-3.3-70b) / OpenAI (gpt-4o-mini)
+- **Deploy:** Docker + Traefik
 
 ## Development
 
-### Prerequisites
-
-- Python 3.11+
-- [uv](https://github.com/astral-sh/uv) or pip
-
-### Setup
-
 ```bash
-git clone https://github.com/your-org/project-forge.git
-cd project-forge
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# Install with dev dependencies
-pip install -e ".[dev]"
+npm install
+npm run dev
 ```
-
-### Running Tests
-
-```bash
-pytest tests/
-pytest tests/ -v --tb=short   # Verbose output
-pytest tests/ --cov=src       # With coverage
-```
-
-### Linting and Formatting
-
-```bash
-ruff check src/ tests/
-ruff format src/ tests/
-mypy src/
-```
-
-## CI/CD
-
-Continuous integration runs on every pull request and push to `main`:
-
-- Lint and format check
-- Unit tests
-- Build verification
-- Publish to PyPI on tagged releases
-
-See `.github/workflows/` for pipeline definitions.
-
-## Testing
-
-Strategy: **unit-tests**
-
-Tests cover individual commands, argument parsing, config loading, and output formatting.
-Run them with the command shown in the Development section above.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Make your changes with tests
-4. Run the full test suite
-5. Open a pull request
-
-See [ways-of-working](docs/ways-of-working.md) for full contribution guidelines.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
-
----
-
-*Generated with [ScaffoldKit](https://github.com/scaffoldkit)*
+MIT
