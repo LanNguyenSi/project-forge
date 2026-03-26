@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ProjectInput } from "@/lib/types";
 
 interface ProjectFormProps {
@@ -15,6 +15,17 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
   const [featuresText, setFeaturesText] = useState(initialValues?.features?.join("\n") ?? "");
   const [constraintsText, setConstraintsText] = useState(initialValues?.constraints?.join("\n") ?? "");
   const [targetUsersText, setTargetUsersText] = useState(initialValues?.targetUsers?.join("\n") ?? "");
+
+  // Update form state when initialValues changes (for re-generation flow)
+  useEffect(() => {
+    if (initialValues) {
+      setName(initialValues.projectName ?? "");
+      setSummary(initialValues.summary ?? "");
+      setFeaturesText(initialValues.features?.join("\n") ?? "");
+      setConstraintsText(initialValues.constraints?.join("\n") ?? "");
+      setTargetUsersText(initialValues.targetUsers?.join("\n") ?? "");
+    }
+  }, [initialValues]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
