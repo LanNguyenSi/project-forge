@@ -8,12 +8,10 @@ services:
       GITHUB_OWNER: ${GITHUB_OWNER:-LanNguyenSi}
       PLANFORGE_PATH: /tools/agent-planforge
       SCAFFOLDKIT_PATH: /tools/scaffoldkit
-      SCAFFOLDKIT_PYTHON: /tools/sk-venv/bin/python3
       FORGE_TEMP_DIR: /tmp/project-forge
     volumes:
       - /root/git/agent-planforge:/tools/agent-planforge:ro
       - /root/git/scaffoldkit:/tools/scaffoldkit:ro
-      - /root/git/sk-venv:/tools/sk-venv:ro
       - forge_tmp:/tmp/project-forge
     labels:
       traefik.enable: "true"
