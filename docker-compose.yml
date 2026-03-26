@@ -1,0 +1,36 @@
+services:
+  app:
+    image: node:20-slim
+    working_dir: /app
+    command: sh -c "npm install --production && npm run build && npm start"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_OWNER: ${GITHUB_OWNER:-LanNguyenSi}
+      PLANFORGE_PATH: /tools/agent-planforge
+      SCAFFOLDKIT_PATH: /tools/scaffoldkit
+      SCAFFOLDKIT_PYTHON: /tools/sk-venv/bin/python3
+      FORGE_TEMP_DIR: /tmp/project-forge
+    volumes:
+      - .:/app:ro
+      - /root/git/agent-planforge:/tools/agent-planforge:ro
+      - /root/git/scaffoldkit:/tools/scaffoldkit:ro
+      - /root/git/sk-venv:/tools/sk-venv:ro
+      - forge_tmp:/tmp/project-forge
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.project-forge.rule: Host(`project-forge.opentriologue.ai`)
+      traefik.http.routers.project-forge.entrypoints: websecure
+      traefik.http.routers.project-forge.tls.certresolver: letsencrypt
+      traefik.http.services.project-forge.loadbalancer.server.port: "3000"
+    networks:
+      - traefik
+    restart: unless-stopped
+
+volumes:
+  forge_tmp:
+
+networks:
+  traefik:
+    external: true
