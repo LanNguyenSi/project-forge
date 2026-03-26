@@ -1,8 +1,6 @@
 services:
   app:
-    image: node:20-slim
-    working_dir: /app
-    command: sh -c "npm install --production && npm run build && npm start"
+    build: .
     environment:
       NODE_ENV: production
       PORT: "3000"
@@ -13,7 +11,6 @@ services:
       SCAFFOLDKIT_PYTHON: /tools/sk-venv/bin/python3
       FORGE_TEMP_DIR: /tmp/project-forge
     volumes:
-      - .:/app:ro
       - /root/git/agent-planforge:/tools/agent-planforge:ro
       - /root/git/scaffoldkit:/tools/scaffoldkit:ro
       - /root/git/sk-venv:/tools/sk-venv:ro
