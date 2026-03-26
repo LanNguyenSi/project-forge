@@ -97,26 +97,30 @@ export async function POST(req: NextRequest) {
       GENERATION_TIMEOUT_MS
     );
 
-    // Step 2: Run scaffoldkit
+    // Step 2: Run scaffoldkit from-planforge
     const scaffoldInputPath = path.join(tempDir, "scaffoldkit-input.json");
+    const scaffoldkitPython = process.env.SCAFFOLDKIT_PYTHON ?? "/app/.sk-venv/bin/python3";
+    const scaffoldkitExists = await fs.access(scaffoldInputPath).then(() => true).catch(() => false);
 
-    await runCommand(
-      "python3",
-      [
-        "-m",
-        "scaffoldkit.cli",
-        "from-planforge",
-        path.join(tempDir, "project-charter.json"),
-        "--target",
+    if (scaffoldkitExists) {
+      await runCommand(
+        scaffoldkitPython,
+        [
+          "-m",
+          "scaffoldkit.cli",
+          "from-planforge",
+          scaffoldInputPath,
+          "--target",
+          tempDir,
+          "--no-install",
+        ],
         tempDir,
-        "--no-install",
-      ],
-      SCAFFOLDKIT_PATH,
-      GENERATION_TIMEOUT_MS
-    ).catch(() => {
-      // Non-blocking - planforge output is still useful
-      console.warn("scaffoldkit failed, continuing with planforge output only");
-    });
+        GENERATION_TIMEOUT_MS
+      ).catch((err: Error) => {
+        // Non-blocking - planforge output is still useful
+        console.error("scaffoldkit failed (non-blocking):", err.message);
+      });
+    }
 
     // Step 3: Create GitHub repo and push
     const repoUrl = await createAndPushRepo(
