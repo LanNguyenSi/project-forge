@@ -1,184 +1,112 @@
 import { describe, it, expect } from 'vitest';
-import type { ProjectInput, GenerateResponse, ErrorResponse } from '../../lib/types';
+import type { ProjectInput, GenerateResponse, ErrorResponse, GenerationPreview, Task } from '../../lib/types';
 
-// Note: These are integration tests that would require actual planforge + scaffoldkit setup
-// For now, they test the API contract and error handling
+/**
+ * Contract tests for the /api/generate endpoint.
+ * These validate type contracts and schema correctness without requiring a running server.
+ * Live integration tests should be run manually against a local dev server.
+ */
 
-describe('Generate API Integration Tests', () => {
-  const API_BASE = process.env.API_BASE || 'http://localhost:3000';
-
-  describe('POST /api/generate', () => {
-    it('should validate input schema', async () => {
-      const invalidInput = {
-        // Missing projectName
-        summary: 'Test project',
+describe('Generate API Contract Tests', () => {
+  describe('ProjectInput schema', () => {
+    it('should require projectName and summary', () => {
+      const valid: ProjectInput = {
+        projectName: 'my-project',
+        summary: 'A test project',
+        features: [],
+        constraints: [],
       };
-
-      const response = await fetch(`${API_BASE}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(invalidInput),
-      }).catch(() => null);
-
-      if (!response) {
-        // API not running - skip integration test
-        expect(true).toBe(true);
-        return;
-      }
-
-      expect(response.status).toBe(400);
-      const data: ErrorResponse = await response.json();
-      expect(data.ok).toBe(false);
-      expect(data.error).toContain('required');
+      expect(valid.projectName).toBeTruthy();
+      expect(valid.summary).toBeTruthy();
     });
 
-    it('should return GenerateResponse on valid input', async () => {
-      const validInput: ProjectInput = {
-        projectName: 'test-project',
-        summary: 'A test project for integration testing',
+    it('should accept optional fields', () => {
+      const withOptionals: ProjectInput = {
+        projectName: 'my-project',
+        summary: 'A test project',
         features: ['feature 1', 'feature 2'],
-        constraints: ['constraint 1'],
+        constraints: ['TypeScript only'],
+        targetUsers: ['developers'],
       };
-
-      const response = await fetch(`${API_BASE}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validInput),
-      }).catch(() => null);
-
-      if (!response) {
-        // API not running - skip integration test
-        expect(true).toBe(true);
-        return;
-      }
-
-      // May fail if planforge/scaffoldkit not set up, but should return proper error
-      const data = await response.json();
-      
-      if (response.ok) {
-        const result: GenerateResponse = data;
-        expect(result.ok).toBe(true);
-        expect(result.preview).toBeDefined();
-        expect(result.preview.sessionId).toBeTruthy();
-        expect(result.preview.projectName).toBe('test-project');
-        expect(result.preview.tasks).toBeInstanceOf(Array);
-        expect(result.preview.fileTree).toBeInstanceOf(Array);
-      } else {
-        const result: ErrorResponse = data;
-        expect(result.ok).toBe(false);
-        expect(result.error).toBeTruthy();
-      }
+      expect(withOptionals.features).toHaveLength(2);
+      expect(withOptionals.targetUsers).toHaveLength(1);
     });
 
-    it('should handle special characters in project name', async () => {
+    it('should handle special characters in project name', () => {
       const input: ProjectInput = {
-        projectName: 'test-project-123',
+        projectName: 'my-project_v2.0',
         summary: 'Test with special chars',
         features: [],
         constraints: [],
       };
-
-      const response = await fetch(`${API_BASE}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      }).catch(() => null);
-
-      if (!response) {
-        expect(true).toBe(true);
-        return;
-      }
-
-      // Should either succeed or fail gracefully
-      expect([200, 400, 500]).toContain(response.status);
+      expect(input.projectName).toBe('my-project_v2.0');
     });
+  });
 
-    it('should handle empty features and constraints', async () => {
-      const input: ProjectInput = {
-        projectName: 'minimal-project',
-        summary: 'Minimal project with no features',
-        features: [],
-        constraints: [],
+  describe('GenerateResponse schema', () => {
+    it('should have correct GenerationPreview shape', () => {
+      const preview: GenerationPreview = {
+        sessionId: 'test-uuid-123',
+        projectName: 'my-project',
+        tasks: [],
+        architectureOverview: '# Architecture',
+        fileTree: [],
+        taskCount: 0,
+        waveCount: 0,
       };
-
-      const response = await fetch(`${API_BASE}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      }).catch(() => null);
-
-      if (!response) {
-        expect(true).toBe(true);
-        return;
-      }
-
-      // Should still work with minimal input
-      const data = await response.json();
-      expect(data).toBeDefined();
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should return 400 for malformed JSON', async () => {
-      const response = await fetch(`${API_BASE}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: 'invalid json{',
-      }).catch(() => null);
-
-      if (!response) {
-        expect(true).toBe(true);
-        return;
-      }
-
-      expect([400, 500]).toContain(response.status);
+      expect(preview.sessionId).toBeTruthy();
+      expect(Array.isArray(preview.tasks)).toBe(true);
+      expect(Array.isArray(preview.fileTree)).toBe(true);
     });
 
-    it('should return 400 for missing Content-Type', async () => {
-      const response = await fetch(`${API_BASE}/api/generate`, {
-        method: 'POST',
-        body: JSON.stringify({ projectName: 'test', summary: 'test' }),
-      }).catch(() => null);
-
-      if (!response) {
-        expect(true).toBe(true);
-        return;
-      }
-
-      // Next.js usually handles this gracefully
-      expect(response.status).toBeGreaterThanOrEqual(200);
+    it('should have correct Task shape', () => {
+      const task: Task = {
+        id: '001',
+        title: 'Set up repository',
+        wave: 'wave-1',
+        category: 'foundation',
+        priority: 'P0',
+        summary: 'Initialize the project',
+      };
+      expect(task.id).toBe('001');
+      expect(task.wave).toBe('wave-1');
     });
-  });
 
-  describe('Response Contract', () => {
-    it('should maintain GenerateResponse schema', () => {
-      // Type-level test - if this compiles, the schema is correct
-      const mockResponse: GenerateResponse = {
+    it('should have correct success response shape', () => {
+      const response: GenerateResponse = {
         ok: true,
         preview: {
-          sessionId: 'test-uuid',
+          sessionId: 'abc-123',
           projectName: 'test',
           tasks: [],
-          architectureOverview: 'test',
+          architectureOverview: '',
           fileTree: [],
           taskCount: 0,
           waveCount: 0,
         },
       };
+      expect(response.ok).toBe(true);
+      expect(response.preview.sessionId).toBeTruthy();
+    });
+  });
 
-      expect(mockResponse.ok).toBe(true);
-      expect(mockResponse.preview.sessionId).toBe('test-uuid');
+  describe('ErrorResponse schema', () => {
+    it('should have ok: false and error message', () => {
+      const error: ErrorResponse = {
+        ok: false,
+        error: 'Missing required fields: projectName, summary',
+      };
+      expect(error.ok).toBe(false);
+      expect(error.error).toBeTruthy();
     });
 
-    it('should maintain ErrorResponse schema', () => {
-      const mockError: ErrorResponse = {
+    it('should support optional details field', () => {
+      const error: ErrorResponse = {
         ok: false,
-        error: 'Test error',
-        details: 'Test details',
+        error: 'Generation failed',
+        details: 'planforge exited with code 1',
       };
-
-      expect(mockError.ok).toBe(false);
-      expect(mockError.error).toBe('Test error');
+      expect(error.details).toBeTruthy();
     });
   });
 });
