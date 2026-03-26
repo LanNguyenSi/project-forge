@@ -27,14 +27,27 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
     }
   }, [initialValues]);
 
+  const [formError, setFormError] = useState<string | null>(null);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+    const features = featuresText.split("\n").map((f) => f.trim()).filter(Boolean);
+    const targetUsers = targetUsersText.split("\n").map((u) => u.trim()).filter(Boolean);
+    if (features.length === 0) {
+      setFormError("Please add at least one core feature.");
+      return;
+    }
+    if (targetUsers.length === 0) {
+      setFormError("Please add at least one target user.");
+      return;
+    }
     onSubmit({
       projectName: name.trim(),
       summary: summary.trim(),
-      features: featuresText.split("\n").map((f) => f.trim()).filter(Boolean),
+      features,
       constraints: constraintsText.split("\n").map((c) => c.trim()).filter(Boolean),
-      targetUsers: targetUsersText.split("\n").map((u) => u.trim()).filter(Boolean),
+      targetUsers,
     });
   };
 
@@ -70,7 +83,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
 
       <div>
         <label className="block text-sm font-medium text-gray-300 mb-1">
-          Core Features
+          Core Features <span className="text-red-400">*</span>
           <span className="text-gray-500 text-xs ml-2">(one per line)</span>
         </label>
         <textarea
@@ -98,8 +111,8 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
 
       <div>
         <label className="block text-sm font-medium text-gray-300 mb-1">
-          Target Users
-          <span className="text-gray-500 text-xs ml-2">(one per line, optional)</span>
+          Target Users <span className="text-red-400">*</span>
+          <span className="text-gray-500 text-xs ml-2">(one per line)</span>
         </label>
         <textarea
           value={targetUsersText}
@@ -109,6 +122,12 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
+
+      {formError && (
+        <div className="rounded-lg border border-red-800 bg-red-950/50 px-4 py-2 text-red-300 text-sm">
+          {formError}
+        </div>
+      )}
 
       <button
         type="submit"
