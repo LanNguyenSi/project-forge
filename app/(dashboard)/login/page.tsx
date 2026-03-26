@@ -4,6 +4,8 @@ export const dynamic = "force-dynamic";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button, Input, Label, Alert } from "@/components/ui/primitives";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,11 +36,9 @@ export default function LoginPage() {
           return;
         }
 
-        // Auto-login after registration
         setMode("login");
       }
 
-      // Login
       const result = await signIn("credentials", {
         email,
         password,
@@ -59,104 +59,125 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-950 p-4">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold">project-forge</h1>
-          <p className="mt-2 text-gray-400">
-            {mode === "login" ? "Sign in to your account" : "Create a new account"}
-          </p>
+    <main className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Top nav */}
+      <nav className="border-b border-gray-800/50 px-6 py-4">
+        <div className="flex items-center justify-between max-w-md mx-auto">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+              PF
+            </div>
+            <span className="font-semibold tracking-tight">project-forge</span>
+          </Link>
+          <Link href="/docs" className="text-sm text-gray-400 hover:text-gray-200 transition">
+            API Docs
+          </Link>
         </div>
+      </nav>
 
-        <div className="space-y-3 mb-6">
-            <button
-              type="button"
+      <div className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
+        <div className="w-full max-w-md space-y-6">
+          {/* Header */}
+          <div className="text-center">
+            <h1 className="text-2xl font-bold">
+              {mode === "login" ? "Welcome back" : "Create your account"}
+            </h1>
+            <p className="mt-2 text-gray-400 text-sm">
+              {mode === "login"
+                ? "Sign in to start creating projects."
+                : "Get started with project-forge for free."}
+            </p>
+          </div>
+
+          {/* GitHub OAuth — recommended path */}
+          <div>
+            <Button
+              variant="secondary"
+              block
+              size="lg"
               onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
-              className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-700 bg-gray-800 px-4 py-3 text-gray-200 hover:bg-gray-700 transition font-medium"
             >
               <svg height="20" width="20" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
               </svg>
               Continue with GitHub
-            </button>
+            </Button>
+            <p className="text-xs text-gray-500 text-center mt-2">
+              Recommended. Automatically connects your GitHub for repo creation.
+            </p>
           </div>
-          <div className="relative mb-6">
+
+          {/* Divider */}
+          <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-700" />
+              <div className="w-full border-t border-gray-800" />
             </div>
             <div className="relative flex justify-center text-xs text-gray-500">
-              <span className="bg-gray-900 px-3">or continue with email</span>
+              <span className="bg-gray-950 px-3">or with email</span>
             </div>
           </div>
-          <form onSubmit={handleSubmit} className="space-y-6 rounded-xl border border-gray-700 bg-gray-900 p-8">
-          {error && (
-            <div className="rounded-lg border border-red-800 bg-red-950/50 p-3 text-sm text-red-300">
-              {error}
+
+          {/* Email/Password Form */}
+          <form onSubmit={handleSubmit} className="space-y-4 rounded-md bg-gray-900/80 p-6">
+            {error && <Alert variant="error">{error}</Alert>}
+
+            <div>
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+              />
             </div>
-          )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
+            <div>
+              <Label>Password</Label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={mode === "register" ? "Min. 8 characters" : undefined}
+                required
+                minLength={8}
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            {mode === "register" && (
-              <p className="mt-1 text-xs text-gray-500">Minimum 8 characters</p>
-            )}
-          </div>
+            <Button type="submit" block size="lg" loading={loading}>
+              {loading
+                ? mode === "login" ? "Signing in..." : "Creating account..."
+                : mode === "login" ? "Sign In" : "Create Account"}
+            </Button>
+          </form>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-500 transition disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                {mode === "login" ? "Signing in..." : "Creating account..."}
-              </span>
-            ) : mode === "login" ? (
-              "Sign In"
+          {/* Toggle login/register */}
+          <p className="text-center text-sm text-gray-400">
+            {mode === "login" ? (
+              <>
+                Don&apos;t have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => { setMode("register"); setError(""); }}
+                  className="text-blue-400 hover:text-blue-300 transition font-medium"
+                >
+                  Register
+                </button>
+              </>
             ) : (
-              "Create Account"
+              <>
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => { setMode("login"); setError(""); }}
+                  className="text-blue-400 hover:text-blue-300 transition font-medium"
+                >
+                  Sign in
+                </button>
+              </>
             )}
-          </button>
-
-          <div className="text-center text-sm">
-            <button
-              type="button"
-              onClick={() => {
-                setMode(mode === "login" ? "register" : "login");
-                setError("");
-              }}
-              className="text-blue-400 hover:text-blue-300"
-            >
-              {mode === "login"
-                ? "Don't have an account? Register"
-                : "Already have an account? Sign in"}
-            </button>
-          </div>
-        </form>
+          </p>
+        </div>
       </div>
     </main>
   );

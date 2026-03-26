@@ -4,10 +4,12 @@ export const dynamic = "force-dynamic";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { AppShell } from "@/components/layout/AppShell";
+import { PageShell } from "@/components/ui/PageShell";
 import { ProjectForm } from "@/components/ProjectForm";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Card, Alert, Button } from "@/components/ui/primitives";
 import type { GenerationPreview, ProjectInput } from "@/lib/types";
 
 type State = "form" | "loading" | "preview" | "confirming" | "publishing" | "done";
@@ -20,9 +22,22 @@ export default function CreatePage() {
   const [lastInput, setLastInput] = useState<ProjectInput | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
+  const [githubConnected, setGithubConnected] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
+    else if (status === "authenticated") {
+      fetch("/api/dashboard")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok) {
+            setGithubConnected(!!(data.user.githubPat || data.user.githubOwner));
+          } else {
+            setGithubConnected(false);
+          }
+        })
+        .catch(() => setGithubConnected(false));
+    }
   }, [status, router]);
 
   const handleGenerate = async (input: ProjectInput) => {
@@ -66,38 +81,62 @@ export default function CreatePage() {
 
   if (status === "loading") return null;
 
+  const needsGithub = githubConnected === false;
+
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100">
-      <nav className="border-b border-gray-800 px-6 py-4 flex items-center gap-4 max-w-3xl mx-auto">
-        <Link href="/dashboard" className="text-gray-400 hover:text-gray-200 transition text-sm">
-          ← Dashboard
-        </Link>
-        <span className="text-gray-600">/</span>
-        <span className="text-sm font-medium">New Project</span>
-      </nav>
-
-      <div className="max-w-2xl mx-auto px-6 py-12">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold mb-2">⚒️ New Project</h1>
-          <p className="text-gray-400">
-            Describe your project — planforge + scaffoldkit will do the rest.
-          </p>
-        </div>
-
+    <AppShell>
+      <PageShell
+        title="New Project"
+        subtitle="Describe your project. planforge + scaffoldkit will do the rest."
+      >
         {error && (
-          <div className="mb-6 rounded-lg border border-red-800 bg-red-950/50 p-4 flex items-start gap-3">
-            <span className="text-red-400 shrink-0">⚠️</span>
-            <div className="flex-1">
-              <p className="text-red-300 text-sm font-medium">Something went wrong</p>
-              <p className="text-red-400 text-xs mt-1">{error}</p>
-            </div>
-            <button onClick={() => setError(null)} className="text-red-500 hover:text-red-300 text-lg leading-none">×</button>
-          </div>
+          <Alert variant="error" onClose={() => setError(null)} className="mb-6">
+            <p className="font-medium">Something went wrong</p>
+            <p className="text-xs mt-1 opacity-80">{error}</p>
+          </Alert>
         )}
 
         {(state === "form" || state === "loading") && (
-          <div className="rounded-xl border border-gray-700 bg-gray-900 p-8">
-            <ProjectForm onSubmit={handleGenerate} isLoading={state === "loading"} initialValues={lastInput ?? undefined} />
+          <div className="relative">
+            {/* GitHub gate overlay */}
+            {needsGithub && (
+              <Card tone="warning" padding="md" className="mb-6">
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-md bg-yellow-600/20 flex items-center justify-center text-yellow-400 shrink-0">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-yellow-200 mb-1">GitHub connection required</h3>
+                    <p className="text-sm text-gray-400 mb-4">
+                      Connect your GitHub account to create repositories. Choose OAuth for the fastest setup.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => router.push("/api/auth/signin?provider=github")}
+                      >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" clipRule="evenodd" />
+                        </svg>
+                        Connect with GitHub
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => router.push("/settings")}>
+                        Add PAT in Settings
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Form — visible but disabled when GitHub not connected */}
+            <div className={needsGithub ? "opacity-40 pointer-events-none select-none" : ""}>
+              <Card padding="lg">
+                <ProjectForm onSubmit={handleGenerate} isLoading={state === "loading"} initialValues={lastInput ?? undefined} />
+              </Card>
+            </div>
           </div>
         )}
 
@@ -121,33 +160,37 @@ export default function CreatePage() {
         )}
 
         {state === "publishing" && (
-          <div className="rounded-xl border border-gray-700 bg-gray-900 p-12 text-center">
-            <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-500 border-t-transparent mx-auto mb-4" />
-            <p className="text-gray-300 font-medium">Creating repository...</p>
-          </div>
+          <Card padding="lg" className="text-center">
+            <div className="py-8">
+              <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-500 border-t-transparent mx-auto mb-4" />
+              <p className="text-gray-300 font-medium">Creating repository...</p>
+              <p className="text-gray-500 text-sm mt-1">This may take a moment.</p>
+            </div>
+          </Card>
         )}
 
         {state === "done" && repoUrl && (
-          <div className="rounded-xl border border-green-800 bg-green-950/30 p-8 text-center">
-            <div className="text-5xl mb-4">✅</div>
+          <Card tone="success" padding="lg" className="text-center">
+            <div className="h-12 w-12 rounded-full bg-green-600/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </div>
             <h2 className="text-2xl font-semibold mb-2">Project Created!</h2>
-            <code className="block rounded-lg bg-gray-900 px-4 py-3 text-sm text-green-400 mb-6 font-mono">
+            <code className="block rounded-md bg-gray-900 px-4 py-3 text-sm text-green-400 mb-6 font-mono">
               git clone {repoUrl}
             </code>
             <div className="flex gap-3">
-              <a href={repoUrl} target="_blank" rel="noreferrer"
-                className="flex-1 rounded-lg border border-gray-700 px-4 py-2.5 text-gray-300 hover:bg-gray-800 transition text-center text-sm">
-                View on GitHub →
-              </a>
-              <button
-                onClick={() => { setState("form"); setPreview(null); setRepoUrl(null); setError(null); }}
-                className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-500 transition text-sm font-medium">
+              <Button variant="secondary" block onClick={() => window.open(repoUrl, "_blank")}>
+                View on GitHub -&gt;
+              </Button>
+              <Button block onClick={() => { setState("form"); setPreview(null); setRepoUrl(null); setError(null); }}>
                 Create another
-              </button>
+              </Button>
             </div>
-          </div>
+          </Card>
         )}
-      </div>
-    </main>
+      </PageShell>
+    </AppShell>
   );
 }

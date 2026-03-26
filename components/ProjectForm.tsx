@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { ProjectInput } from "@/lib/types";
+import { Button, Input, Textarea, Label, Alert } from "@/components/ui/primitives";
 
 interface ProjectFormProps {
   onSubmit: (input: ProjectInput) => void;
@@ -19,7 +20,6 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
   const [magicLoading, setMagicLoading] = useState(false);
   const [magicEnabled, setMagicEnabled] = useState(false);
 
-  // Check if AI assist is available
   useEffect(() => {
     fetch("/api/ai-assist")
       .then((res) => res.json())
@@ -27,7 +27,6 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
       .catch(() => setMagicEnabled(false));
   }, []);
 
-  // Update form state when initialValues changes (for re-generation flow)
   useEffect(() => {
     if (initialValues) {
       setName(initialValues.projectName ?? "");
@@ -42,33 +41,27 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
 
   const handleMagicFill = async () => {
     if (!magicPrompt.trim()) return;
-
     setMagicLoading(true);
     setFormError(null);
-
     try {
       const res = await fetch("/api/ai-assist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: magicPrompt }),
       });
-
       const data = await res.json();
-
       if (!res.ok || !data.ok) {
         setFormError(data.error || "AI assist failed");
         setMagicLoading(false);
         return;
       }
-
-      // Fill form with AI-generated data
       const aiData = data.data as ProjectInput;
       setName(aiData.projectName || "");
       setSummary(aiData.summary || "");
       setFeaturesText(aiData.features?.join("\n") || "");
       setConstraintsText(aiData.constraints?.join("\n") || "");
       setTargetUsersText(aiData.targetUsers?.join("\n") || "");
-      setMagicPrompt(""); // Clear prompt
+      setMagicPrompt("");
     } catch (error: any) {
       setFormError(error.message || "Failed to connect to AI service");
     } finally {
@@ -100,143 +93,112 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* AI Magic Fill - only show if AI is enabled */}
+      {/* AI Magic Fill */}
       {magicEnabled && (
-        <div className="rounded-lg border border-purple-800 bg-purple-950/20 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-lg">✨</span>
-          <h3 className="font-semibold text-purple-300">AI Magic Fill</h3>
-        </div>
-        <p className="text-xs text-gray-400 mb-3">
-          Describe your project idea in natural language, and AI will fill the form for you.
-        </p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={magicPrompt}
-            onChange={(e) => setMagicPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleMagicFill();
-              }
-            }}
-            placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
-            disabled={magicLoading || isLoading}
-            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={handleMagicFill}
-            disabled={!magicPrompt.trim() || magicLoading || isLoading}
-            className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 transition disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-2"
-          >
-            {magicLoading ? (
-              <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <span>✨</span>
-                Fill Form
-              </>
-            )}
-          </button>
-        </div>
+        <div className="rounded-md bg-purple-950/20 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+            </svg>
+            <h3 className="font-semibold text-purple-300 text-sm">AI Magic Fill</h3>
+          </div>
+          <p className="text-xs text-gray-400 mb-3">
+            Describe your project idea in one sentence. AI will fill the form for you.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              value={magicPrompt}
+              onChange={(e) => setMagicPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleMagicFill();
+                }
+              }}
+              placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
+              disabled={magicLoading || isLoading}
+              className="flex-1 text-sm focus:border-purple-500 focus:ring-purple-500"
+            />
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={handleMagicFill}
+              disabled={!magicPrompt.trim() || isLoading}
+              loading={magicLoading}
+              className="bg-purple-600 hover:bg-purple-500"
+            >
+              Fill Form
+            </Button>
+          </div>
         </div>
       )}
 
       {formError && (
-        <div className="rounded-lg border border-red-800 bg-red-950/50 p-3 text-sm text-red-300">
-          {formError}
-        </div>
+        <Alert variant="error" onClose={() => setFormError(null)}>{formError}</Alert>
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1">
-          Project Name <span className="text-red-400">*</span>
-        </label>
-        <input
+        <Label required>Project Name</Label>
+        <Input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="my-awesome-project"
           required
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1">
-          Summary <span className="text-red-400">*</span>
-        </label>
-        <textarea
+        <Label required>Summary</Label>
+        <Textarea
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
           placeholder="A brief description of what this project does and why it exists..."
           required
           rows={3}
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1">
-          Core Features <span className="text-red-400">*</span>
-          <span className="text-gray-500 text-xs ml-2">(one per line)</span>
-        </label>
-        <textarea
+        <Label required hint="(one per line)">Core Features</Label>
+        <Textarea
           value={featuresText}
           onChange={(e) => setFeaturesText(e.target.value)}
-          placeholder="user authentication&#10;dashboard with analytics&#10;REST API"
+          placeholder={"user authentication\ndashboard with analytics\nREST API"}
           rows={4}
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1">
-          Constraints
-          <span className="text-gray-500 text-xs ml-2">(one per line)</span>
-        </label>
-        <textarea
+        <Label hint="(one per line)">Constraints</Label>
+        <Textarea
           value={constraintsText}
           onChange={(e) => setConstraintsText(e.target.value)}
-          placeholder="TypeScript only&#10;must be deployable with Docker&#10;no external auth providers"
+          placeholder={"TypeScript only\nmust be deployable with Docker\nno external auth providers"}
           rows={3}
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1">
-          Target Users <span className="text-red-400">*</span>
-          <span className="text-gray-500 text-xs ml-2">(one per line)</span>
-        </label>
-        <textarea
+        <Label required hint="(one per line)">Target Users</Label>
+        <Textarea
           value={targetUsersText}
           onChange={(e) => setTargetUsersText(e.target.value)}
-          placeholder="developers&#10;internal team"
+          placeholder={"developers\ninternal team"}
           rows={2}
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
-      <button
+      <Button
         type="submit"
-        disabled={isLoading || !name.trim() || !summary.trim()}
-        className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+        block
+        size="lg"
+        disabled={!name.trim() || !summary.trim()}
+        loading={isLoading}
       >
-        {isLoading ? (
-          <span className="flex items-center justify-center gap-2">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            Generating...
-          </span>
-        ) : (
-          "Generate Project Plan →"
-        )}
-      </button>
+        {isLoading ? "Generating..." : "Generate Project Plan"}
+      </Button>
     </form>
   );
 }

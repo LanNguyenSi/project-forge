@@ -1,372 +1,173 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-
-interface ApiToken {
-  id: string;
-  name: string;
-  token: string;
-  lastUsedAt: string | null;
-  createdAt: string;
-}
+import { AppShell } from "@/components/layout/AppShell";
+import { PageShell } from "@/components/ui/PageShell";
+import { Button, Card, Badge } from "@/components/ui/primitives";
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [githubPat, setGithubPat] = useState("");
-  const [githubConnectedViaOAuth, setGithubConnectedViaOAuth] = useState(false);
-  const [tokens, setTokens] = useState<ApiToken[]>([]);
-  const [newTokenName, setNewTokenName] = useState("");
-  const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login");
-    } else if (status === "authenticated") {
-      loadDashboard();
+    if (status === "unauthenticated") router.push("/login");
+    else if (status === "authenticated") {
+      fetch("/api/dashboard")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok) {
+            setGithubConnected(
+              !!(data.user.githubPat || data.user.githubOwner),
+            );
+          }
+          setLoaded(true);
+        })
+        .catch(() => setLoaded(true));
     }
   }, [status, router]);
 
-  const loadDashboard = async () => {
-    try {
-      const res = await fetch("/api/dashboard");
-      const data = await res.json();
-      if (data.ok) {
-        setGithubPat(data.user.githubPat || "");
-        // OAuth token from GitHub provider starts with "gho_"
-        setGithubConnectedViaOAuth(!!(data.user.githubPat?.startsWith("gho_") || data.user.githubOwner));
-        setTokens(data.tokens || []);
-      }
-    } catch (err) {
-      console.error("Failed to load dashboard:", err);
-    }
-  };
-
-  const handleSavePat = async () => {
-    setError("");
-    setSuccess("");
-    setLoading(true);
-
-    try {
-      const res = await fetch("/api/dashboard/pat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ githubPat }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Failed to save PAT");
-      } else {
-        setSuccess("GitHub PAT saved successfully!");
-      }
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreateToken = async () => {
-    if (!newTokenName.trim()) {
-      setError("Token name is required");
-      return;
-    }
-
-    setError("");
-    setSuccess("");
-    setLoading(true);
-
-    try {
-      const res = await fetch("/api/dashboard/tokens", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newTokenName }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Failed to create token");
-      } else {
-        setNewlyCreatedToken(data.token.token);
-        setNewTokenName("");
-        loadDashboard();
-      }
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRevokeToken = async (tokenId: string) => {
-    if (!confirm("Are you sure you want to revoke this token?")) return;
-
-    try {
-      const res = await fetch(`/api/dashboard/tokens/${tokenId}`, {
-        method: "DELETE",
-      });
-
-      if (res.ok) {
-        setSuccess("Token revoked");
-        loadDashboard();
-      }
-    } catch (err) {
-      setError("Failed to revoke token");
-    }
-  };
-
-  if (status === "loading") {
+  if (status === "loading" || !loaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-      </div>
+      <AppShell>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        </div>
+      </AppShell>
     );
   }
 
   if (!session) return null;
 
   return (
-    <main className="min-h-screen bg-gray-950 p-8">
-      <div className="mx-auto max-w-4xl space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Dashboard</h1>
-            <p className="text-gray-400 mt-1">{session.user?.email}</p>
-          </div>
-          <button
-            onClick={() => signOut({ callbackUrl: "/" })}
-            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 transition"
-          >
-            Sign Out
-          </button>
-        </div>
+    <AppShell>
+      <PageShell title="Dashboard">
+        <div className="space-y-8">
 
-        {error && (
-          <div className="rounded-lg border border-red-800 bg-red-950/50 p-4 text-red-300">
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div className="rounded-lg border border-green-800 bg-green-950/30 p-4 text-green-300">
-            {success}
-          </div>
-        )}
-
-        {/* GitHub Connection Section */}
-        <div className="rounded-xl border border-gray-700 bg-gray-900 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">GitHub Connection</h2>
-            {githubConnectedViaOAuth && (
-              <span className="text-xs rounded-full border border-green-800 bg-green-950/50 px-3 py-1 text-green-300">
-                ✓ Connected via OAuth
-              </span>
-            )}
-          </div>
-
-          {githubConnectedViaOAuth ? (
-            /* OAuth Connected - Show status, hide PAT input */
-            <div className="space-y-4">
-              <div className="rounded-lg border border-green-800 bg-green-950/20 p-4">
-                <div className="flex items-center gap-2 text-green-300 mb-2">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  <span className="font-medium">GitHub Account Connected</span>
-                </div>
-                <p className="text-sm text-gray-400">
-                  You're using GitHub OAuth. Repositories will be created in your connected GitHub account.
-                </p>
+          {/* ── Hero Card (adaptive) ──────────────────── */}
+          {!githubConnected ? (
+            /* State: GitHub NOT connected → guide to connect */
+            <Card tone="accent" padding="lg">
+              <div className="flex items-center gap-2 text-xs text-blue-400 font-medium mb-4">
+                <span className="flex items-center gap-1.5 rounded-full bg-blue-600/20 px-2.5 py-1">Step 1 of 2</span>
+                Connect GitHub
               </div>
-              <button
-                onClick={() => signOut({ callbackUrl: "/login" })}
-                className="rounded-lg border border-red-800 px-4 py-2 text-sm text-red-300 hover:bg-red-950/30 transition"
-              >
-                Disconnect GitHub (Sign Out)
-              </button>
-            </div>
-          ) : (
-            /* No OAuth - Show PAT input OR OAuth option */
-            <div className="space-y-4">
-              <p className="text-sm text-gray-400 mb-4">
-                Connect your GitHub account to create repositories via the API.
+              <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">
+                Connect GitHub to get started
+              </h2>
+              <p className="text-gray-400 text-sm mb-6 max-w-lg">
+                project-forge needs access to your GitHub account to create repositories.
+                Connect via OAuth for the fastest setup, or add a Personal Access Token in Settings.
               </p>
-
-              {/* Option 1: OAuth (Recommended) */}
-              <div className="rounded-lg border border-blue-800 bg-blue-950/20 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h3 className="font-semibold text-blue-300">Option 1: Connect via OAuth (Recommended)</h3>
-                    <p className="text-xs text-gray-400 mt-1">Secure, automatic, no manual setup</p>
-                  </div>
-                </div>
-                <button
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button
+                  size="lg"
                   onClick={() => router.push("/api/auth/signin?provider=github")}
-                  className="mt-3 rounded-lg bg-gray-800 border border-gray-700 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 transition flex items-center gap-2"
                 >
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                     <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" clipRule="evenodd" />
                   </svg>
-                  Connect GitHub Account
-                </button>
+                  Connect with GitHub
+                </Button>
+                <Button variant="secondary" size="lg" onClick={() => router.push("/settings")}>
+                  Add PAT in Settings
+                </Button>
               </div>
-
-              {/* Option 2: Manual PAT */}
-              <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-4">
-                <div className="mb-3">
-                  <h3 className="font-semibold text-gray-300">Option 2: Manual PAT</h3>
-                  <p className="text-xs text-gray-400 mt-1">For advanced users or automation</p>
-                </div>
-                <input
-                  type="password"
-                  value={githubPat}
-                  onChange={(e) => setGithubPat(e.target.value)}
-                  placeholder="github_pat_..."
-                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 font-mono text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 mb-3"
-                />
-                <button
-                  onClick={handleSavePat}
-                  disabled={loading}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 transition disabled:opacity-50"
-                >
-                  {loading ? "Saving..." : "Save PAT"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* API Tokens Section */}
-        <div className="rounded-xl border border-gray-700 bg-gray-900 p-6">
-          <h2 className="text-xl font-semibold mb-4">API Tokens</h2>
-          <p className="text-sm text-gray-400 mb-4">
-            Create API tokens for your agents. Rate limit: 10 projects per day per token.
-          </p>
-
-          {/* Create Token */}
-          <div className="flex gap-3 mb-6">
-            <input
-              type="text"
-              value={newTokenName}
-              onChange={(e) => setNewTokenName(e.target.value)}
-              placeholder="Token name (e.g., my-agent)"
-              className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleCreateToken}
-              disabled={loading}
-              className="rounded-lg bg-green-600 px-4 py-2 font-semibold text-white hover:bg-green-500 transition disabled:opacity-50"
-            >
-              Create Token
-            </button>
-          </div>
-
-          {/* Token List */}
-          {tokens.length === 0 ? (
-            <p className="text-sm text-gray-500">No tokens yet. Create one above!</p>
+            </Card>
           ) : (
-            <div className="space-y-3">
-              {tokens.map((token) => (
-                <div
-                  key={token.id}
-                  className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-800/50 p-4"
-                >
-                  <div className="flex-1">
-                    <div className="font-medium text-gray-200">{token.name}</div>
-                    <div className="text-sm font-mono text-gray-400 mt-1">
-                      {token.token}
+            /* State: GitHub connected → create project CTA */
+            <Card tone="accent" padding="lg">
+              <div className="flex items-center gap-2 mb-4">
+                <Badge variant="success">GitHub connected</Badge>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">
+                Create your first project
+              </h2>
+              <p className="text-gray-400 text-sm mb-6 max-w-lg">
+                Describe your project, review the AI-generated plan, and publish to GitHub. All in under a minute.
+              </p>
+              <Button size="lg" onClick={() => router.push("/create")}>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Create a Project
+              </Button>
+            </Card>
+          )}
+
+          {/* ── How it works ─────────────────────────── */}
+          <div>
+            <h3 className="text-lg font-semibold mb-4">How it works</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[
+                {
+                  step: "1",
+                  title: "Connect GitHub",
+                  desc: "Sign in with GitHub OAuth or add a Personal Access Token in Settings.",
+                  icon: (
+                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                      <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" clipRule="evenodd" />
+                    </svg>
+                  ),
+                },
+                {
+                  step: "2",
+                  title: "Describe your project",
+                  desc: "Fill in the form manually, or let AI generate a project spec from a single sentence.",
+                  icon: (
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                    </svg>
+                  ),
+                },
+                {
+                  step: "3",
+                  title: "Review & publish",
+                  desc: "Check tasks, architecture, and file tree. One click creates the GitHub repo.",
+                  icon: (
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+                    </svg>
+                  ),
+                },
+              ].map((s) => (
+                <Card key={s.step} tone="muted" padding="sm">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-md bg-blue-600/10 flex items-center justify-center text-blue-400 shrink-0">
+                      {s.icon}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Created: {new Date(token.createdAt).toLocaleDateString()} •
-                      Last used: {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleDateString() : "Never"}
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold text-blue-400">Step {s.step}</span>
+                        <span className="text-sm font-semibold text-gray-200">{s.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-400 leading-relaxed">{s.desc}</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleRevokeToken(token.id)}
-                    className="ml-4 rounded-lg border border-red-800 px-3 py-1 text-sm text-red-300 hover:bg-red-950/30 transition"
-                  >
-                    Revoke
-                  </button>
-                </div>
+                </Card>
               ))}
             </div>
-          )}
-        </div>
 
-        {/* API Documentation */}
-        <div className="rounded-xl border border-gray-700 bg-gray-900 p-6">
-          <h2 className="text-xl font-semibold mb-4">API Usage</h2>
-          <div className="space-y-4 text-sm">
-            <div>
-              <div className="font-semibold text-gray-200 mb-2">Endpoint:</div>
-              <code className="block rounded bg-gray-800 px-3 py-2 font-mono text-green-400">
-                POST https://project-forge.opentriologue.ai/api/v1/projects
-              </code>
-            </div>
-            <div>
-              <div className="font-semibold text-gray-200 mb-2">Headers:</div>
-              <code className="block rounded bg-gray-800 px-3 py-2 font-mono text-blue-400">
-                X-API-Key: pf_your_token_here
-              </code>
-            </div>
-            <div>
-              <div className="font-semibold text-gray-200 mb-2">Request Body:</div>
-              <pre className="rounded bg-gray-800 px-3 py-2 font-mono text-gray-300 overflow-x-auto">
-{`{
-  "projectName": "my-project",
-  "summary": "Project description",
-  "features": ["feature 1", "feature 2"],
-  "constraints": ["constraint 1"]
-}`}
-              </pre>
-            </div>
-          </div>
-        </div>
-      </div>
-        {/* Action Panel - shown when GitHub is connected */}
-        {(githubConnectedViaOAuth || githubPat) && (
-          <div className="rounded-xl border border-blue-800 bg-blue-950/20 p-6">
-            <h2 className="text-xl font-semibold mb-1">Ready to build! 🚀</h2>
-            <p className="text-gray-400 text-sm mb-6">
-              Your GitHub account is connected. Create your first project or use the API with your agent.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Link
-                href="/create"
-                className="flex flex-col items-start rounded-xl border border-blue-700 bg-blue-600/20 p-5 hover:bg-blue-600/30 transition"
-              >
-                <span className="text-2xl mb-2">⚒️</span>
-                <span className="font-semibold text-white">Create a Project</span>
-                <span className="text-sm text-blue-300 mt-1">
-                  Use the visual form → planforge + scaffoldkit → GitHub repo
-                </span>
-              </Link>
-              <div className="flex flex-col items-start rounded-xl border border-gray-700 bg-gray-800/50 p-5">
-                <span className="text-2xl mb-2">🤖</span>
-                <span className="font-semibold text-white">Use with an Agent</span>
-                <span className="text-sm text-gray-400 mt-1 mb-3">
-                  Give your local agent an API token to create projects programmatically.
-                </span>
-                <Link
-                  href="/docs"
-                  className="text-xs text-blue-400 hover:text-blue-300 transition"
-                >
-                  View API Docs + Setup Guide →
-                </Link>
+            {/* Agent alternative */}
+            <div className="mt-4 rounded-md bg-gray-900/40 px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <svg className="w-5 h-5 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                </svg>
+                <p className="text-sm text-gray-400">
+                  Or generate an <Link href="/settings" className="text-blue-400 hover:text-blue-300 transition">API token</Link> and let your local agent create projects via the <Link href="/docs" className="text-blue-400 hover:text-blue-300 transition">REST API</Link>.
+                </p>
               </div>
             </div>
           </div>
-        )}
-    </main>
+
+        </div>
+      </PageShell>
+    </AppShell>
   );
 }
