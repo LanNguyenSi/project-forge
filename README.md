@@ -31,13 +31,11 @@ Set env: `PLANFORGE_PATH=/path/to/agent-planforge`
 
 ```bash
 git clone https://github.com/LanNguyenSi/scaffoldkit.git
-python3 -m venv sk-venv
-sk-venv/bin/pip install -e scaffoldkit
 ```
 
-Set env: `SCAFFOLDKIT_PYTHON=/path/to/sk-venv/bin/python3`
+Set env: `SCAFFOLDKIT_PATH=/path/to/scaffoldkit`
 
-> **Note:** scaffoldkit requires Python 3.11+
+> **Note:** Python 3 is installed automatically inside the Docker container. You only need the scaffoldkit source directory.
 
 ## Quick Start (Docker)
 
@@ -59,7 +57,7 @@ make deploy
 | `NEXTAUTH_URL` | Public URL (e.g. `https://project-forge.example.com`) |
 | `DATABASE_URL` | SQLite path (e.g. `file:/data/project-forge.db`) |
 | `PLANFORGE_PATH` | Absolute path to agent-planforge repo |
-| `SCAFFOLDKIT_PYTHON` | Absolute path to scaffoldkit venv python3 |
+| `SCAFFOLDKIT_PATH` | Absolute path to scaffoldkit source directory |
 
 ### Optional
 
@@ -80,11 +78,9 @@ services:
   app:
     environment:
       PLANFORGE_PATH: /tools/agent-planforge
-      SCAFFOLDKIT_PYTHON: /tools/sk-venv/bin/python3
     volumes:
       - /path/to/agent-planforge:/tools/agent-planforge:ro
       - /path/to/scaffoldkit:/tools/scaffoldkit:ro
-      - /path/to/sk-venv:/tools/sk-venv:ro
 ```
 
 See `docker-compose.override.example.yml` for a full example.
