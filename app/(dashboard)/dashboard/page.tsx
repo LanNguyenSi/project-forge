@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 interface ApiToken {
@@ -332,6 +333,40 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+        {/* Action Panel - shown when GitHub is connected */}
+        {(githubConnectedViaOAuth || githubPat) && (
+          <div className="rounded-xl border border-blue-800 bg-blue-950/20 p-6">
+            <h2 className="text-xl font-semibold mb-1">Ready to build! 🚀</h2>
+            <p className="text-gray-400 text-sm mb-6">
+              Your GitHub account is connected. Create your first project or use the API with your agent.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Link
+                href="/create"
+                className="flex flex-col items-start rounded-xl border border-blue-700 bg-blue-600/20 p-5 hover:bg-blue-600/30 transition"
+              >
+                <span className="text-2xl mb-2">⚒️</span>
+                <span className="font-semibold text-white">Create a Project</span>
+                <span className="text-sm text-blue-300 mt-1">
+                  Use the visual form → planforge + scaffoldkit → GitHub repo
+                </span>
+              </Link>
+              <div className="flex flex-col items-start rounded-xl border border-gray-700 bg-gray-800/50 p-5">
+                <span className="text-2xl mb-2">🤖</span>
+                <span className="font-semibold text-white">Use with an Agent</span>
+                <span className="text-sm text-gray-400 mt-1 mb-3">
+                  Give your local agent an API token to create projects programmatically.
+                </span>
+                <Link
+                  href="/docs"
+                  className="text-xs text-blue-400 hover:text-blue-300 transition"
+                >
+                  View API Docs + Setup Guide →
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
     </main>
   );
 }
