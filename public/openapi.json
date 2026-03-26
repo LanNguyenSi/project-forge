@@ -12,7 +12,11 @@
   "servers": [
     {
       "url": "https://project-forge.opentriologue.ai",
-      "description": "Production server"
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development"
     }
   ],
   "security": [
@@ -26,7 +30,9 @@
         "summary": "Create a new project",
         "description": "Generate a new project using planforge and scaffoldkit, create a GitHub repository, and push the initial commit. Rate limit: 10 projects per day per API token.",
         "operationId": "createProject",
-        "tags": ["Projects"],
+        "tags": [
+          "Projects"
+        ],
         "security": [
           {
             "ApiKeyAuth": []
@@ -178,7 +184,10 @@
     "schemas": {
       "ProjectRequest": {
         "type": "object",
-        "required": ["projectName", "summary"],
+        "required": [
+          "projectName",
+          "summary"
+        ],
         "properties": {
           "projectName": {
             "type": "string",
@@ -197,7 +206,11 @@
             "items": {
               "type": "string"
             },
-            "example": ["User authentication", "Task CRUD", "Real-time updates"]
+            "example": [
+              "User authentication",
+              "Task CRUD",
+              "Real-time updates"
+            ]
           },
           "constraints": {
             "type": "array",
@@ -205,7 +218,10 @@
             "items": {
               "type": "string"
             },
-            "example": ["Use TypeScript", "Deploy on Vercel"]
+            "example": [
+              "Use TypeScript",
+              "Deploy on Vercel"
+            ]
           },
           "targetUsers": {
             "type": "array",
@@ -213,8 +229,13 @@
             "items": {
               "type": "string"
             },
-            "example": ["developers", "project managers"],
-            "default": ["developers"]
+            "example": [
+              "developers",
+              "project managers"
+            ],
+            "default": [
+              "developers"
+            ]
           }
         }
       },
