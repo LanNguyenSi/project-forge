@@ -15,8 +15,9 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // /dashboard/* — requires session
-  if (pathname.startsWith("/dashboard")) {
+  // Protected pages — require session
+  const protectedPaths = ["/dashboard", "/create", "/settings"];
+  if (protectedPaths.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     if (!token) {
       const loginUrl = new URL("/login", req.url);
@@ -29,5 +30,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/v1/:path*", "/dashboard/:path*"],
+  matcher: ["/api/v1/:path*", "/dashboard/:path*", "/create/:path*", "/settings/:path*"],
 };
