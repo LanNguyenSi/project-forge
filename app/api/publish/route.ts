@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { PublishResponse, ErrorResponse } from "../../../lib/types";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_OWNER = process.env.GITHUB_OWNER ?? "";
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,12 +23,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!GITHUB_TOKEN || !GITHUB_OWNER) {
+    // Get the logged-in user's GitHub token
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json<ErrorResponse>(
-        { ok: false, error: "GitHub credentials not configured" },
-        { status: 500 }
+        { ok: false, error: "Not authenticated" },
+        { status: 401 }
       );
     }
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+    });
+
+    if (!user?.githubPat) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: "GitHub not connected. Please connect GitHub in Settings first." },
+        { status: 400 }
+      );
+    }
+
+    const userToken = user.githubPat;
 
     const tempDir = path.join(TEMP_ROOT, sessionId);
     const stat = await fs.stat(tempDir).catch(() => null);
@@ -38,11 +54,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Create GitHub repo
+    // 1. Create GitHub repo using the user's own token
     const repoRes = await fetch("https://api.github.com/user/repos", {
       method: "POST",
       headers: {
-        Authorization: `token ${GITHUB_TOKEN}`,
+        Authorization: `token ${userToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -57,18 +73,17 @@ export async function POST(req: NextRequest) {
       const errorText = await repoRes.text();
       let errorMessage = "Failed to create GitHub repository. ";
 
-      // Provide specific error messages based on status code
       if (repoRes.status === 401) {
-        errorMessage = "Invalid or expired GitHub PAT. Please update your GitHub Personal Access Token in the dashboard.";
+        errorMessage = "Invalid or expired GitHub token. Please reconnect GitHub in Settings.";
       } else if (repoRes.status === 403) {
-        errorMessage = "GitHub PAT lacks required permissions. Please ensure your PAT has 'repo' scope enabled.";
+        errorMessage = "GitHub token lacks required permissions. Please ensure it has 'repo' scope.";
       } else if (repoRes.status === 422) {
         try {
-          const errorData = JSON.parse(errorText);
+          const errorData = JSON.parse(errorText) as { message?: string };
           if (errorData.message?.includes("name already exists")) {
             errorMessage = "A repository with this name already exists in your account. Please choose a different name.";
           } else {
-            errorMessage += errorData.message || "Please check the repository name.";
+            errorMessage += errorData.message ?? "Please check the repository name.";
           }
         } catch {
           errorMessage += "Please check the repository name and try again.";
@@ -85,8 +100,8 @@ export async function POST(req: NextRequest) {
 
     const repo = await repoRes.json() as { html_url: string; clone_url: string; default_branch: string };
 
-    // 2. Git init + commit + push from temp dir
-    await runGitCommands(tempDir, repo.clone_url, GITHUB_TOKEN, projectName);
+    // 2. Git init + commit + push using user's token
+    await runGitCommands(tempDir, repo.clone_url, userToken, projectName);
 
     // 3. Cleanup temp dir
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
