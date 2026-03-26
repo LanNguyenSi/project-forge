@@ -54,10 +54,32 @@ export async function POST(req: NextRequest) {
     });
 
     if (!repoRes.ok) {
-      const err = await repoRes.json() as { message?: string };
+      const errorText = await repoRes.text();
+      let errorMessage = "Failed to create GitHub repository. ";
+
+      // Provide specific error messages based on status code
+      if (repoRes.status === 401) {
+        errorMessage = "Invalid or expired GitHub PAT. Please update your GitHub Personal Access Token in the dashboard.";
+      } else if (repoRes.status === 403) {
+        errorMessage = "GitHub PAT lacks required permissions. Please ensure your PAT has 'repo' scope enabled.";
+      } else if (repoRes.status === 422) {
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData.message?.includes("name already exists")) {
+            errorMessage = "A repository with this name already exists in your account. Please choose a different name.";
+          } else {
+            errorMessage += errorData.message || "Please check the repository name.";
+          }
+        } catch {
+          errorMessage += "Please check the repository name and try again.";
+        }
+      } else {
+        errorMessage += `(${repoRes.status})`;
+      }
+
       return NextResponse.json<ErrorResponse>(
-        { ok: false, error: `Failed to create GitHub repo: ${err.message ?? repoRes.status}` },
-        { status: 500 }
+        { ok: false, error: errorMessage },
+        { status: repoRes.status === 401 || repoRes.status === 403 ? 400 : 500 }
       );
     }
 

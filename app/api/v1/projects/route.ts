@@ -223,8 +223,33 @@ async function createAndPushRepo(
   });
 
   if (!createRes.ok) {
-    const error = await createRes.text();
-    throw new Error(`GitHub repo creation failed: ${error}`);
+    const errorText = await createRes.text();
+    
+    // Provide specific error messages based on status code
+    if (createRes.status === 401) {
+      throw new Error(
+        "Invalid or expired GitHub PAT. Please update your GitHub Personal Access Token in the dashboard."
+      );
+    } else if (createRes.status === 403) {
+      throw new Error(
+        "GitHub PAT lacks required permissions. Please ensure your PAT has 'repo' scope enabled."
+      );
+    } else if (createRes.status === 422) {
+      let message = "Repository validation failed. ";
+      try {
+        const errorData = JSON.parse(errorText);
+        if (errorData.message?.includes("name already exists")) {
+          message += "A repository with this name already exists in your account.";
+        } else {
+          message += errorData.message || "Please check the repository name.";
+        }
+      } catch {
+        message += "Please check the repository name and try again.";
+      }
+      throw new Error(message);
+    } else {
+      throw new Error(`GitHub repo creation failed (${createRes.status}): ${errorText}`);
+    }
   }
 
   const repo = await createRes.json();
