@@ -6,14 +6,15 @@ import type { ProjectInput } from "@/lib/types";
 interface ProjectFormProps {
   onSubmit: (input: ProjectInput) => void;
   isLoading?: boolean;
+  initialValues?: ProjectInput;
 }
 
-export function ProjectForm({ onSubmit, isLoading = false }: ProjectFormProps) {
-  const [name, setName] = useState("");
-  const [summary, setSummary] = useState("");
-  const [featuresText, setFeaturesText] = useState("");
-  const [constraintsText, setConstraintsText] = useState("");
-  const [targetUsersText, setTargetUsersText] = useState("");
+export function ProjectForm({ onSubmit, isLoading = false, initialValues }: ProjectFormProps) {
+  const [name, setName] = useState(initialValues?.projectName ?? "");
+  const [summary, setSummary] = useState(initialValues?.summary ?? "");
+  const [featuresText, setFeaturesText] = useState(initialValues?.features?.join("\n") ?? "");
+  const [constraintsText, setConstraintsText] = useState(initialValues?.constraints?.join("\n") ?? "");
+  const [targetUsersText, setTargetUsersText] = useState(initialValues?.targetUsers?.join("\n") ?? "");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
