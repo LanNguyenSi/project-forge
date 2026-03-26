@@ -17,6 +17,7 @@ export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [githubPat, setGithubPat] = useState("");
+  const [githubConnectedViaOAuth, setGithubConnectedViaOAuth] = useState(false);
   const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [newTokenName, setNewTokenName] = useState("");
   const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
@@ -38,6 +39,7 @@ export default function DashboardPage() {
       const data = await res.json();
       if (data.ok) {
         setGithubPat(data.user.githubPat || "");
+        setGithubConnectedViaOAuth(!!data.user.githubOwner && !data.user.githubPat?.startsWith("github_pat"));
         setTokens(data.tokens || []);
       }
     } catch (err) {
@@ -161,7 +163,12 @@ export default function DashboardPage() {
 
         {/* GitHub PAT Section */}
         <div className="rounded-xl border border-gray-700 bg-gray-900 p-6">
-          <h2 className="text-xl font-semibold mb-4">GitHub Personal Access Token</h2>
+          <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">GitHub Connection</h2>
+              {githubConnectedViaOAuth && (
+                <span className="text-xs rounded-full border border-green-800 bg-green-950/50 px-3 py-1 text-green-300">✓ Connected via OAuth</span>
+              )}
+            </div>
           <p className="text-sm text-gray-400 mb-4">
             Your PAT is used to create repositories on your behalf when using the API.
           </p>
