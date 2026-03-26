@@ -31,3 +31,5 @@ volumes:
 networks:
   traefik:
     external: true
+# Note: append these to the app service environment section manually,
+# or use an override file. See docker-compose.override.example.yml

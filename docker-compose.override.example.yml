@@ -1,0 +1,12 @@
+# Copy to docker-compose.override.yml and fill in values
+services:
+  app:
+    environment:
+      NEXTAUTH_SECRET: "generate-with-openssl-rand-hex-32"
+      NEXTAUTH_URL: "https://project-forge.opentriologue.ai"
+      DATABASE_URL: "file:/data/project-forge.db"
+    volumes:
+      - forge_db:/data
+
+volumes:
+  forge_db:
