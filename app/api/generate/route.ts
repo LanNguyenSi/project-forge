@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
         GENERATION_TIMEOUT_MS
       ).catch((err: Error) => {
         // scaffoldkit failure is non-blocking — planforge output is still useful
-        console.warn('scaffoldkit failed (non-blocking):', err.message);
+        console.error('scaffoldkit FAILED:', err.message);
       });
     }
 
