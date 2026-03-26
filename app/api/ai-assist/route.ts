@@ -2,10 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { ProjectInput } from "@/lib/types";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export async function GET() {
   // Status endpoint - check if AI assist is available
   const enabled = !!(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY);
@@ -29,6 +25,8 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
