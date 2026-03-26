@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       projectName: input.projectName,
       summary: input.summary,
       targetUsers: input.targetUsers ?? ['developers'],
-      coreFeatures: input.features ?? [],
+      coreFeatures: (input.features && input.features.length > 0) ? input.features : ["core functionality"],
       constraints: input.constraints ?? [],
     };
 

@@ -75,8 +75,8 @@ export async function POST(req: NextRequest) {
     const planforgeInput = {
       projectName: input.projectName,
       summary: input.summary,
-      targetUsers: input.targetUsers ?? ["developers"],
-      coreFeatures: input.features ?? [],
+      targetUsers: (input.targetUsers && input.targetUsers.length > 0) ? input.targetUsers : ["developers"],
+      coreFeatures: (input.features && input.features.length > 0) ? input.features : ["core functionality"],
       constraints: input.constraints ?? [],
     };
 
