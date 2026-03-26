@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       result: {
         repoUrl,
-        cloneUrl: repoUrl.replace("https://", `https://${user.githubPat}@`) + ".git",
+        cloneUrl: repoUrl + ".git",
         projectName: input.projectName,
       },
     });
@@ -233,6 +233,8 @@ async function createAndPushRepo(
 
   // Initialize git and push
   await runCommand("git", ["init"], projectDir, 10_000);
+  await runCommand("git", ["config", "user.email", "forge@project-forge.dev"], projectDir, 5_000);
+  await runCommand("git", ["config", "user.name", "project-forge"], projectDir, 5_000);
   await runCommand("git", ["add", "."], projectDir, 10_000);
   await runCommand("git", ["commit", "-m", "Initial commit via project-forge"], projectDir, 10_000);
   await runCommand("git", ["branch", "-M", "main"], projectDir, 10_000);
