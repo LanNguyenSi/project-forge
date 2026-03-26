@@ -17,6 +17,15 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
   const [targetUsersText, setTargetUsersText] = useState(initialValues?.targetUsers?.join("\n") ?? "");
   const [magicPrompt, setMagicPrompt] = useState("");
   const [magicLoading, setMagicLoading] = useState(false);
+  const [magicEnabled, setMagicEnabled] = useState(false);
+
+  // Check if AI assist is available
+  useEffect(() => {
+    fetch("/api/ai-assist")
+      .then((res) => res.json())
+      .then((data) => setMagicEnabled(data.enabled))
+      .catch(() => setMagicEnabled(false));
+  }, []);
 
   // Update form state when initialValues changes (for re-generation flow)
   useEffect(() => {
@@ -91,8 +100,9 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* AI Magic Fill */}
-      <div className="rounded-lg border border-purple-800 bg-purple-950/20 p-4">
+      {/* AI Magic Fill - only show if AI is enabled */}
+      {magicEnabled && (
+        <div className="rounded-lg border border-purple-800 bg-purple-950/20 p-4">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-lg">✨</span>
           <h3 className="font-semibold text-purple-300">AI Magic Fill</h3>
@@ -134,7 +144,8 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
             )}
           </button>
         </div>
-      </div>
+        </div>
+      )}
 
       {formError && (
         <div className="rounded-lg border border-red-800 bg-red-950/50 p-3 text-sm text-red-300">
