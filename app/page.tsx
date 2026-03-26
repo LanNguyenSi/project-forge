@@ -3,9 +3,35 @@
 import { useState } from "react";
 import { ProjectForm } from "@/components/ProjectForm";
 import { PreviewPanel } from "@/components/PreviewPanel";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import type { GenerationPreview, ProjectInput } from "@/lib/types";
 
-type AppState = "form" | "loading" | "preview" | "publishing" | "done";
+type AppState = "form" | "loading" | "preview" | "confirming" | "publishing" | "done";
+
+function StepIndicator({ state }: { state: AppState }) {
+  const steps = [
+    { id: "form", label: "Describe", active: state === "form" || state === "loading" },
+    { id: "preview", label: "Review", active: state === "preview" || state === "confirming" },
+    { id: "done", label: "Done", active: state === "publishing" || state === "done" },
+  ];
+  return (
+    <div className="flex items-center justify-center gap-4 mb-8 text-sm">
+      {steps.map((step, i) => (
+        <div key={step.id} className="flex items-center gap-2">
+          <div
+            className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+              step.active ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-400"
+            }`}
+          >
+            {i + 1}
+          </div>
+          <span className={step.active ? "text-gray-200" : "text-gray-500"}>{step.label}</span>
+          {i < 2 && <span className="text-gray-700">→</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Home() {
   const [state, setState] = useState<AppState>("form");
@@ -29,7 +55,7 @@ export default function Home() {
       setPreview(data.preview);
       setState("preview");
     } catch (err) {
-      setError((err as Error).message);
+      setError(err instanceof Error ? err.message : "Generation failed. Please try again.");
       setState("form");
     }
   };
@@ -51,7 +77,7 @@ export default function Home() {
       setRepoUrl(data.result.repoUrl);
       setState("done");
     } catch (err) {
-      setError((err as Error).message);
+      setError(err instanceof Error ? err.message : "Failed to create repository. Please try again.");
       setState("preview");
     }
   };
@@ -59,6 +85,7 @@ export default function Home() {
   const handleBack = () => {
     setState("form");
     setPreview(null);
+    setError(null);
   };
 
   return (
@@ -71,35 +98,21 @@ export default function Home() {
           </p>
         </div>
 
-        {state !== "done" && (
-          <div className="flex items-center justify-center gap-4 mb-8 text-sm">
-            {(["form", "preview", "done"] as const).map((step, i) => (
-              <div key={step} className="flex items-center gap-2">
-                <div
-                  className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                    state === step
-                      ? "bg-blue-600 text-white"
-                      : state === "loading" && step === "form"
-                      ? "bg-blue-600 text-white"
-                      : state === "publishing" && step === "preview"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-700 text-gray-400"
-                  }`}
-                >
-                  {i + 1}
-                </div>
-                <span className={state === step ? "text-gray-200" : "text-gray-500"}>
-                  {step === "form" ? "Describe" : step === "preview" ? "Review" : "Done"}
-                </span>
-                {i < 2 && <span className="text-gray-700">→</span>}
-              </div>
-            ))}
-          </div>
-        )}
+        {state !== "done" && <StepIndicator state={state} />}
 
         {error && (
-          <div className="mb-6 rounded-lg border border-red-800 bg-red-950/50 p-4 text-red-300 text-sm">
-            {error}
+          <div className="mb-6 rounded-lg border border-red-800 bg-red-950/50 p-4 flex items-start gap-3">
+            <span className="text-red-400 shrink-0 mt-0.5">⚠️</span>
+            <div>
+              <p className="text-red-300 text-sm font-medium">Something went wrong</p>
+              <p className="text-red-400 text-xs mt-1">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-500 hover:text-red-300 transition text-lg leading-none"
+            >
+              ×
+            </button>
           </div>
         )}
 
@@ -113,13 +126,31 @@ export default function Home() {
           </div>
         )}
 
-        {(state === "preview" || state === "publishing") && preview && (
+        {(state === "preview" || state === "confirming") && preview && (
           <PreviewPanel
             preview={preview}
-            onConfirm={handlePublish}
+            onConfirm={() => setState("confirming")}
             onBack={handleBack}
-            isPublishing={state === "publishing"}
+            isPublishing={false}
           />
+        )}
+
+        {state === "confirming" && preview && (
+          <ConfirmModal
+            projectName={preview.projectName}
+            taskCount={preview.taskCount}
+            waveCount={preview.waveCount}
+            onConfirm={handlePublish}
+            onCancel={() => setState("preview")}
+          />
+        )}
+
+        {state === "publishing" && preview && (
+          <div className="rounded-xl border border-gray-700 bg-gray-900 p-12 text-center">
+            <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-500 border-t-transparent mx-auto mb-4" />
+            <p className="text-gray-300 font-medium">Creating repository...</p>
+            <p className="text-gray-500 text-sm mt-1">{preview.projectName}</p>
+          </div>
         )}
 
         {state === "done" && repoUrl && (
@@ -129,7 +160,7 @@ export default function Home() {
             <p className="text-gray-400 mb-6">
               Your project is ready. Clone it and hand off to your agent:
             </p>
-            <code className="block rounded-lg bg-gray-900 px-4 py-3 text-sm text-green-400 mb-6">
+            <code className="block rounded-lg bg-gray-900 px-4 py-3 text-sm text-green-400 mb-6 font-mono">
               git clone {repoUrl}
             </code>
             <div className="flex gap-3">
@@ -137,13 +168,19 @@ export default function Home() {
                 href={repoUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="flex-1 rounded-lg border border-gray-700 px-4 py-2 text-gray-300 hover:bg-gray-800 transition text-center text-sm"
+                className="flex-1 rounded-lg border border-gray-700 px-4 py-2.5 text-gray-300 hover:bg-gray-800 transition text-center text-sm"
               >
                 View on GitHub →
               </a>
               <button
-                onClick={() => { setState("form"); setPreview(null); setRepoUrl(null); }}
-                className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-500 transition text-sm"
+                onClick={() => {
+                  setState("form");
+                  setPreview(null);
+                  setRepoUrl(null);
+                  setError(null);
+                  setLastInput(null);
+                }}
+                className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-500 transition text-sm font-medium"
               >
                 Create another
               </button>
