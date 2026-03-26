@@ -195,7 +195,7 @@ export default function LandingPage() {
           <div className="h-5 w-5 rounded bg-blue-600/50 flex items-center justify-center text-white font-bold text-[10px]">
             PF
           </div>
-          <a href="https://github.com/LanNguyenSi/project-forge" target="_blank" rel="noreferrer" className="hover:text-gray-400 transition">project-forge</a> &middot; Built with planforge + scaffoldkit
+          <a href="https://github.com/LanNguyenSi/project-forge" target="_blank" rel="noreferrer" className="hover:text-gray-400 transition">project-forge</a> &middot; Built with <a href="https://github.com/LanNguyenSi/agent-planforge" target="_blank" rel="noreferrer" className="hover:text-gray-400 transition">planforge</a> + <a href="https://github.com/LanNguyenSi/scaffoldkit" target="_blank" rel="noreferrer" className="hover:text-gray-400 transition">scaffoldkit</a>
         </div>
       </footer>
     </main>
