@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const [githubPat, setGithubPat] = useState("");
   const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [newTokenName, setNewTokenName] = useState("");
+  const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -92,7 +93,7 @@ export default function DashboardPage() {
       if (!res.ok) {
         setError(data.error || "Failed to create token");
       } else {
-        setSuccess(`Token created: ${data.token.token}`);
+        setNewlyCreatedToken(data.token.token);
         setNewTokenName("");
         loadDashboard();
       }
