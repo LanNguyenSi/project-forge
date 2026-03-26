@@ -39,7 +39,8 @@ export default function DashboardPage() {
       const data = await res.json();
       if (data.ok) {
         setGithubPat(data.user.githubPat || "");
-        setGithubConnectedViaOAuth(!!data.user.githubOwner && !data.user.githubPat?.startsWith("github_pat"));
+        // OAuth token from GitHub provider starts with "gho_"
+        setGithubConnectedViaOAuth(!!(data.user.githubPat?.startsWith("gho_") || data.user.githubOwner));
         setTokens(data.tokens || []);
       }
     } catch (err) {
