@@ -48,6 +48,11 @@ describe('Generate API Contract Tests', () => {
       const preview: GenerationPreview = {
         sessionId: 'test-uuid-123',
         projectName: 'my-project',
+        scaffold: {
+          status: 'planning-baseline',
+          label: 'Planning baseline only',
+          summary: 'Plan, tasks, architecture, and agent guidance are ready. The source tree will be created during implementation.',
+        },
         tasks: [],
         architectureOverview: '# Architecture',
         fileTree: [],
@@ -55,6 +60,7 @@ describe('Generate API Contract Tests', () => {
         waveCount: 0,
       };
       expect(preview.sessionId).toBeTruthy();
+      expect(preview.scaffold?.status).toBe('planning-baseline');
       expect(Array.isArray(preview.tasks)).toBe(true);
       expect(Array.isArray(preview.fileTree)).toBe(true);
     });
@@ -78,6 +84,11 @@ describe('Generate API Contract Tests', () => {
         preview: {
           sessionId: 'abc-123',
           projectName: 'test',
+          scaffold: {
+            status: 'full',
+            label: 'Full scaffold',
+            summary: 'The initial repository structure is scaffolded and ready for implementation.',
+          },
           tasks: [],
           architectureOverview: '',
           fileTree: [],

@@ -34,8 +34,20 @@ export function PreviewPanel({
       <Card padding="none">
         {/* Header */}
         <div className="border-b border-gray-800 p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">{preview.projectName}</h2>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold">{preview.projectName}</h2>
+              {preview.scaffold && (
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <Badge
+                    variant={preview.scaffold.status === "planning-baseline" ? "info" : "success"}
+                  >
+                    {preview.scaffold.label}
+                  </Badge>
+                  <p className="text-sm text-gray-400">{preview.scaffold.summary}</p>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <Badge>{preview.taskCount} tasks</Badge>
               <Badge>{preview.waveCount} waves</Badge>

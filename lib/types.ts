@@ -18,10 +18,17 @@ export interface Task {
   dependsOn?: string[];
 }
 
+export interface ScaffoldPreview {
+  status: "full" | "planning-baseline";
+  label: string;
+  summary: string;
+}
+
 // Preview data returned after planforge + scaffoldkit run
 export interface GenerationPreview {
   sessionId: string; // UUID for the temp directory
   projectName: string;
+  scaffold?: ScaffoldPreview;
   tasks: Task[];
   architectureOverview: string; // markdown content
   fileTree: FileTreeNode[];
