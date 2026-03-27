@@ -9,6 +9,7 @@ import type {
   ErrorResponse,
   Task,
   FileTreeNode,
+  ScaffoldPreview,
 } from '../../../lib/types';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
@@ -115,6 +116,7 @@ export async function POST(req: NextRequest) {
     const architectureOverview = await fs
       .readFile(archPath, 'utf-8')
       .catch(() => '(Architecture overview not generated)');
+    const scaffold = await readScaffoldPreview(tempDir);
 
     const fileTree = await buildFileTree(tempDir);
 
@@ -125,6 +127,7 @@ export async function POST(req: NextRequest) {
       preview: {
         sessionId,
         projectName: input.projectName,
+        scaffold,
         tasks,
         architectureOverview,
         fileTree,
@@ -150,6 +153,40 @@ export async function POST(req: NextRequest) {
       },
       { status: 500 }
     );
+  }
+}
+
+async function readScaffoldPreview(tempDir: string): Promise<ScaffoldPreview> {
+  const scaffoldInputPath = path.join(tempDir, "scaffoldkit-input.json");
+
+  try {
+    const raw = await fs.readFile(scaffoldInputPath, "utf-8");
+    const parsed = JSON.parse(raw) as {
+      blueprintConfidence?: string;
+      agentMustCreateStructure?: boolean;
+    };
+
+    if (parsed.agentMustCreateStructure || parsed.blueprintConfidence === "weak") {
+      return {
+        status: "planning-baseline",
+        label: "Planning baseline only",
+        summary:
+          "Plan, tasks, architecture, and agent guidance are ready. The source tree will be created during implementation.",
+      };
+    }
+
+    return {
+      status: "full",
+      label: "Full scaffold",
+      summary: "The initial repository structure is scaffolded and ready for implementation.",
+    };
+  } catch {
+    return {
+      status: "planning-baseline",
+      label: "Planning baseline only",
+      summary:
+        "Plan, tasks, architecture, and agent guidance are ready. The source tree will be created during implementation.",
+    };
   }
 }
 
@@ -234,4 +271,3 @@ async function buildFileTree(
     return a.name.localeCompare(b.name);
   });
 }
-
