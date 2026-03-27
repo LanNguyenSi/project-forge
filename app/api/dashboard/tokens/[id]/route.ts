@@ -5,8 +5,9 @@ import { prisma } from "@/lib/db";
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.id) {
@@ -17,7 +18,7 @@ export async function DELETE(
     // Verify token belongs to user
     const token = await prisma.apiToken.findFirst({
       where: {
-        id: params.id,
+        id: id,
         userId: session.user.id,
       },
     });
@@ -27,7 +28,7 @@ export async function DELETE(
     }
 
     await prisma.apiToken.update({
-      where: { id: params.id },
+      where: { id: id },
       data: { revokedAt: new Date() },
     });
 
