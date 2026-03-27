@@ -9,10 +9,16 @@ import { PageShell } from "@/components/ui/PageShell";
 import { ProjectForm } from "@/components/ProjectForm";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { Card, Alert, Button } from "@/components/ui/primitives";
+import { ErrorModal } from "@/components/ErrorModal";
+import { Card, Button } from "@/components/ui/primitives";
 import type { GenerationPreview, ProjectInput } from "@/lib/types";
 
 type State = "form" | "loading" | "preview" | "confirming" | "publishing" | "done";
+
+interface UiError {
+  title: string;
+  message: string;
+}
 
 export default function CreatePage() {
   const { data: session, status } = useSession();
@@ -20,7 +26,7 @@ export default function CreatePage() {
   const [state, setState] = useState<State>("form");
   const [preview, setPreview] = useState<GenerationPreview | null>(null);
   const [lastInput, setLastInput] = useState<ProjectInput | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UiError | null>(null);
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null);
 
@@ -55,7 +61,10 @@ export default function CreatePage() {
       setPreview(data.preview);
       setState("preview");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Generation failed");
+      setError({
+        title: "Project generation failed",
+        message: err instanceof Error ? err.message : "Generation failed",
+      });
       setState("form");
     }
   };
@@ -74,7 +83,10 @@ export default function CreatePage() {
       setRepoUrl(data.result.repoUrl);
       setState("done");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Publish failed");
+      setError({
+        title: "Repository creation failed",
+        message: err instanceof Error ? err.message : "Publish failed",
+      });
       setState("preview");
     }
   };
@@ -89,13 +101,6 @@ export default function CreatePage() {
         title="New Project"
         subtitle="Describe your project. planforge + scaffoldkit will do the rest."
       >
-        {error && (
-          <Alert variant="error" onClose={() => setError(null)} className="mb-6">
-            <p className="font-medium">Something went wrong</p>
-            <p className="text-xs mt-1 opacity-80">{error}</p>
-          </Alert>
-        )}
-
         {(state === "form" || state === "loading") && (
           <div className="relative">
             {/* GitHub gate overlay */}
@@ -189,6 +194,14 @@ export default function CreatePage() {
               </Button>
             </div>
           </Card>
+        )}
+
+        {error && (
+          <ErrorModal
+            title={error.title}
+            message={error.message}
+            onClose={() => setError(null)}
+          />
         )}
       </PageShell>
     </AppShell>
