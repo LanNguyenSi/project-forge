@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [tokenToRevoke, setTokenToRevoke] = useState<TokenToRevoke | null>(null);
+  const [revokingTokenId, setRevokingTokenId] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -106,17 +107,25 @@ export default function SettingsPage() {
 
   const handleRevokeToken = async () => {
     if (!tokenToRevoke) return;
+    const currentToken = tokenToRevoke;
+    setError("");
+    setSuccess("");
+    setRevokingTokenId(currentToken.id);
     try {
-      const res = await fetch(`/api/dashboard/tokens/${tokenToRevoke.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/dashboard/tokens/${currentToken.id}`, { method: "DELETE" });
       if (res.ok) {
         setSuccess("Token revoked");
         setTokenToRevoke(null);
         loadData();
       } else {
+        setTokenToRevoke(null);
         setError("Failed to revoke token");
       }
     } catch {
+      setTokenToRevoke(null);
       setError("Failed to revoke token");
+    } finally {
+      setRevokingTokenId(null);
     }
   };
 
@@ -317,8 +326,13 @@ export default function SettingsPage() {
         {tokenToRevoke && (
           <RevokeTokenModal
             tokenName={tokenToRevoke.name}
+            loading={revokingTokenId === tokenToRevoke.id}
             onConfirm={handleRevokeToken}
-            onCancel={() => setTokenToRevoke(null)}
+            onCancel={() => {
+              if (!revokingTokenId) {
+                setTokenToRevoke(null);
+              }
+            }}
           />
         )}
       </PageShell>
@@ -328,10 +342,12 @@ export default function SettingsPage() {
 
 function RevokeTokenModal({
   tokenName,
+  loading = false,
   onConfirm,
   onCancel,
 }: {
   tokenName: string;
+  loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -356,10 +372,10 @@ function RevokeTokenModal({
       </div>
 
       <div className="flex gap-3">
-        <Button ref={cancelButtonRef} variant="secondary" block onClick={onCancel}>
+        <Button ref={cancelButtonRef} variant="secondary" block onClick={onCancel} disabled={loading}>
           Cancel
         </Button>
-        <Button variant="danger" block onClick={onConfirm}>
+        <Button variant="danger" block onClick={onConfirm} loading={loading}>
           Revoke token
         </Button>
       </div>
