@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useRef } from "react";
+import { DialogShell } from "@/components/DialogShell";
 import { Button } from "@/components/ui/primitives";
 
 interface ConfirmModalProps {
@@ -18,23 +19,15 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onCancel]);
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={onCancel}
+    <DialogShell
+      title="Create GitHub Repository?"
+      onClose={onCancel}
+      initialFocusRef={cancelButtonRef}
     >
-      <div
-        className="w-full max-w-md rounded-md bg-gray-900 p-8 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <>
         <div className="text-center mb-6">
           <div className="h-12 w-12 rounded-md bg-green-600/20 flex items-center justify-center mx-auto mb-4">
             <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -67,14 +60,14 @@ export function ConfirmModal({
         </div>
 
         <div className="flex gap-3">
-          <Button variant="secondary" block onClick={onCancel}>
+          <Button ref={cancelButtonRef} variant="secondary" block onClick={onCancel}>
             Cancel
           </Button>
           <Button variant="success" block onClick={onConfirm}>
             Create Repository
           </Button>
         </div>
-      </div>
-    </div>
+      </>
+    </DialogShell>
   );
 }

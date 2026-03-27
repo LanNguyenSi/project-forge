@@ -3,7 +3,8 @@ export const dynamic = "force-dynamic";
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { DialogShell } from "@/components/DialogShell";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageShell } from "@/components/ui/PageShell";
 import { Button, Input, Card, CardHeader, Badge, Alert } from "@/components/ui/primitives";
@@ -14,6 +15,11 @@ interface ApiToken {
   token: string;
   lastUsedAt: string | null;
   createdAt: string;
+}
+
+interface TokenToRevoke {
+  id: string;
+  name: string;
 }
 
 export default function SettingsPage() {
@@ -27,6 +33,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [tokenToRevoke, setTokenToRevoke] = useState<TokenToRevoke | null>(null);
+  const [revokingTokenId, setRevokingTokenId] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -97,16 +105,27 @@ export default function SettingsPage() {
     }
   };
 
-  const handleRevokeToken = async (tokenId: string) => {
-    if (!confirm("Are you sure you want to revoke this token?")) return;
+  const handleRevokeToken = async () => {
+    if (!tokenToRevoke) return;
+    const currentToken = tokenToRevoke;
+    setError("");
+    setSuccess("");
+    setRevokingTokenId(currentToken.id);
     try {
-      const res = await fetch(`/api/dashboard/tokens/${tokenId}`, { method: "DELETE" });
+      const res = await fetch(`/api/dashboard/tokens/${currentToken.id}`, { method: "DELETE" });
       if (res.ok) {
         setSuccess("Token revoked");
+        setTokenToRevoke(null);
         loadData();
+      } else {
+        setTokenToRevoke(null);
+        setError("Failed to revoke token");
       }
     } catch {
+      setTokenToRevoke(null);
       setError("Failed to revoke token");
+    } finally {
+      setRevokingTokenId(null);
     }
   };
 
@@ -241,7 +260,12 @@ export default function SettingsPage() {
                         Last used: {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleDateString() : "Never"}
                       </div>
                     </div>
-                    <Button variant="danger" size="sm" onClick={() => handleRevokeToken(token.id)} className="ml-4 shrink-0">
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => setTokenToRevoke({ id: token.id, name: token.name })}
+                      className="ml-4 shrink-0"
+                    >
                       Revoke
                     </Button>
                   </div>
@@ -298,7 +322,63 @@ export default function SettingsPage() {
             </div>
           </Card>
         </div>
+
+        {tokenToRevoke && (
+          <RevokeTokenModal
+            tokenName={tokenToRevoke.name}
+            loading={revokingTokenId === tokenToRevoke.id}
+            onConfirm={handleRevokeToken}
+            onCancel={() => {
+              if (!revokingTokenId) {
+                setTokenToRevoke(null);
+              }
+            }}
+          />
+        )}
       </PageShell>
     </AppShell>
+  );
+}
+
+function RevokeTokenModal({
+  tokenName,
+  loading = false,
+  onConfirm,
+  onCancel,
+}: {
+  tokenName: string;
+  loading?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  return (
+    <DialogShell
+      title="Revoke API token?"
+      onClose={onCancel}
+      initialFocusRef={cancelButtonRef}
+    >
+      <div className="text-center mb-6">
+        <div className="h-12 w-12 rounded-md bg-red-600/20 flex items-center justify-center mx-auto mb-4">
+          <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636L5.636 18.364M5.636 5.636l12.728 12.728" />
+          </svg>
+        </div>
+        <h2 className="text-xl font-semibold text-white">Revoke API token?</h2>
+        <p className="text-gray-400 text-sm mt-2">
+          <span className="text-gray-200 font-medium">{tokenName}</span> will stop working immediately.
+        </p>
+      </div>
+
+      <div className="flex gap-3">
+        <Button ref={cancelButtonRef} variant="secondary" block onClick={onCancel} disabled={loading}>
+          Cancel
+        </Button>
+        <Button variant="danger" block onClick={onConfirm} loading={loading}>
+          Revoke token
+        </Button>
+      </div>
+    </DialogShell>
   );
 }
