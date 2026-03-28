@@ -72,11 +72,19 @@ export function PreviewPanel({
                     {preview.scaffoldFit.agentMustCreateStructure && (
                       <Badge variant="info">Agent should verify structure</Badge>
                     )}
+                    {preview.scaffoldFit.mustReviewBeforeImplementation && (
+                      <Badge variant="warning">Resolve before wave 1</Badge>
+                    )}
                   </div>
                   <p className="mt-3 text-sm text-gray-400">{preview.scaffoldFit.summary}</p>
                   {preview.scaffoldFit.followUpTaskPath && (
                     <p className="mt-2 text-xs text-gray-500">
                       Follow-up task added: <code>{preview.scaffoldFit.followUpTaskPath}</code>
+                    </p>
+                  )}
+                  {preview.scaffoldFit.mustReviewBeforeImplementation && (
+                    <p className="mt-2 text-xs text-amber-300/80">
+                      Complete the blueprint-fit review in wave-0 before starting wave-1 implementation.
                     </p>
                   )}
                 </div>

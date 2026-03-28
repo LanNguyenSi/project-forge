@@ -29,7 +29,7 @@ const PLANNING_BASELINE: ScaffoldPreview = {
   status: "planning-baseline",
   label: "Planning baseline only",
   summary:
-    "Plan, tasks, architecture, and agent guidance are ready. The source tree will be created during implementation.",
+    "Plan, tasks, architecture, and agent guidance are ready. Resolve any wave-0 scaffold-fit review before relying on the generated structure for implementation.",
 };
 
 const FULL_SCAFFOLD: ScaffoldPreview = {

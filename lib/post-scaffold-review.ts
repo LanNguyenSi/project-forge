@@ -62,11 +62,13 @@ export interface PostScaffoldReview {
     status: ReviewStatus;
     summary: string;
     recommendedActions: string[];
+    mustReviewBeforeImplementation: boolean;
   };
   aiAssessment?: AiFitAssessment;
   followUpTask?: {
     path: string;
     title: string;
+    mustCompleteBeforeWave: "wave-1";
   };
 }
 
@@ -264,6 +266,7 @@ function summarizeDeterministicVerdict(checks: ReviewCheck[]): {
   status: ReviewStatus;
   summary: string;
   recommendedActions: string[];
+  mustReviewBeforeImplementation: boolean;
 } {
   const hasFail = checks.some((check) => check.status === "fail");
   const hasWarn = checks.some((check) => check.status === "warn");
@@ -276,6 +279,7 @@ function summarizeDeterministicVerdict(checks: ReviewCheck[]): {
         "Review the selected scaffold inputs and confirm whether a blueprint should be applied at all.",
         "Establish the runtime structure deliberately before starting implementation tasks.",
       ],
+      mustReviewBeforeImplementation: true,
     };
   }
 
@@ -284,9 +288,10 @@ function summarizeDeterministicVerdict(checks: ReviewCheck[]): {
       status: "review-recommended",
       summary: "The scaffold exists, but it should be treated as a baseline that still needs agent review before implementation accelerates.",
       recommendedActions: [
-        "Compare the selected blueprint against the project requirements before starting wave 1.",
+        "Complete the blueprint-fit review in wave-0 before starting wave-1 implementation.",
         "Adjust or replace the scaffold if core architecture assumptions do not match the plan.",
       ],
+      mustReviewBeforeImplementation: true,
     };
   }
 
@@ -296,13 +301,24 @@ function summarizeDeterministicVerdict(checks: ReviewCheck[]): {
     recommendedActions: [
       "Proceed with implementation, but keep the scaffold aligned with the generated plan artifacts.",
     ],
+    mustReviewBeforeImplementation: false,
   };
 }
 
 function mergeAiVerdict(
-  deterministic: { status: ReviewStatus; summary: string; recommendedActions: string[] },
+  deterministic: {
+    status: ReviewStatus;
+    summary: string;
+    recommendedActions: string[];
+    mustReviewBeforeImplementation: boolean;
+  },
   aiAssessment: AiFitAssessment | null
-): { status: ReviewStatus; summary: string; recommendedActions: string[] } {
+): {
+  status: ReviewStatus;
+  summary: string;
+  recommendedActions: string[];
+  mustReviewBeforeImplementation: boolean;
+} {
   if (!aiAssessment) {
     return deterministic;
   }
@@ -327,6 +343,7 @@ function mergeAiVerdict(
     status: orderedStatus,
     summary: aiAssessment.summary || deterministic.summary,
     recommendedActions,
+    mustReviewBeforeImplementation: orderedStatus !== "ok",
   };
 }
 
@@ -354,6 +371,7 @@ ${review.aiAssessment.reasons.map((reason) => `- ${reason}`).join("\n")}
 
 - Status: ${review.verdict.status}
 - Summary: ${review.verdict.summary}
+- Must review before implementation: ${review.verdict.mustReviewBeforeImplementation ? "yes" : "no"}
 
 ## Blueprint
 
@@ -369,6 +387,12 @@ ${aiSection}
 ## Recommended Actions
 
 ${actions}
+
+## Execution Rule
+
+${review.verdict.mustReviewBeforeImplementation
+    ? "- Complete the blueprint-fit review in wave-0 before starting wave-1 implementation tasks."
+    : "- No additional blueprint-fit review gate is required before wave-1 implementation."}
 `;
 }
 
@@ -416,7 +440,7 @@ P0
 
 ## Summary
 
-Confirm that the selected scaffold baseline is appropriate for this project before relying on it for implementation work.
+Confirm that the selected scaffold baseline is appropriate for this project before relying on it for implementation work. This task must be completed in wave-0 before wave-1 feature work starts.
 
 ## Context
 
@@ -430,6 +454,7 @@ Confirm that the selected scaffold baseline is appropriate for this project befo
 - Compare the scaffolded repository structure against the generated project plan.
 - Confirm whether the chosen blueprint should be kept, adapted, or replaced.
 - Document any structural changes required before wave-1 implementation starts.
+- Do not begin wave-1 feature implementation until this review has been resolved.
 `;
 
   return { path: filePath, contents };
@@ -512,6 +537,7 @@ export async function runPostScaffoldReview(tempDir: string): Promise<PostScaffo
     review.followUpTask = {
       path: followUpTask.path,
       title: "Review scaffold blueprint fit against the plan",
+      mustCompleteBeforeWave: "wave-1",
     };
     await fs.writeFile(
       path.join(handoffDir, "post-scaffold-review.json"),
@@ -541,6 +567,7 @@ export function toScaffoldFitPreview(review: PostScaffoldReview | null): Scaffol
     blueprint: review.blueprint.selected,
     confidence: review.blueprint.confidence,
     agentMustCreateStructure: review.blueprint.agentMustCreateStructure,
+    mustReviewBeforeImplementation: review.verdict.mustReviewBeforeImplementation,
     ...(review.followUpTask ? { followUpTaskPath: review.followUpTask.path } : {}),
   };
 }
@@ -548,4 +575,5 @@ export function toScaffoldFitPreview(review: PostScaffoldReview | null): Scaffol
 export const __internal = {
   buildDeterministicChecks,
   summarizeDeterministicVerdict,
+  toScaffoldFitPreview,
 };
