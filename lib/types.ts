@@ -30,6 +30,7 @@ export interface ScaffoldFitPreview {
   blueprint: string | null;
   confidence: string | null;
   agentMustCreateStructure: boolean;
+  mustReviewBeforeImplementation: boolean;
   followUpTaskPath?: string;
 }
 
