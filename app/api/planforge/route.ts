@@ -9,8 +9,11 @@ import type {
   ErrorResponse,
   Task,
   FileTreeNode,
-  ScaffoldPreview,
 } from '../../../lib/types';
+import { readScaffoldPreview, resolvePlanforgeOutputPaths } from '@/lib/planforge-output';
+import { buildPlanforgeInput } from '@/lib/planforge-orchestrator';
+import { executePlanforgeWorkflow } from '@/lib/planforge-runner';
+import { readPostScaffoldReview, toScaffoldFitPreview } from '@/lib/post-scaffold-review';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
 const PLANFORGE_PATH = process.env.PLANFORGE_PATH ?? '/root/.openclaw/workspace/git/agent-planforge';
@@ -33,34 +36,22 @@ export async function POST(req: NextRequest) {
     const tempDir = path.join(TEMP_ROOT, sessionId);
     await fs.mkdir(tempDir, { recursive: true });
 
-    // planforge expects this exact schema
-    const planforgeInput = {
-      projectName: input.projectName,
-      summary: input.summary,
-      targetUsers: input.targetUsers ?? ['developers'],
-      coreFeatures: input.features ?? [],
-      constraints: input.constraints ?? [],
-    };
+    const { planforgeInput } = await buildPlanforgeInput(input);
 
     const inputPath = path.join(tempDir, 'project-input.json');
     await fs.writeFile(inputPath, JSON.stringify(planforgeInput, null, 2));
 
-    // Run: node scripts/bootstrap-plan.js --input <file> --outdir <dir> --no-install
-    await runCommand(
-      'node',
-      [
-        path.join(PLANFORGE_PATH, 'scripts', 'bootstrap-plan.js'),
-        '--input', inputPath,
-        '--outdir', tempDir,
-        '--no-install',
-      ],
-      tempDir,
-      GENERATION_TIMEOUT_MS
-    );
+    await executePlanforgeWorkflow({
+      planforgePath: PLANFORGE_PATH,
+      inputPath,
+      outdir: tempDir,
+      timeoutMs: GENERATION_TIMEOUT_MS,
+    });
 
     // Parse output
-    const tasksDir = path.join(tempDir, 'tasks');
-    const archPath = path.join(tempDir, 'architecture-overview.md');
+    const artifacts = await resolvePlanforgeOutputPaths(tempDir);
+    const tasksDir = artifacts.tasksDir;
+    const archPath = artifacts.architecturePath;
 
     const taskFiles = (await fs.readdir(tasksDir).catch(() => [])).filter(
       (f) => f.endsWith('.md')
@@ -91,6 +82,7 @@ export async function POST(req: NextRequest) {
       architectureOverview = await fs.readFile(archPath, 'utf-8');
     } catch { /* ignore */ }
     const scaffold = await readScaffoldPreview(tempDir);
+    const scaffoldFit = toScaffoldFitPreview(await readPostScaffoldReview(tempDir));
 
     const fileTree = await buildFileTree(tempDir);
     const waves = new Set(tasks.map((t) => t.wave));
@@ -101,6 +93,7 @@ export async function POST(req: NextRequest) {
         sessionId,
         projectName: input.projectName,
         scaffold,
+        scaffoldFit,
         tasks,
         architectureOverview,
         fileTree,
@@ -122,61 +115,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-async function readScaffoldPreview(tempDir: string): Promise<ScaffoldPreview> {
-  const scaffoldInputPath = path.join(tempDir, "scaffoldkit-input.json");
-
-  try {
-    const raw = await fs.readFile(scaffoldInputPath, "utf-8");
-    const parsed = JSON.parse(raw) as {
-      blueprintConfidence?: string;
-      agentMustCreateStructure?: boolean;
-    };
-
-    if (parsed.agentMustCreateStructure || parsed.blueprintConfidence === "weak") {
-      return {
-        status: "planning-baseline",
-        label: "Planning baseline only",
-        summary:
-          "Plan, tasks, architecture, and agent guidance are ready. The source tree will be created during implementation.",
-      };
-    }
-
-    return {
-      status: "full",
-      label: "Full scaffold",
-      summary: "The initial repository structure is scaffolded and ready for implementation.",
-    };
-  } catch {
-    return {
-      status: "planning-baseline",
-      label: "Planning baseline only",
-      summary:
-        "Plan, tasks, architecture, and agent guidance are ready. The source tree will be created during implementation.",
-    };
-  }
-}
-
-function runCommand(cmd: string, args: string[], cwd: string, timeoutMs: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { cwd, stdio: 'pipe' });
-    const timer = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`planforge timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new Error(`planforge exited with code ${code}`));
-    });
-
-    proc.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
 }
 
 async function buildFileTree(dirPath: string, basePath = ''): Promise<FileTreeNode[]> {

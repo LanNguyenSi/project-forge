@@ -4,12 +4,16 @@ A web platform for creating AI-toolchain projects. Describe your project — [ag
 
 **Live:** [project-forge.opentriologue.ai](https://project-forge.opentriologue.ai)
 
+`project-forge` resolves generated planforge artifacts via `planforge-index.json` when available and falls back to legacy root paths for older planforge installations.
+
 ## What It Does
 
 1. **Describe** — Fill in a form (or use the ✨ AI magic fill)
 2. **Review** — Browse generated tasks, architecture overview, and file tree
 3. **Confirm** — Create a GitHub repo with the scaffold pushed
 4. **Build** — Clone and hand off to your agent
+
+AI is optional. Without it, `project-forge` uses deterministic intake mapping plus `agent-planforge` heuristics. If a local or hosted AI provider is configured, `project-forge` also uses it server-side to enrich intake and review scaffold fit after `scaffoldkit` runs.
 
 Also available as a REST API for agents: `POST /api/v1/projects`
 
@@ -65,6 +69,9 @@ make deploy
 |---|---|
 | `OPENAI_API_KEY` | Enables AI magic fill (OpenAI GPT-4o-mini) |
 | `GROQ_API_KEY` | Enables AI magic fill (Groq, preferred — free) |
+| `LOCAL_AI_BASE_URL` | Enables a local OpenAI-compatible model endpoint for AI magic fill and server-side intake enrichment |
+| `LOCAL_AI_MODEL` | Model name for the local AI endpoint |
+| `LOCAL_AI_API_KEY` | Optional API key for the local AI endpoint |
 | `GITHUB_ID` | GitHub OAuth app Client ID |
 | `GITHUB_SECRET` | GitHub OAuth app Client Secret |
 
@@ -127,7 +134,7 @@ Full API documentation: [project-forge.opentriologue.ai/docs](https://project-fo
 - **Database:** SQLite via Prisma (API tokens, users)
 - **Planning:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) (Node.js)
 - **Scaffolding:** [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) (Python 3.11+)
-- **AI Fill:** Groq (llama-3.3-70b) / OpenAI (gpt-4o-mini)
+- **AI:** Local OpenAI-compatible endpoint, Groq (llama-3.3-70b), or OpenAI (gpt-4o-mini)
 - **Deploy:** Docker + Traefik
 
 ## Development

@@ -24,11 +24,21 @@ export interface ScaffoldPreview {
   summary: string;
 }
 
+export interface ScaffoldFitPreview {
+  status: "ok" | "review-recommended" | "mismatch";
+  summary: string;
+  blueprint: string | null;
+  confidence: string | null;
+  agentMustCreateStructure: boolean;
+  followUpTaskPath?: string;
+}
+
 // Preview data returned after planforge + scaffoldkit run
 export interface GenerationPreview {
   sessionId: string; // UUID for the temp directory
   projectName: string;
   scaffold?: ScaffoldPreview;
+  scaffoldFit?: ScaffoldFitPreview;
   tasks: Task[];
   architectureOverview: string; // markdown content
   fileTree: FileTreeNode[];

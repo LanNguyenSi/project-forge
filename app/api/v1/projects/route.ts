@@ -4,6 +4,10 @@ import { randomUUID } from "crypto";
 import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { resolvePlanforgeOutputPaths } from "@/lib/planforge-output";
+import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
+import { executePlanforgeWorkflow } from "@/lib/planforge-runner";
+import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 const PLANFORGE_PATH = process.env.PLANFORGE_PATH ?? "/root/.openclaw/workspace/git/agent-planforge";
@@ -72,33 +76,27 @@ export async function POST(req: NextRequest) {
     await fs.mkdir(tempDir, { recursive: true });
 
     // Step 1: Run planforge
-    const planforgeInput = {
+    const { planforgeInput } = await buildPlanforgeInput({
       projectName: input.projectName,
       summary: input.summary,
-      targetUsers: (input.targetUsers && input.targetUsers.length > 0) ? input.targetUsers : ["developers"],
-      coreFeatures: (input.features && input.features.length > 0) ? input.features : ["core functionality"],
+      features: input.features ?? [],
       constraints: input.constraints ?? [],
-    };
+      targetUsers: input.targetUsers,
+    });
 
     const inputPath = path.join(tempDir, "project-input.json");
     await fs.writeFile(inputPath, JSON.stringify(planforgeInput, null, 2));
 
-    await runCommand(
-      "node",
-      [
-        path.join(PLANFORGE_PATH, "scripts", "bootstrap-plan.js"),
-        "--input",
-        inputPath,
-        "--outdir",
-        tempDir,
-        "--no-install",
-      ],
-      tempDir,
-      GENERATION_TIMEOUT_MS
-    );
+    await executePlanforgeWorkflow({
+      planforgePath: PLANFORGE_PATH,
+      inputPath,
+      outdir: tempDir,
+      timeoutMs: GENERATION_TIMEOUT_MS,
+    });
 
     // Step 2: Run scaffoldkit from-planforge
-    const scaffoldInputPath = path.join(tempDir, "scaffoldkit-input.json");
+    const artifacts = await resolvePlanforgeOutputPaths(tempDir);
+    const scaffoldInputPath = artifacts.scaffoldkitInputPath;
     const scaffoldkitPython = process.env.SCAFFOLDKIT_PYTHON ?? "/app/.sk-venv/bin/python3";
     const scaffoldkitExists = await fs.access(scaffoldInputPath).then(() => true).catch(() => false);
 
@@ -121,6 +119,8 @@ export async function POST(req: NextRequest) {
         console.error("scaffoldkit failed (non-blocking):", err.message);
       });
     }
+
+    await runPostScaffoldReview(tempDir);
 
     // Step 3: Create GitHub repo and push
     const repoUrl = await createAndPushRepo(

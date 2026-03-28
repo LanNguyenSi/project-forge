@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { ProjectInput } from "@/lib/types";
-
-const GROQ_MODEL = "llama-3.3-70b-versatile";
-const OPENAI_MODEL = "gpt-4o-mini";
+import { getAiCapabilities, generateStructuredJson } from "@/lib/ai-provider";
 
 const SYSTEM_PROMPT = `You are a project specification assistant. Extract project details from user descriptions and return structured JSON.
 
@@ -23,50 +21,14 @@ Example input: "I want to build a todo app with React and TypeScript that syncs 
 Example output:
 {"projectName":"todo-sync-app","summary":"A cross-device task management application with real-time synchronization","features":["Task CRUD operations","Real-time sync across devices","User authentication"],"constraints":["Use React","Use TypeScript"],"targetUsers":["productivity users","developers"]}`;
 
-async function callGroq(prompt: string): Promise<ProjectInput> {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 500,
-      response_format: { type: "json_object" },
-    }),
-  });
-  if (!res.ok) throw new Error(`Groq API error: ${res.status}`);
-  const data = await res.json() as { choices: { message: { content: string } }[] };
-  return JSON.parse(data.choices[0].message.content) as ProjectInput;
-}
-
-async function callOpenAI(prompt: string): Promise<ProjectInput> {
-  const { default: OpenAI } = await import("openai");
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const completion = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.7,
-    max_tokens: 500,
-    response_format: { type: "json_object" },
-  });
-  const content = completion.choices[0]?.message?.content ?? "";
-  return JSON.parse(content) as ProjectInput;
-}
-
 export async function GET() {
-  const enabled = !!(process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY);
-  const provider = process.env.GROQ_API_KEY ? "groq" : process.env.OPENAI_API_KEY ? "openai" : null;
-  return NextResponse.json({ enabled, provider });
+  const capabilities = getAiCapabilities();
+  return NextResponse.json({
+    enabled: capabilities.enabled,
+    provider: capabilities.provider,
+    model: capabilities.model,
+    features: capabilities.features,
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -77,18 +39,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    if (!process.env.GROQ_API_KEY && !process.env.OPENAI_API_KEY) {
+    const capabilities = getAiCapabilities();
+
+    if (!capabilities.enabled) {
       return NextResponse.json({ error: "No AI provider configured" }, { status: 500 });
     }
 
-    let projectData: ProjectInput;
-
-    // Prefer Groq (faster + free), fall back to OpenAI
-    if (process.env.GROQ_API_KEY) {
-      projectData = await callGroq(prompt.trim());
-    } else {
-      projectData = await callOpenAI(prompt.trim());
-    }
+    const result = await generateStructuredJson<ProjectInput>(SYSTEM_PROMPT, prompt.trim(), {
+      temperature: 0.7,
+      maxTokens: 500,
+    });
+    const projectData = result.data;
 
     if (!projectData.projectName || !projectData.summary) {
       return NextResponse.json({ error: "AI response missing required fields" }, { status: 500 });
@@ -102,7 +63,12 @@ export async function POST(req: NextRequest) {
       projectData.targetUsers = ["developers"];
     }
 
-    return NextResponse.json({ ok: true, data: projectData });
+    return NextResponse.json({
+      ok: true,
+      data: projectData,
+      provider: result.provider,
+      model: result.model,
+    });
   } catch (error: unknown) {
     console.error("AI assist error:", error);
     const msg = error instanceof Error ? error.message : String(error);
