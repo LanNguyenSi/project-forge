@@ -18,6 +18,18 @@ export function PreviewPanel({
   isPublishing = false,
 }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<"tasks" | "architecture" | "files">("tasks");
+  const scaffoldFitVariant =
+    preview.scaffoldFit?.status === "ok"
+      ? "success"
+      : preview.scaffoldFit?.status === "mismatch"
+        ? "warning"
+        : "info";
+  const scaffoldFitLabel =
+    preview.scaffoldFit?.status === "ok"
+      ? "Scaffold fit: OK"
+      : preview.scaffoldFit?.status === "mismatch"
+        ? "Scaffold fit: Mismatch"
+        : "Scaffold fit: Review recommended";
 
   const waveGroups = preview.tasks.reduce<Record<string, typeof preview.tasks>>(
     (acc, task) => {
@@ -45,6 +57,28 @@ export function PreviewPanel({
                     {preview.scaffold.label}
                   </Badge>
                   <p className="text-sm text-gray-400">{preview.scaffold.summary}</p>
+                </div>
+              )}
+              {preview.scaffoldFit && (
+                <div className="mt-4 rounded-md border border-gray-800 bg-gray-950/60 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={scaffoldFitVariant}>{scaffoldFitLabel}</Badge>
+                    {preview.scaffoldFit.blueprint && (
+                      <Badge>Blueprint: {preview.scaffoldFit.blueprint}</Badge>
+                    )}
+                    {preview.scaffoldFit.confidence && (
+                      <Badge>Confidence: {preview.scaffoldFit.confidence}</Badge>
+                    )}
+                    {preview.scaffoldFit.agentMustCreateStructure && (
+                      <Badge variant="info">Agent should verify structure</Badge>
+                    )}
+                  </div>
+                  <p className="mt-3 text-sm text-gray-400">{preview.scaffoldFit.summary}</p>
+                  {preview.scaffoldFit.followUpTaskPath && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      Follow-up task added: <code>{preview.scaffoldFit.followUpTaskPath}</code>
+                    </p>
+                  )}
                 </div>
               )}
             </div>

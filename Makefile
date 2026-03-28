@@ -48,7 +48,9 @@ dev-env:
 		echo "    GITHUB_OWNER   (repo owner)"; \
 		echo "    GITHUB_ID      (OAuth login)"; \
 		echo "    GITHUB_SECRET  (OAuth login)"; \
-		echo "    GROQ_API_KEY   (AI magic fill)"; \
+		echo "    LOCAL_AI_BASE_URL + LOCAL_AI_MODEL  (optional local AI)"; \
+		echo "    GROQ_API_KEY   (optional hosted AI)"; \
+		echo "    OPENAI_API_KEY (optional hosted AI)"; \
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo ""; \
 	fi
