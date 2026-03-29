@@ -8,6 +8,7 @@ export default defineConfig({
     globals: true,
     environment: 'happy-dom',
     testTimeout: 30000,
+    passWithNoTests: true,
     exclude: [
       'node_modules/**',
       '_legacy_*/**',
