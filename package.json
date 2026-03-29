@@ -15,8 +15,11 @@
     "db:migrate": "prisma migrate deploy"
   },
   "dependencies": {
+    "@octokit/auth-app": "^8.2.0",
+    "@octokit/rest": "^22.0.1",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.1",
     "next": "^15.0.0",
     "next-auth": "^4.24.13",
     "openai": "^6.33.0",

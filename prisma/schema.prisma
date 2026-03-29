@@ -3,40 +3,88 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  passwordHash String
-  githubPat    String?
-  githubOwner  String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  apiTokens    ApiToken[]
-  usageLogs    UsageLog[]
-}
-
-model ApiToken {
-  id          String     @id @default(cuid())
-  token       String     @unique
+model Project {
+  id          String        @id @default(cuid())
   name        String
-  userId      String
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  revokedAt   DateTime?
-  lastUsedAt  DateTime?
-  createdAt   DateTime   @default(now())
-  usageLogs   UsageLog[]
+  description String
+  stack       String
+  status      ProjectStatus @default(PENDING)
+  githubRepo  String?
+  githubUrl   String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tasks   Task[]
+  actions AgentAction[]
+
+  @@map("projects")
 }
 
-model UsageLog {
-  id         String   @id @default(cuid())
-  userId     String
-  tokenId    String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token      ApiToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now())
-  repoUrl    String?
+model Task {
+  id            String     @id @default(cuid())
+  projectId     String
+  title         String
+  description   String
+  type          TaskType
+  assignedAgent String?
+  status        TaskStatus @default(PENDING)
+  branchName    String?
+  prUrl         String?
+  prNumber      Int?
+  wave          Int        @default(1)
+  order         Int        @default(0)
+  retryCount    Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actions AgentAction[]
+
+  @@index([projectId, wave, order])
+  @@map("tasks")
+}
+
+model AgentAction {
+  id        String   @id @default(cuid())
+  taskId    String?
+  projectId String
+  agentId   String
+  action    String
+  content   String?
+  timestamp DateTime @default(now())
+
+  task    Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, timestamp])
+  @@map("agent_actions")
+}
+
+enum ProjectStatus {
+  PENDING
+  PLANNING
+  IMPLEMENTING
+  REVIEWING
+  DONE
+  FAILED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  IN_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  MERGED
+  FAILED
+}
+
+enum TaskType {
+  PLAN
+  IMPLEMENT
+  REVIEW
 }
