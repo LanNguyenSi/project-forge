@@ -64,6 +64,12 @@ export default async function ProjectDetailPage({ params }: Props) {
           </div>
           <div className="flex items-center gap-3 flex-shrink-0 ml-4">
             <StatusBadge status={project.status} />
+            <Link
+              href={`/projects/${project.id}/preview`}
+              className="text-sm text-zinc-400 hover:text-white border border-zinc-700 px-3 py-1.5 rounded-md transition-colors"
+            >
+              Preview →
+            </Link>
             {project.githubUrl && (
               <a
                 href={project.githubUrl}
