@@ -16,8 +16,10 @@ model Project {
   constraints String[]      @default([])  // technical/business constraints
   stack       String
   status      ProjectStatus @default(PENDING)
-  githubRepo  String?
-  githubUrl   String?
+  githubRepo      String?
+  githubUrl       String?
+  scaffoldOutDir  String?   // path to scaffold output (server temp dir, cleaned up after use)
+  planArtifacts   Json?     // parsed plan-output.json from agent-planforge
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
