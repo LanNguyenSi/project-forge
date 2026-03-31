@@ -11,13 +11,89 @@ const STACKS = [
   { value: 'other', label: 'Other' },
 ]
 
+function TagInput({
+  label,
+  hint,
+  placeholder,
+  values,
+  onChange,
+}: {
+  label: string
+  hint: string
+  placeholder: string
+  values: string[]
+  onChange: (v: string[]) => void
+}) {
+  const [input, setInput] = useState('')
+
+  function add() {
+    const trimmed = input.trim()
+    if (trimmed && !values.includes(trimmed)) {
+      onChange([...values, trimmed])
+    }
+    setInput('')
+  }
+
+  function remove(item: string) {
+    onChange(values.filter((v) => v !== item))
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-zinc-300 mb-2">{label}</label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); add() }
+          }}
+          placeholder={placeholder}
+          className="flex-1 bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-md text-sm transition-colors"
+        >
+          Add
+        </button>
+      </div>
+      {values.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {values.map((v) => (
+            <span
+              key={v}
+              className="inline-flex items-center gap-1 bg-zinc-800 text-zinc-300 text-xs px-2 py-1 rounded"
+            >
+              {v}
+              <button
+                type="button"
+                onClick={() => remove(v)}
+                className="text-zinc-500 hover:text-zinc-200 ml-0.5"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="text-zinc-500 text-xs mt-1">{hint}</p>
+    </div>
+  )
+}
+
 export default function NewProjectPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: '',
+    summary: '',
     description: '',
+    features: [] as string[],
+    constraints: [] as string[],
     stack: 'nextjs',
     targetRepo: '',
   })
@@ -33,18 +109,21 @@ export default function NewProjectPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: form.name,
+          summary: form.summary || undefined,
           description: form.description,
+          features: form.features,
+          constraints: form.constraints,
           stack: form.stack,
           ...(form.targetRepo ? { targetRepo: form.targetRepo } : {}),
         }),
       })
 
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to create project')
+        const data = await res.json() as { error?: string }
+        throw new Error(data.error ?? 'Failed to create project')
       }
 
-      const { project } = await res.json()
+      const { project } = await res.json() as { project: { id: string } }
       router.push(`/projects/${project.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -62,9 +141,10 @@ export default function NewProjectPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Name */}
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-2">
-            Project Name
+            Project Name <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
@@ -76,9 +156,27 @@ export default function NewProjectPage() {
           />
         </div>
 
+        {/* Summary */}
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-2">
-            Description
+            Summary
+          </label>
+          <input
+            type="text"
+            value={form.summary}
+            onChange={(e) => setForm({ ...form, summary: e.target.value })}
+            placeholder="One-liner: what does this project do?"
+            className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          />
+          <p className="text-zinc-500 text-xs mt-1">
+            Short elevator pitch — used as context for Ice&apos;s planning.
+          </p>
+        </div>
+
+        {/* Description */}
+        <div>
+          <label className="block text-sm font-medium text-zinc-300 mb-2">
+            Description <span className="text-red-400">*</span>
           </label>
           <textarea
             required
@@ -93,11 +191,31 @@ export default function NewProjectPage() {
           </p>
         </div>
 
+        {/* Features */}
+        <TagInput
+          label="Key Features"
+          hint="Enter each feature and press Enter or click Add."
+          placeholder="User authentication"
+          values={form.features}
+          onChange={(v) => setForm({ ...form, features: v })}
+        />
+
+        {/* Constraints */}
+        <TagInput
+          label="Constraints"
+          hint="Technical or business constraints Ice should respect."
+          placeholder="Must use PostgreSQL"
+          values={form.constraints}
+          onChange={(v) => setForm({ ...form, constraints: v })}
+        />
+
+        {/* Stack */}
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-2">
-            Stack
+            Stack <span className="text-red-400">*</span>
           </label>
           <select
+            required
             value={form.stack}
             onChange={(e) => setForm({ ...form, stack: e.target.value })}
             className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -108,6 +226,7 @@ export default function NewProjectPage() {
           </select>
         </div>
 
+        {/* Target repo */}
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-2">
             Target Repository (optional)
