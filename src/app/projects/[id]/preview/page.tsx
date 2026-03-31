@@ -60,6 +60,8 @@ export default function PreviewPage({ params }: { params: Promise<{ id: string }
   const [error, setError] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'tasks' | 'architecture' | 'files'>('tasks')
+  const [showRegenPanel, setShowRegenPanel] = useState(false)
+  const [regenForm, setRegenForm] = useState({ summary: '', featuresText: '', constraintsText: '' })
 
   useEffect(() => {
     void load()
@@ -92,11 +94,16 @@ export default function PreviewPage({ params }: { params: Promise<{ id: string }
     }
   }
 
-  async function runScaffold() {
+  async function runScaffold(overrides?: { summary?: string; features?: string[]; constraints?: string[] }) {
     setScaffolding(true)
     setError(null)
+    setShowRegenPanel(false)
     try {
-      const res = await fetch(`/api/projects/${id}/scaffold`, { method: 'POST' })
+      const res = await fetch(`/api/projects/${id}/scaffold`, {
+        method: 'POST',
+        headers: overrides ? { 'Content-Type': 'application/json' } : undefined,
+        body: overrides ? JSON.stringify(overrides) : undefined,
+      })
       if (!res.ok) {
         const data = await res.json() as { error?: string }
         throw new Error(data.error ?? `HTTP ${res.status}`)
@@ -109,6 +116,17 @@ export default function PreviewPage({ params }: { params: Promise<{ id: string }
     } finally {
       setScaffolding(false)
     }
+  }
+
+  function handleRegenSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const features = regenForm.featuresText.split('\n').map(s => s.trim()).filter(Boolean)
+    const constraints = regenForm.constraintsText.split('\n').map(s => s.trim()).filter(Boolean)
+    void runScaffold({
+      summary: regenForm.summary.trim() || undefined,
+      features: features.length ? features : undefined,
+      constraints: constraints.length ? constraints : undefined,
+    })
   }
 
   if (loading) {
@@ -157,11 +175,11 @@ export default function PreviewPage({ params }: { params: Promise<{ id: string }
           {scaffold && (
             <>
               <button
-                onClick={() => void runScaffold()}
+                onClick={() => setShowRegenPanel(v => !v)}
                 disabled={scaffolding}
                 className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 px-4 py-2 rounded-md text-sm transition-colors"
               >
-                {scaffolding ? '⚙️ Re-running…' : '↺ Re-generate'}
+                {scaffolding ? '⚙️ Re-running…' : '↺ Adjust & Re-generate'}
               </button>
               <Link
                 href={`/projects/${id}/confirm`}
@@ -177,6 +195,71 @@ export default function PreviewPage({ params }: { params: Promise<{ id: string }
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-red-950 border border-red-800 text-red-300 text-sm">
           {error}
+        </div>
+      )}
+
+      {/* Re-generation panel */}
+      {showRegenPanel && (
+        <div className="mb-6 bg-zinc-900 border border-zinc-700 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-zinc-200">Adjust & Re-generate</h3>
+            <button onClick={() => setShowRegenPanel(false)} className="text-zinc-600 hover:text-zinc-300 text-sm">✕</button>
+          </div>
+          <form onSubmit={handleRegenSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">Summary override</label>
+              <input
+                type="text"
+                value={regenForm.summary}
+                onChange={e => setRegenForm(f => ({ ...f, summary: e.target.value }))}
+                placeholder={`${(project as any)?.summary ?? project?.description ?? ''}`}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">
+                  Features (one per line)
+                </label>
+                <textarea
+                  rows={4}
+                  value={regenForm.featuresText}
+                  onChange={e => setRegenForm(f => ({ ...f, featuresText: e.target.value }))}
+                  placeholder="User authentication&#10;REST API&#10;PostgreSQL storage"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">
+                  Constraints (one per line)
+                </label>
+                <textarea
+                  rows={4}
+                  value={regenForm.constraintsText}
+                  onChange={e => setRegenForm(f => ({ ...f, constraintsText: e.target.value }))}
+                  placeholder="No external auth providers&#10;TypeScript only"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-zinc-600">Leave fields empty to use the project defaults.</p>
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                disabled={scaffolding}
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+              >
+                {scaffolding ? '⚙️ Generating…' : '▶ Re-generate'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowRegenPanel(false)}
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-4 py-2 rounded text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
