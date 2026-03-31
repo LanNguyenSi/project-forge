@@ -71,7 +71,7 @@ export default function ConfirmPage({ params }: { params: Promise<{ id: string }
         const data = await res.json() as { error?: string }
         throw new Error(data.error ?? `HTTP ${res.status}`)
       }
-      router.push(`/projects/${id}`)
+      router.push(`/projects/${id}/success`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create repository')
       setConfirming(false)

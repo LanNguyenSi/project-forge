@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { createRepo, getInstallationToken } from '@/lib/github-app'
-import { readFile, readdir } from 'fs/promises'
+import { readFile, readdir, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join, relative } from 'path'
 
@@ -141,17 +141,25 @@ export async function POST(req: NextRequest, { params }: Props) {
       defaultBranch,
     })
 
-    // 5. Update project in DB
+    // 5. Update project in DB + clear scaffoldOutDir
     await prisma.project.update({
       where: { id },
       data: {
         status: 'PLANNING',
         githubRepo: fullName,
         githubUrl: htmlUrl,
+        scaffoldOutDir: null,
       } as any,
     })
 
-    // 6. Log action
+    // 6. Cleanup: remove temp scaffold directory (Task 011)
+    try {
+      await rm(scaffoldDir, { recursive: true, force: true })
+    } catch (cleanupErr) {
+      console.warn('[create-repo] Failed to cleanup scaffoldDir:', cleanupErr)
+    }
+
+    // 7. Log action
     await prisma.agentAction.create({
       data: {
         projectId: project.id,
