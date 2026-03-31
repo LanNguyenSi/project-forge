@@ -77,7 +77,9 @@ export async function GET(_req: NextRequest, { params }: Props) {
   })
 }
 
-/** POST — run scaffold pipeline (agent-planforge → scaffoldkit) */
+/** POST — run scaffold pipeline (agent-planforge → scaffoldkit)
+ *  Optional body: { summary?, features?, constraints? } to override project defaults
+ */
 export async function POST(req: NextRequest, { params }: Props) {
   const { id } = await params
   const project = await prisma.project.findUnique({ where: { id } })
@@ -87,16 +89,23 @@ export async function POST(req: NextRequest, { params }: Props) {
     return NextResponse.json({ error: `agent-planforge not found at ${AGENT_PLANFORGE_DIR}` }, { status: 503 })
   }
 
+  // Accept optional overrides from body
+  let overrides: { summary?: string; features?: string[]; constraints?: string[] } = {}
+  try {
+    const body = await req.json()
+    if (body && typeof body === 'object') overrides = body as typeof overrides
+  } catch { /* no body or invalid JSON — use project defaults */ }
+
   let planDir: string | null = null
   let scaffoldDir: string | null = null
 
   try {
     const planInput: Record<string, unknown> = {
       projectName: project.name,
-      summary: (project as any).summary ?? project.description,
+      summary: overrides.summary?.trim() || (project as any).summary || project.description,
       targetUsers: ['developers'],
-      coreFeatures: ((project as any).features as string[]) ?? [],
-      constraints: ((project as any).constraints as string[]) ?? [],
+      coreFeatures: overrides.features?.filter(Boolean) ?? ((project as any).features as string[]) ?? [],
+      constraints: overrides.constraints?.filter(Boolean) ?? ((project as any).constraints as string[]) ?? [],
     }
 
     planDir = await mkdtemp(join(tmpdir(), 'pf-plan-'))
