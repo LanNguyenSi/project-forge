@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { name, description, stack, targetRepo } = body
+  const { name, description, summary, features, constraints, stack, targetRepo } = body
 
   if (!name?.trim()) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
@@ -54,6 +54,9 @@ export async function POST(request: NextRequest) {
     data: {
       name: name.trim(),
       description: description.trim(),
+      summary: summary?.trim() || null,
+      features: Array.isArray(features) ? features.filter(Boolean) : [],
+      constraints: Array.isArray(constraints) ? constraints.filter(Boolean) : [],
       stack: stack.trim(),
       githubRepo: targetRepo?.trim() || null,
       status: 'PENDING',

@@ -65,6 +65,9 @@ export interface AgentAction {
 export interface CreateProjectRequest {
   name: string
   description: string
+  summary?: string
+  features?: string[]
+  constraints?: string[]
   stack: Stack
   targetRepo?: string
 }

@@ -11,6 +11,9 @@ model Project {
   id          String        @id @default(cuid())
   name        String
   description String
+  summary     String?       // one-liner elevator pitch
+  features    String[]      @default([])  // key features list
+  constraints String[]      @default([])  // technical/business constraints
   stack       String
   status      ProjectStatus @default(PENDING)
   githubRepo  String?
