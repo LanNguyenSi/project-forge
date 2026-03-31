@@ -1,67 +1,69 @@
 # project-forge ⚒️
 
-**Von der Projektidee zum GitHub-Repository — vollautomatisch.**
+**From project idea to GitHub repository — fully automated.**
 
-project-forge ist eine Web-Plattform die aus einer Projektbeschreibung ein vollständiges, lauffähiges Repository scaffoldet. Der Mensch beschreibt was gebaut werden soll — [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) erstellt einen strukturierten Plan, [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) generiert die Dateistruktur, und project-forge pusht alles direkt auf GitHub.
+project-forge is a web platform that scaffolds a complete, ready-to-clone repository from a plain-text project description. You describe what you want to build — [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) creates a structured plan, [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) generates the file structure, and project-forge pushes everything directly to GitHub.
 
 **Live:** [project-forge.opentriologue.ai](https://project-forge.opentriologue.ai)
 
 ---
 
-## Was ist neu? (Stand März 2026)
+## What's New (March 2026)
 
-Die aktuelle Version wurde komplett neu aufgebaut. Der alte Stand konnte Formulare rendern — aber nichts ausführen. Was jetzt gebaut ist:
+The current version was rebuilt from scratch. The previous version could render forms — but could not execute anything. What is now in place:
 
-| Feature | Beschreibung |
+| Feature | Description |
 |---------|-------------|
-| **Planforge-Integration** | Server ruft agent-planforge auf, parst den generierten Plan und speichert Tasks in der DB |
-| **Scaffoldkit-Pipeline** | Aus dem Plan wird ein vollständiges Datei-Gerüst generiert und als Preview angezeigt |
-| **GitHub Repo Creation** | Repo erstellen + Initial Commit direkt via GitHub Git Data API — kein lokales git nötig |
-| **Preview UI** | 3 Tabs: Tasks / Architecture / Files (Split-View mit Datei-Inhalt) |
-| **Re-generation** | Inline-Panel um Summary, Features und Constraints zu überschreiben und neu zu scaffolden |
-| **Confirmation Gate** | Klarer "Was passiert"-Screen mit Checkbox vor jeder GitHub-Aktion |
-| **PostgreSQL-Backend** | Neues Schema: Project, Task, AgentAction — ersetzt das alte SQLite-Setup |
+| **Planforge integration** | Server invokes agent-planforge, parses the generated plan, and stores tasks in the database |
+| **Scaffoldkit pipeline** | Generates a complete file structure from the plan and exposes it as a preview |
+| **GitHub repo creation** | Create repo + initial commit directly via the GitHub Git Data API — no local git required |
+| **Preview UI** | 3 tabs: Tasks / Architecture / Files (split-view with file contents) |
+| **Re-generation** | Inline panel to override summary, features, and constraints and re-run the scaffold |
+| **Confirmation gate** | Clear "what will happen" screen with a checkbox before any GitHub action |
+| **PostgreSQL backend** | New schema: Project, Task, AgentAction — replaces the previous SQLite setup (see [ADR 001](adrs/001-sqlite-to-postgresql.md)) |
 
 ---
 
-## Der Workflow in 7 Schritten
+## The Workflow
 
 ```
-1. Projekt beschreiben
-   Name, Summary, Features, Constraints, Stack eingeben
+1. Describe your project
+   Enter name, summary, features, constraints, and stack
 
-2. Plan generieren
-   agent-planforge erstellt einen Step-by-Step Plan
-   → Tasks werden als Datensätze in der DB gespeichert
+2. Generate a plan
+   agent-planforge produces a step-by-step plan
+   → Tasks are stored as records in the database
 
-3. Scaffold generieren
-   scaffoldkit erstellt das Datei-Gerüst in einem Temp-Dir
-   → Dateibaum + Inhalte werden als Preview geladen
+3. Generate the scaffold
+   scaffoldkit generates the file structure in a temp directory
+   → File tree and file contents are loaded as a preview
 
-4. Preview überprüfen
-   Tab "Tasks": alle generierten Tasks mit Status und Wave
-   Tab "Architecture": Architektur-Beschreibung aus dem Plan
-   Tab "Files": Split-View — Dateibaum links, Datei-Inhalt rechts
+4. Review the preview
+   Tab "Tasks":        all generated tasks with status and wave
+   Tab "Architecture": architecture description from the plan
+   Tab "Files":        file tree on the left, file contents on the right
 
-5. Optional: Re-generieren
-   "Adjust & Re-generate" öffnet ein Panel für Overrides
-   Leere Felder = Projekt-Defaults
+5. Optional: Re-generate
+   "Adjust & Re-generate" opens an override panel
+   Empty fields fall back to the project defaults
 
-6. Confirmation
-   Klare Übersicht: was wird auf GitHub erstellt?
-   Repo-Name editierbar, Checkbox-Gate
+6. Confirm
+   Clear overview of what will happen on GitHub
+   Editable repo name (auto-sanitized)
+   Checkbox gate: "I understand this cannot be undone"
 
-7. GitHub Repo erstellen
-   Repo wird angelegt, Initial Commit via Git Data API gepusht
-   → Temp-Dir wird aufgeräumt
-   → Success Screen mit GitHub-Link, Commit SHA, File-Count
+7. Create the repository
+   GitHub repo is created via the GitHub App
+   Initial commit is pushed via the Git Data API
+   Temp directory is cleaned up
+   Success screen: repo link, commit SHA, file count
 ```
 
 ---
 
-## Voraussetzungen
+## Prerequisites
 
-project-forge benötigt zwei externe Tools auf demselben Server:
+project-forge requires two external tools on the same server:
 
 ### 1. [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
 
@@ -71,24 +73,21 @@ cd ~/git/agent-planforge
 npm install
 ```
 
-Standardpfad: `~/git/agent-planforge` (konfigurierbar via `AGENT_PLANFORGE_DIR` in der Route)
+Default path: `~/git/agent-planforge`
 
 ### 2. [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit)
 
 ```bash
 npm install -g scaffoldkit
-# oder lokal im PATH verfügbar machen
 ```
 
 ### 3. GitHub App
 
-project-forge nutzt eine GitHub App für die Repo-Erstellung (nicht mehr PAT).
-
-Konfiguration in `.env`:
+project-forge uses a GitHub App for repository creation. Configure in `.env`:
 
 ```
 GITHUB_APP_ID=...
-GITHUB_APP_PRIVATE_KEY_PATH=...   # Pfad zum .pem-File
+GITHUB_APP_PRIVATE_KEY_PATH=...
 GITHUB_APP_INSTALLATION_ID=...
 ```
 
@@ -100,13 +99,10 @@ GITHUB_APP_INSTALLATION_ID=...
 git clone https://github.com/LanNguyenSi/project-forge.git
 cd project-forge
 cp .env.example .env
-# .env ausfüllen (GitHub App, Anthropic, DB-URL)
+# Fill in GitHub App credentials, Anthropic API key, and DATABASE_URL
 
-# Datenbank starten und migrieren
 docker compose up -d postgres
 npx prisma migrate deploy
-
-# Dev-Server
 npm run dev
 ```
 
@@ -116,7 +112,7 @@ npm run dev
 
 ```bash
 npm test
-# 45/45 Tests, ~2s
+# Expected: 45 passed (45), ~2s
 ```
 
 ---
@@ -124,23 +120,29 @@ npm test
 ## Tech Stack
 
 - **Framework:** Next.js 16 + TypeScript + Tailwind CSS
-- **Datenbank:** PostgreSQL via Prisma ORM
+- **Database:** PostgreSQL 16 via Prisma ORM
 - **Planning:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
 - **Scaffolding:** [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit)
-- **GitHub:** GitHub App + Git Data API (kein lokales git)
+- **GitHub:** GitHub App + Git Data API (no local git)
 - **AI:** Anthropic Claude (via planforge)
 
 ---
 
-## Was noch fehlt
+## Known Limitations
 
-- Blob-Erstellung bei großen Projekten serialisieren (Rate-Limit-Schutz)
-- Ordner-Icons in der Preview (aktuell immer 📄)
-- Automatische Task-Zuweisung an Agents nach Repo-Erstellung
-- Webhook-Handler für GitHub-Events
+- Blob creation uses `Promise.all` — may hit GitHub rate limits on large projects
+- Repos are always created as public
+- Folder icons in the file tree preview are not yet distinct from file icons
+- Tasks are generated but not yet automatically assigned to agents
 
 ---
 
-## Lizenz
+## Architecture Decisions
+
+- [ADR 001: Migrate from SQLite to PostgreSQL](adrs/001-sqlite-to-postgresql.md)
+
+---
+
+## License
 
 MIT

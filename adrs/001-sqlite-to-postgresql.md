@@ -1,62 +1,61 @@
-# ADR 001: Migration von SQLite auf PostgreSQL
+# ADR 001: Migrate from SQLite to PostgreSQL
 
-**Status:** Akzeptiert  
-**Datum:** 2026-03-31  
-**Autoren:** Lan Nguyen Si, Ice
-
----
-
-## Kontext
-
-project-forge v1 nutzte SQLite als Datenbank via Prisma. Das war für die Entwicklungsphase akzeptabel: keine Infrastruktur nötig, kein Setup, einfaches Testen.
-
-Mit dem Rebuild für Wave 1 (März 2026) wurden mehrere Anforderungen klar, die SQLite an seine Grenzen bringen würden:
-
-1. **Mehrere gleichzeitige Schreibvorgänge:** Die Scaffold-Pipeline (planforge → scaffoldkit → GitHub API) erzeugt in kurzer Folge mehrere DB-Writes aus verschiedenen Prozessen. SQLite nutzt File-Locking — bei parallelen Requests entstehen Lock-Konflikte.
-
-2. **Array-Felder im Schema:** Das neue Datenmodell braucht `features String[]` und `constraints String[]` auf dem Project-Model. SQLite hat keinen nativen Array-Typ. Mit Prisma wäre ein JSON-Workaround nötig gewesen — mit semantischen Einschränkungen bei Queries und Migrations.
-
-3. **JSON-Felder mit echten Queries:** `planArtifacts Json?` auf Project wird in Zukunft querybar sein müssen (z.B. Filter nach Architecture Shape). PostgreSQL hat dafür `jsonb` mit Index-Support.
-
-4. **Produktionsbereitschaft:** project-forge läuft auf einem VPS und soll als Plattform wachsen. SQLite in Produktion erfordert besondere Sorgfalt bei Backups, Replikation und Deployment. PostgreSQL ist in dieser Umgebung (Docker, Stone's VPS) die natürlichere Wahl.
+**Status:** Accepted  
+**Date:** 2026-03-31  
+**Authors:** Lan Nguyen Si, Ice
 
 ---
 
-## Entscheidung
+## Context
 
-Wechsel von SQLite auf **PostgreSQL 16** als primäre Datenbank, betrieben via Docker auf demselben Server wie die Applikation.
+project-forge v1 used SQLite as its database via Prisma. This was acceptable during the initial development phase: no infrastructure required, no setup overhead, simple testing.
 
----
+With the Wave 1 rebuild (March 2026), several requirements became clear that push SQLite to its limits:
 
-## Konsequenzen
+1. **Concurrent writes:** The scaffold pipeline (planforge → scaffoldkit → GitHub API) produces multiple DB writes in rapid succession from different processes. SQLite uses file locking — concurrent requests cause lock contention.
 
-### Positiv
+2. **Array fields in the schema:** The new data model requires `features String[]` and `constraints String[]` on the Project model. SQLite has no native array type. With Prisma, a JSON workaround would have been necessary — with semantic limitations on queries and migrations.
 
-- Native `String[]`-Arrays in Prisma ohne Workarounds
-- `jsonb`-Felder mit echten Queries und Indizes
-- Keine File-Lock-Probleme bei parallelen Requests
-- Konsistent mit anderen Projekten im Stack (Triologue, depsight nutzen ebenfalls PostgreSQL)
-- Vollständige Prisma-Migration-History statt `db:push`
+3. **JSON fields with real queries:** `planArtifacts Json?` on Project will need to be queryable in the future (e.g. filter by architecture shape). PostgreSQL has `jsonb` with index support for this.
 
-### Negativ / Akzeptiert
-
-- Lokales Setup braucht Docker (oder PostgreSQL-Installation)
-- Kein einfaches "einfach starten ohne Infrastruktur" mehr für Entwickler
-
-### Mitigiert durch
-
-- `docker compose up -d postgres` reicht für den Start
-- `.env.example` enthält vollständige Konfiguration
-- `npx prisma migrate deploy` läuft automatisch im Makefile
+4. **Production readiness:** project-forge runs on a VPS and is intended to grow as a platform. SQLite in production requires special care around backups, replication, and deployment. PostgreSQL is the more natural choice in this environment (Docker, Stone's VPS).
 
 ---
 
-## Alternativen die betrachtet wurden
+## Decision
 
-| Alternative | Warum abgelehnt |
-|-------------|----------------|
-| SQLite mit JSON-Workarounds für Arrays | Erhöhte Komplexität, schlechte Query-Ergonomie, Lock-Probleme bleiben |
-| Turso (libSQL, verteiltes SQLite) | Vendor Lock-in, zusätzliche Abhängigkeit, Overkill für dieses Setup |
-| PlanetScale (serverless MySQL) | Managed Service = externe Abhängigkeit, Kosten, kein lokaler Dev ohne Tunnel |
-| MongoDB | Schema-Flexibilität nicht benötigt, Prisma-Support für relationale Queries besser |
+Switch from SQLite to **PostgreSQL 16** as the primary database, running via Docker on the same server as the application.
 
+---
+
+## Consequences
+
+### Positive
+
+- Native `String[]` arrays in Prisma without workarounds
+- `jsonb` fields with real queries and indexes
+- No file-lock contention on concurrent requests
+- Consistent with other projects in the stack (Triologue, depsight also use PostgreSQL)
+- Full Prisma migration history instead of `db:push`
+
+### Negative / Accepted
+
+- Local setup requires Docker (or a PostgreSQL installation)
+- No longer a "start without infrastructure" zero-setup experience for developers
+
+### Mitigated by
+
+- `docker compose up -d postgres` is sufficient to get started
+- `.env.example` contains complete configuration
+- `npx prisma migrate deploy` runs automatically in the Makefile
+
+---
+
+## Alternatives Considered
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| SQLite with JSON workarounds for arrays | Increased complexity, poor query ergonomics, lock contention remains |
+| Turso (libSQL, distributed SQLite) | Vendor lock-in, additional dependency, overkill for this setup |
+| PlanetScale (serverless MySQL) | Managed service = external dependency, costs, no local dev without tunnel |
+| MongoDB | Schema flexibility not needed, Prisma relational query support is better |
