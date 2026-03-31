@@ -1,149 +1,146 @@
 # project-forge ⚒️
 
-A web platform for creating AI-toolchain projects. Describe your project — [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) and [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) do the rest.
+**Von der Projektidee zum GitHub-Repository — vollautomatisch.**
+
+project-forge ist eine Web-Plattform die aus einer Projektbeschreibung ein vollständiges, lauffähiges Repository scaffoldet. Der Mensch beschreibt was gebaut werden soll — [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) erstellt einen strukturierten Plan, [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) generiert die Dateistruktur, und project-forge pusht alles direkt auf GitHub.
 
 **Live:** [project-forge.opentriologue.ai](https://project-forge.opentriologue.ai)
 
-`project-forge` resolves generated planforge artifacts via `planforge-index.json` when available and falls back to legacy root paths for older planforge installations.
+---
 
-## What It Does
+## Was ist neu? (Stand März 2026)
 
-1. **Describe** — Fill in a form (or use the ✨ AI magic fill)
-2. **Review** — Browse generated tasks, architecture overview, and file tree
-3. **Confirm** — Create a GitHub repo with the scaffold pushed
-4. **Build** — Clone and hand off to your agent
+Die aktuelle Version wurde komplett neu aufgebaut. Der alte Stand konnte Formulare rendern — aber nichts ausführen. Was jetzt gebaut ist:
 
-AI is optional. Without it, `project-forge` uses deterministic intake mapping plus `agent-planforge` heuristics. If a local or hosted AI provider is configured, `project-forge` also uses it server-side to enrich intake and review scaffold fit after `scaffoldkit` runs.
+| Feature | Beschreibung |
+|---------|-------------|
+| **Planforge-Integration** | Server ruft agent-planforge auf, parst den generierten Plan und speichert Tasks in der DB |
+| **Scaffoldkit-Pipeline** | Aus dem Plan wird ein vollständiges Datei-Gerüst generiert und als Preview angezeigt |
+| **GitHub Repo Creation** | Repo erstellen + Initial Commit direkt via GitHub Git Data API — kein lokales git nötig |
+| **Preview UI** | 3 Tabs: Tasks / Architecture / Files (Split-View mit Datei-Inhalt) |
+| **Re-generation** | Inline-Panel um Summary, Features und Constraints zu überschreiben und neu zu scaffolden |
+| **Confirmation Gate** | Klarer "Was passiert"-Screen mit Checkbox vor jeder GitHub-Aktion |
+| **PostgreSQL-Backend** | Neues Schema: Project, Task, AgentAction — ersetzt das alte SQLite-Setup |
 
-Also available as a REST API for agents: `POST /api/v1/projects`
+---
 
-## Prerequisites
+## Der Workflow in 7 Schritten
 
-project-forge requires two external tools to be installed on the same machine as the server:
+```
+1. Projekt beschreiben
+   Name, Summary, Features, Constraints, Stack eingeben
+
+2. Plan generieren
+   agent-planforge erstellt einen Step-by-Step Plan
+   → Tasks werden als Datensätze in der DB gespeichert
+
+3. Scaffold generieren
+   scaffoldkit erstellt das Datei-Gerüst in einem Temp-Dir
+   → Dateibaum + Inhalte werden als Preview geladen
+
+4. Preview überprüfen
+   Tab "Tasks": alle generierten Tasks mit Status und Wave
+   Tab "Architecture": Architektur-Beschreibung aus dem Plan
+   Tab "Files": Split-View — Dateibaum links, Datei-Inhalt rechts
+
+5. Optional: Re-generieren
+   "Adjust & Re-generate" öffnet ein Panel für Overrides
+   Leere Felder = Projekt-Defaults
+
+6. Confirmation
+   Klare Übersicht: was wird auf GitHub erstellt?
+   Repo-Name editierbar, Checkbox-Gate
+
+7. GitHub Repo erstellen
+   Repo wird angelegt, Initial Commit via Git Data API gepusht
+   → Temp-Dir wird aufgeräumt
+   → Success Screen mit GitHub-Link, Commit SHA, File-Count
+```
+
+---
+
+## Voraussetzungen
+
+project-forge benötigt zwei externe Tools auf demselben Server:
 
 ### 1. [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
 
 ```bash
-git clone https://github.com/LanNguyenSi/agent-planforge.git
-cd agent-planforge
+git clone https://github.com/LanNguyenSi/agent-planforge.git ~/git/agent-planforge
+cd ~/git/agent-planforge
 npm install
 ```
 
-Set env: `PLANFORGE_PATH=/path/to/agent-planforge`
+Standardpfad: `~/git/agent-planforge` (konfigurierbar via `AGENT_PLANFORGE_DIR` in der Route)
 
 ### 2. [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit)
 
 ```bash
-git clone https://github.com/LanNguyenSi/scaffoldkit.git
+npm install -g scaffoldkit
+# oder lokal im PATH verfügbar machen
 ```
 
-Set env: `SCAFFOLDKIT_PATH=/path/to/scaffoldkit`
+### 3. GitHub App
 
-> **Note:** Python 3 is installed automatically inside the Docker container. You only need the scaffoldkit source directory.
+project-forge nutzt eine GitHub App für die Repo-Erstellung (nicht mehr PAT).
 
-## Quick Start (Docker)
+Konfiguration in `.env`:
+
+```
+GITHUB_APP_ID=...
+GITHUB_APP_PRIVATE_KEY_PATH=...   # Pfad zum .pem-File
+GITHUB_APP_INSTALLATION_ID=...
+```
+
+---
+
+## Quick Start
 
 ```bash
 git clone https://github.com/LanNguyenSi/project-forge.git
 cd project-forge
 cp .env.example .env
-# Fill in required values (see below)
-make deploy
-```
+# .env ausfüllen (GitHub App, Anthropic, DB-URL)
 
-### Required Environment Variables
+# Datenbank starten und migrieren
+docker compose up -d postgres
+npx prisma migrate deploy
 
-| Variable | Description |
-|---|---|
-| `GITHUB_TOKEN` | GitHub PAT with `repo` scope (for the platform itself) |
-| `GITHUB_OWNER` | GitHub username for repo creation |
-| `NEXTAUTH_SECRET` | Random secret (`openssl rand -hex 32`) |
-| `NEXTAUTH_URL` | Public URL (e.g. `https://project-forge.example.com`) |
-| `DATABASE_URL` | SQLite path (e.g. `file:/data/project-forge.db`) |
-| `PLANFORGE_PATH` | Absolute path to agent-planforge repo |
-| `SCAFFOLDKIT_PATH` | Absolute path to scaffoldkit source directory |
-
-### Optional
-
-| Variable | Description |
-|---|---|
-| `OPENAI_API_KEY` | Enables AI magic fill (OpenAI GPT-4o-mini) |
-| `GROQ_API_KEY` | Enables AI magic fill (Groq, preferred — free) |
-| `LOCAL_AI_BASE_URL` | Enables a local OpenAI-compatible model endpoint for AI magic fill and server-side intake enrichment |
-| `LOCAL_AI_MODEL` | Model name for the local AI endpoint |
-| `LOCAL_AI_API_KEY` | Optional API key for the local AI endpoint |
-| `GITHUB_ID` | GitHub OAuth app Client ID |
-| `GITHUB_SECRET` | GitHub OAuth app Client Secret |
-
-### Docker Compose Volumes
-
-The Docker container needs read access to the tool directories:
-
-```yaml
-# docker-compose.override.yml
-services:
-  app:
-    environment:
-      PLANFORGE_PATH: /tools/agent-planforge
-    volumes:
-      - /path/to/agent-planforge:/tools/agent-planforge:ro
-      - /path/to/scaffoldkit:/tools/scaffoldkit:ro
-```
-
-See `docker-compose.override.example.yml` for a full example.
-
-## API
-
-### `POST /api/v1/projects`
-
-Create a project programmatically. Requires an API token generated in the dashboard.
-
-```bash
-curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \
-  -H "X-API-Key: pf_your_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "projectName": "my-cli-tool",
-    "summary": "A CLI that syncs agent memory via Git",
-    "features": ["push memory files", "pull and merge", "conflict resolution"],
-    "constraints": ["TypeScript only", "no external databases"],
-    "targetUsers": ["developers", "AI agents"]
-  }'
-```
-
-**Response:**
-```json
-{
-  "ok": true,
-  "result": {
-    "repoUrl": "https://github.com/your-username/my-cli-tool",
-    "cloneUrl": "https://github.com/your-username/my-cli-tool.git",
-    "projectName": "my-cli-tool"
-  }
-}
-```
-
-Rate limit: 10 projects/day per API token.
-
-Full API documentation: [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs)
-
-## Tech Stack
-
-- **Frontend:** Next.js 14 + TypeScript + Tailwind CSS
-- **Auth:** next-auth (email/password + GitHub OAuth)
-- **Database:** SQLite via Prisma (API tokens, users)
-- **Planning:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) (Node.js)
-- **Scaffolding:** [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) (Python 3.11+)
-- **AI:** Local OpenAI-compatible endpoint, Groq (llama-3.3-70b), or OpenAI (gpt-4o-mini)
-- **Deploy:** Docker + Traefik
-
-## Development
-
-```bash
-npm install
+# Dev-Server
 npm run dev
 ```
 
-## License
+---
+
+## Tests
+
+```bash
+npm test
+# 45/45 Tests, ~2s
+```
+
+---
+
+## Tech Stack
+
+- **Framework:** Next.js 16 + TypeScript + Tailwind CSS
+- **Datenbank:** PostgreSQL via Prisma ORM
+- **Planning:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
+- **Scaffolding:** [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit)
+- **GitHub:** GitHub App + Git Data API (kein lokales git)
+- **AI:** Anthropic Claude (via planforge)
+
+---
+
+## Was noch fehlt
+
+- Blob-Erstellung bei großen Projekten serialisieren (Rate-Limit-Schutz)
+- Ordner-Icons in der Preview (aktuell immer 📄)
+- Automatische Task-Zuweisung an Agents nach Repo-Erstellung
+- Webhook-Handler für GitHub-Events
+
+---
+
+## Lizenz
 
 MIT
