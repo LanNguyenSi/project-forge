@@ -49,6 +49,16 @@ async function collectFileTree(dir: string, rootDir: string): Promise<string[]> 
   return files
 }
 
+function resolveGeneratedArtifact(baseDir: string, preferredSegments: string[], legacyName: string): string | null {
+  const preferredPath = join(baseDir, ...preferredSegments)
+  if (existsSync(preferredPath)) return preferredPath
+
+  const legacyPath = join(baseDir, legacyName)
+  if (existsSync(legacyPath)) return legacyPath
+
+  return null
+}
+
 /** GET — return scaffold preview data (file tree + planArtifacts) */
 export async function GET(_req: NextRequest, { params }: Props) {
   const { id } = await params
@@ -121,13 +131,22 @@ export async function POST(req: NextRequest, { params }: Props) {
       return NextResponse.json({ error: `agent-planforge failed (code ${planCode})`, details: planStderr.slice(0, 500) }, { status: 502 })
     }
 
-    const scaffoldInputPath = join(planDir, 'scaffoldkit-input.json')
-    if (!existsSync(scaffoldInputPath)) {
+    const scaffoldInputPath = resolveGeneratedArtifact(
+      planDir,
+      ['exports', 'scaffoldkit-input.json'],
+      'scaffoldkit-input.json'
+    )
+    if (!scaffoldInputPath) {
       return NextResponse.json({ error: 'agent-planforge did not produce scaffoldkit-input.json' }, { status: 502 })
     }
 
-    const planArtifacts = existsSync(join(planDir, 'plan-output.json'))
-      ? JSON.parse(await readFile(join(planDir, 'plan-output.json'), 'utf-8'))
+    const planOutputPath = resolveGeneratedArtifact(
+      planDir,
+      ['planning', 'plan-output.json'],
+      'plan-output.json'
+    )
+    const planArtifacts = planOutputPath
+      ? JSON.parse(await readFile(planOutputPath, 'utf-8'))
       : null
 
     scaffoldDir = await mkdtemp(join(tmpdir(), 'sk-out-'))

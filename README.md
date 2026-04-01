@@ -78,7 +78,9 @@ Default path: `~/git/agent-planforge`
 ### 2. [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit)
 
 ```bash
-npm install -g scaffoldkit
+git clone https://github.com/LanNguyenSi/scaffoldkit.git ~/git/scaffoldkit
+cd ~/git/scaffoldkit
+./install.sh
 ```
 
 ### 3. GitHub App
