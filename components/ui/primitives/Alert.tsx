@@ -27,6 +27,7 @@ export function Alert({
         {onClose && (
           <button
             onClick={onClose}
+            aria-label="Close"
             className="opacity-50 hover:opacity-100 text-lg leading-none transition"
           >
             &times;

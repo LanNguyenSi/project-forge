@@ -1,3 +1,134 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Swagger UI dark-mode overrides ── */
+.swagger-ui {
+  --bg: #0a0a0f;
+  --bg-secondary: #111118;
+  --border: #1e1e2e;
+  --text: #e2e2e8;
+  --text-muted: #9393a8;
+  --accent: #3b82f6;
+}
+
+.swagger-ui,
+.swagger-ui .wrapper,
+.swagger-ui .opblock-tag-section,
+.swagger-ui .scheme-container {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+.swagger-ui .info .title,
+.swagger-ui .info .title small,
+.swagger-ui .opblock-tag,
+.swagger-ui .opblock-tag a,
+.swagger-ui .opblock-summary-method,
+.swagger-ui .opblock-summary-path,
+.swagger-ui .opblock-summary-description,
+.swagger-ui .tab li,
+.swagger-ui .parameter__name,
+.swagger-ui .parameter__type,
+.swagger-ui .response-col_status,
+.swagger-ui .response-col_description,
+.swagger-ui table thead tr th,
+.swagger-ui table thead tr td,
+.swagger-ui .model-title,
+.swagger-ui .model .property,
+.swagger-ui .model span,
+.swagger-ui .model-toggle,
+.swagger-ui .renderedMarkdown p,
+.swagger-ui label,
+.swagger-ui .btn {
+  color: var(--text) !important;
+}
+
+.swagger-ui .info .description p,
+.swagger-ui .info li,
+.swagger-ui .info a {
+  color: var(--text-muted) !important;
+}
+
+.swagger-ui .opblock {
+  border-color: var(--border) !important;
+  background: var(--bg-secondary) !important;
+}
+
+.swagger-ui .opblock .opblock-summary {
+  border-color: var(--border) !important;
+}
+
+.swagger-ui .opblock-body,
+.swagger-ui .opblock-section-header {
+  background: var(--bg) !important;
+  border-color: var(--border) !important;
+}
+
+.swagger-ui .opblock-section-header h4,
+.swagger-ui .opblock-section-header label {
+  color: var(--text) !important;
+}
+
+.swagger-ui .responses-table thead td,
+.swagger-ui .parameters-table thead td {
+  color: var(--text-muted) !important;
+  border-color: var(--border) !important;
+}
+
+.swagger-ui .response-col_links,
+.swagger-ui .responses-inner {
+  background: transparent !important;
+}
+
+.swagger-ui select,
+.swagger-ui input[type="text"],
+.swagger-ui textarea {
+  background: var(--bg-secondary) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+.swagger-ui .topbar,
+.swagger-ui .information-container {
+  background: var(--bg) !important;
+}
+
+.swagger-ui .scheme-container {
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+}
+
+.swagger-ui .model-box,
+.swagger-ui .models {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border) !important;
+}
+
+.swagger-ui .model-box .model-jump-to-path,
+.swagger-ui .models h4 span {
+  color: var(--text) !important;
+}
+
+.swagger-ui .highlight-code,
+.swagger-ui .microlight {
+  background: var(--bg-secondary) !important;
+  color: var(--text) !important;
+}
+
+.swagger-ui .copy-to-clipboard {
+  filter: invert(1);
+}
+
+.swagger-ui .topbar .download-url-wrapper .select-label select {
+  border-color: var(--border) !important;
+}
+
+.swagger-ui .loading-container .loading::after {
+  color: var(--text-muted) !important;
+}
+
+.swagger-ui svg.arrow,
+.swagger-ui button.model-box-control svg {
+  fill: var(--text) !important;
+}

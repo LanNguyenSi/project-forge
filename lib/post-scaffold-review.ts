@@ -91,7 +91,12 @@ interface ReviewPayload {
   };
 }
 
+// Planforge artifacts that should NOT be counted as runtime scaffold signals.
+// Since the output reorganization (bf7a491), most JSON files moved into
+// planning/, handoff/, and exports/ subdirectories. The directory entries
+// below cover both the subdirs and the root-level markdown/index files.
 const PLANFORGE_TOP_LEVEL_PATHS = new Set([
+  // Directories
   ".ai",
   "adrs",
   "exports",
@@ -100,26 +105,19 @@ const PLANFORGE_TOP_LEVEL_PATHS = new Set([
   "planning",
   "prompts",
   "runbooks",
-  "runner",
   "specs",
   "tasks",
+  // Root-level files
   "AGENTS.md",
+  "BRANCH_INFO.md",
   "CLAUDE.md",
   "PROJECT.md",
   "architecture-overview.md",
   "delivery-plan.md",
-  "handoff-manifest.json",
   "intake-questionnaire.md",
-  "plan-output.json",
   "planforge-index.json",
   "project-charter.md",
-  "rerun-report.json",
-  "rerun-summary.md",
-  "runner-contract.json",
-  "scaffoldkit-input.json",
-  "structured-input.json",
-  ".devreview.json",
-  "BRANCH_INFO.md",
+  "project-input.json",
 ]);
 
 const RUNTIME_SIGNAL_FILES = [
