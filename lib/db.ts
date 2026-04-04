@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { randomBytes } from "crypto";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
@@ -35,10 +36,5 @@ export async function validateApiToken(token: string) {
 }
 
 export function generateApiToken(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "pf_";
-  for (let i = 0; i < 32; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return result;
+  return `pf_${randomBytes(24).toString("base64url")}`;
 }

@@ -5,196 +5,109 @@
 
 ## Project Overview
 
-**project-forge** is a CLI tool that a web ui for creating new software projects using the full agent toolchain (agent-planforge, scaffoldkit, agent-engineering-playbook). users fill in a form, the server runs planforge and scaffoldkit in a temp directory, shows a preview of the generated structure (tasks, architecture, file tree), allows review and re-generation, then creates a github repo and pushes on confirmation..
+**project-forge** is a full-stack web application for creating new software projects using the agent toolchain (agent-planforge, scaffoldkit). Users fill in a form, the server runs planforge and scaffoldkit in a temp directory, shows a preview of the generated structure (tasks, architecture, file tree), allows review and re-generation, then creates a GitHub repo and pushes on confirmation.
 
-- **Language:** python
-- **Framework:** typer
-- **Distribution:** pip-package
-- **Test strategy:** unit-tests
-- **Config format:** yaml (at `~/.config/project-forge/config.yaml`)
+- **Language:** TypeScript (strict mode)
+- **Framework:** Next.js 15 (App Router)
+- **UI:** React 18, Tailwind CSS
+- **Database:** SQLite via Prisma
+- **Auth:** next-auth (GitHub OAuth + email/password, JWT sessions)
+- **Testing:** Vitest + Testing Library
+- **Deployment:** Docker (Node.js 20-slim + Python 3 for scaffoldkit)
 
 ## Repository Structure
 
 ```
 project-forge/
-├── src/
-│   ├── commands/         # One file per subcommand
-│   ├── config/           # Config loading and validation
-│   └── main.py
-├── tests/
-│   ├── commands/         # Tests for each command (mirrors src/commands/)
-│   └── config/           # Tests for config loading
-├── docs/
-│   ├── architecture.md   # Subsystem design, exit codes, output rules
-│   ├── ways-of-working.md
-│   └── adrs/             # Architecture Decision Records
-└── AI_CONTEXT.md         # This file
+├── app/                          # Next.js App Router
+│   ├── (dashboard)/              # Auth-protected pages
+│   │   ├── create/page.tsx       # Project creation form
+│   │   ├── dashboard/page.tsx    # User dashboard
+│   │   ├── login/page.tsx        # Login page
+│   │   └── settings/page.tsx     # User settings / API tokens
+│   ├── api/                      # API routes
+│   │   ├── v1/projects/route.ts  # Public REST API (token-auth)
+│   │   ├── auth/                 # NextAuth + registration
+│   │   ├── generate/route.ts     # Web UI generation (preview)
+│   │   ├── publish/route.ts      # GitHub repo creation & push
+│   │   ├── ai-assist/route.ts    # AI form enrichment
+│   │   └── dashboard/            # User/token management
+│   ├── docs/page.tsx             # Swagger UI API docs
+│   ├── layout.tsx                # Root layout
+│   └── globals.css               # Global styles + Swagger dark overrides
+│
+├── components/                   # React components
+│   ├── ui/                       # Primitives (Button, Card, Input, etc.)
+│   ├── layout/AppShell.tsx       # Navigation & sidebar
+│   ├── ProjectForm.tsx           # Main project intake form
+│   ├── PreviewPanel.tsx          # Generated scaffold preview
+│   └── modals/                   # Confirmation & error dialogs
+│
+├── lib/                          # Core business logic
+│   ├── types.ts                  # Shared TypeScript interfaces
+│   ├── db.ts                     # Prisma client, rate limiting, API tokens
+│   ├── auth.ts                   # NextAuth configuration
+│   ├── ai-provider.ts            # AI provider abstraction (Local/Groq/OpenAI)
+│   ├── planforge-orchestrator.ts # Intake mapping & AI enrichment
+│   ├── planforge-runner.ts       # Shell invocation of agent-planforge
+│   ├── planforge-output.ts       # Artifact parsing and path resolution
+│   └── post-scaffold-review.ts   # Scaffold fit assessment
+│
+├── types/next-auth.d.ts          # NextAuth type extensions
+├── tests/integration/            # Integration & unit tests
+├── prisma/schema.prisma          # Database schema
+├── middleware.ts                  # Auth + API key validation
+├── Dockerfile                    # Multi-stage build
+├── docker-compose.yml            # Container orchestration
+└── AI_CONTEXT.md                 # This file
 ```
 
-## How to Add a New Command
+## Key Conventions
 
-Follow these steps exactly. Do not deviate from the file layout.
+### API Routes
 
-### Step 1: Create the command file
+- Public API lives under `app/api/v1/` and uses `X-API-Key` header auth
+- Internal routes (used by the web UI) live under `app/api/` and use session auth
+- All routes return `NextResponse.json()` with appropriate status codes
+- Error responses follow the shape `{ error: string; details?: string }`
 
-Create `src/commands/<name>.py`:
+### Components
 
-```python
-"""project-forge - <name> command."""
-from __future__ import annotations
+- UI primitives in `components/ui/primitives/` — re-exported via `index.ts`
+- Page-level layout uses `<AppShell>` (sidebar) + `<PageShell>` (title/subtitle)
+- All pages are client components using `"use client"` where session or interactivity is needed
 
-import typer
-from ..config.loader import Config
+### Database
 
-app = typer.Typer()
+- Prisma schema in `prisma/schema.prisma`
+- Client singleton in `lib/db.ts` (cached in `globalThis` for dev hot-reload)
+- Run `npx prisma generate` after schema changes
+- Run `npx prisma db push` to sync schema to SQLite
 
-@app.command()
-def <name>(
-    # Add options here
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
-) -> None:
-    """One-line description of what this command does."""
-    # Implementation here
-    pass
-```
+### External Tools
 
-### Step 2: Register the command
+- **agent-planforge** (Node.js CLI): invoked via `child_process.spawn()` in `lib/planforge-runner.ts`
+- **scaffoldkit** (Python CLI): invoked similarly, requires Python 3.11+
+- Paths configured via `PLANFORGE_PATH` and `SCAFFOLDKIT_PATH` env vars
 
-In `src/main.py`, add:
-```python
-from .commands.<name> import app as <name>_app
-app.add_typer(<name>_app, name="<name>")
-```
+### Styling
 
-### Step 3: Write tests
+- Tailwind CSS with dark-first design (bg-gray-950, text-gray-100, etc.)
+- No light mode — the app is dark-only
+- Swagger UI has custom dark-mode overrides in `globals.css`
 
-Create `tests/commands/test_<name>.py`.
+### Testing
 
-Test naming: `test_<name>_<scenario>_<expected_outcome>`
-
-Test the following cases:
-- Happy path with default options
-- Each optional flag changes behavior as expected
-- Invalid arguments produce exit code `2` and an error on stderr
-- Error conditions produce the correct exit code and message
-
-
-## Argument Patterns
-
-Use these patterns consistently across all commands.
-
-### Flags vs positional arguments
-
-- Use **positional arguments** for the primary subject (e.g., a file path, a name)
-- Use **flags** for options and modifiers
-- Never require a flag that has a sensible default
-
-### Standard flags every command should support
-
-| Flag | Short | Type | Description |
-|------|-------|------|-------------|
-| `--output` | `-o` | `text\|json\|yaml` | Output format (on commands with structured output) |
-| `--dry-run` | - | bool | Preview without changes (on mutating commands) |
-| `--verbose` | `-v` | bool | More diagnostic output to stderr |
-| `--quiet` | `-q` | bool | Suppress all non-error output |
-
-### Mutually exclusive flags
-
-When two flags cannot be used together:
-- Validate at parse time, not in business logic
-- Exit with code `2` and message: `error: --flag-a and --flag-b cannot be used together.`
-
-## Config Access Patterns
-
-Config is loaded once at startup by the main entrypoint and passed to each command as a parameter.
-Commands do not read config directly from disk.
-
-```
-main entrypoint
-  -> load config (src/config/loader)
-  -> pass config to command function
-     -> command uses config.field_name
-```
-
-### Adding a new config key
-
-1. Add the key to the config schema/struct in `src/config/loader.py`
-2. Set a sensible default
-3. Document the key in README.md under the Configuration section
-4. Add an environment variable override: `PROJECT_FORGE_<KEY_NAME>`
-5. Write a test in `tests/config/` verifying the default, env var override, and file override
-
-Config values must never be read from global state. Always inject config as a parameter.
-
-
-## Output Formatting Rules
-
-**Never write to stdout with unstructured print/fmt/println statements inside command logic.**
-
-Use the output module in `src/output.py`:
-
-- `output.success(message)` - green checkmark + message to stdout
-- `output.error(message)` - "error: message" to stderr
-- `output.warning(message)` - "warning: message" to stderr
-- `output.info(message)` - diagnostic message to stderr (suppressed with `--quiet`)
-- `output.result(data, format)` - structured data to stdout in the requested format
-
-Color rules:
-- Respect `NO_COLOR` environment variable
-- Respect `--no-color` flag
-- Disable color when stdout is not a TTY
-
-## Testing Patterns
-
-### Unit test structure
-
-```
-tests/
-├── commands/
-│   ├── test_run.py
-│   └── test_config.py
-└── config/
-    └── test_loader.py
-```
-
-### What to test per command
-
-1. Default options produce expected output
-2. Each flag is tested independently
-3. Invalid input exits with code `2`
-4. Errors produce correct exit code and stderr message
-5. `--output json` produces valid parseable JSON
-
-### Mocking
-
-- Mock the filesystem using temp directories (never write to real paths in tests)
-- Mock external calls at the function boundary, not by patching internals
-- Do not mock the config loader - construct a Config object directly in the test
-
-
-## Exit Code Enforcement
-
-All commands must exit with one of these codes. Check against this list before completing any error path:
-
-| Code | When to use |
-|------|-------------|
-| `0` | Success |
-| `1` | Unexpected runtime error |
-| `2` | Bad arguments / usage error |
-| `3` | Config error |
-| `4` | External service / IO error |
-| `5` | Resource not found |
-
-If you are not sure which code to use, use `1` and leave a comment in the code.
+- Test runner: Vitest with happy-dom
+- Tests in `tests/integration/`
+- Run: `npm test` or `npm run test:watch`
 
 ## What NOT to Do
 
-- Do not add a new dependency without checking if an existing one covers the use case
-- Do not write directly to stdout/stderr - use the output module
-- Do not call `sys.exit()` / `os.Exit()` inside command logic - propagate errors
-- Do not read environment variables or config files inside commands - receive config as a parameter
-- Do not add interactive prompts to commands that will be used in CI pipelines
-- Do not ignore error return values
-- Do not commit secrets, tokens, or real filesystem paths
-- Do not skip `--help` text for new flags or commands
-- Do not introduce a new pattern without updating this file and `docs/architecture.md`
+- Do not add dependencies without checking if an existing one covers the use case
+- Do not expose internal error details (file paths, stderr) in API responses to clients
+- Do not use `Math.random()` for security-sensitive values — use `crypto.randomBytes()`
+- Do not hardcode filesystem paths — use environment variables
+- Do not commit secrets, tokens, or `.env` files
+- Do not introduce light-mode styles — the app is dark-only
+- Do not skip TypeScript strict checks or use `any` without justification

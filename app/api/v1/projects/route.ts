@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateApiToken, checkRateLimit, prisma } from "@/lib/db";
 import { randomUUID } from "crypto";
-import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { resolvePlanforgeOutputPaths } from "@/lib/planforge-output";
 import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
 import { executePlanforgeWorkflow } from "@/lib/planforge-runner";
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
+import { runCommand } from "@/lib/subprocess";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 const PLANFORGE_PATH = process.env.PLANFORGE_PATH ?? "/root/.openclaw/workspace/git/agent-planforge";
-const SCAFFOLDKIT_PATH = process.env.SCAFFOLDKIT_PATH ?? "/root/.openclaw/workspace/git/scaffoldkit";
 const GENERATION_TIMEOUT_MS = 30_000;
 
 interface ProjectRequest {
@@ -97,7 +96,7 @@ export async function POST(req: NextRequest) {
     // Step 2: Run scaffoldkit from-planforge
     const artifacts = await resolvePlanforgeOutputPaths(tempDir);
     const scaffoldInputPath = artifacts.scaffoldkitInputPath;
-    const scaffoldkitPython = process.env.SCAFFOLDKIT_PYTHON ?? "/app/.sk-venv/bin/python3";
+    const scaffoldkitPython = process.env.SCAFFOLDKIT_PYTHON ?? "/tmp/sk-venv/bin/python3";
     const scaffoldkitExists = await fs.access(scaffoldInputPath).then(() => true).catch(() => false);
 
     if (scaffoldkitExists) {
@@ -110,10 +109,10 @@ export async function POST(req: NextRequest) {
           scaffoldInputPath,
           "--target",
           tempDir,
+          "--overwrite",
           "--no-install",
         ],
-        tempDir,
-        GENERATION_TIMEOUT_MS
+        { cwd: tempDir, timeoutMs: GENERATION_TIMEOUT_MS, verbose: true }
       ).catch((err: Error) => {
         // Non-blocking - planforge output is still useful
         console.error("scaffoldkit failed (non-blocking):", err.message);
@@ -166,44 +165,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-function runCommand(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  timeout: number
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { cwd, shell: false, timeout });
-
-    let stdout = "";
-    let stderr = "";
-
-    proc.stdout?.on("data", (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on("error", (err) => {
-      reject(new Error(`Failed to execute ${cmd}: ${err.message}`));
-    });
-
-    proc.on("exit", (code) => {
-      if (code === 0) {
-        console.log(`${cmd} output:`, stdout);
-        if (stderr) console.warn(`${cmd} stderr:`, stderr);
-        resolve();
-      } else {
-        reject(
-          new Error(`${cmd} exited with code ${code}\nStdout: ${stdout}\nStderr: ${stderr}`)
-        );
-      }
-    });
-  });
 }
 
 async function createAndPushRepo(
@@ -261,14 +222,17 @@ async function createAndPushRepo(
   const pushUrl = repo.clone_url.replace("https://", `https://${githubPat}@`);
 
   // Initialize git and push
-  await runCommand("git", ["init"], projectDir, 10_000);
-  await runCommand("git", ["config", "user.email", "forge@project-forge.dev"], projectDir, 5_000);
-  await runCommand("git", ["config", "user.name", "project-forge"], projectDir, 5_000);
-  await runCommand("git", ["add", "."], projectDir, 10_000);
-  await runCommand("git", ["commit", "-m", "Initial commit via project-forge"], projectDir, 10_000);
-  await runCommand("git", ["branch", "-M", "main"], projectDir, 10_000);
-  await runCommand("git", ["remote", "add", "origin", pushUrl], projectDir, 10_000);
-  await runCommand("git", ["push", "-u", "origin", "main"], projectDir, 30_000);
+  const git = (args: string[], timeoutMs = 10_000) =>
+    runCommand("git", args, { cwd: projectDir, timeoutMs });
+
+  await git(["init"]);
+  await git(["config", "user.email", "forge@project-forge.dev"]);
+  await git(["config", "user.name", "project-forge"]);
+  await git(["add", "."]);
+  await git(["commit", "-m", "Initial commit via project-forge"]);
+  await git(["branch", "-M", "main"]);
+  await git(["remote", "add", "origin", pushUrl]);
+  await git(["push", "-u", "origin", "main"], 30_000);
 
   return repoUrl;
 }

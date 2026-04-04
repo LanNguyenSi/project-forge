@@ -98,10 +98,14 @@ export function PreviewPanel({
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-800">
+        <div className="flex border-b border-gray-800" role="tablist">
           {(["tasks", "architecture", "files"] as const).map((tab) => (
             <button
               key={tab}
+              role="tab"
+              aria-selected={activeTab === tab}
+              aria-controls={`panel-${tab}`}
+              id={`tab-${tab}`}
               onClick={() => setActiveTab(tab)}
               className={`px-6 py-3 text-sm font-medium capitalize transition-colors ${
                 activeTab === tab
@@ -115,7 +119,12 @@ export function PreviewPanel({
         </div>
 
         {/* Content */}
-        <div className="p-6 max-h-96 overflow-y-auto">
+        <div
+          className="p-6 max-h-[60vh] sm:max-h-96 overflow-y-auto"
+          role="tabpanel"
+          id={`panel-${activeTab}`}
+          aria-labelledby={`tab-${activeTab}`}
+        >
           {activeTab === "tasks" && (
             <div className="space-y-4">
               {Object.entries(waveGroups).sort().map(([wave, tasks]) => (
@@ -135,7 +144,7 @@ export function PreviewPanel({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-gray-200">{task.title}</p>
                           {task.summary && (
-                            <p className="text-xs text-gray-500 mt-0.5">{task.summary}</p>
+                            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{task.summary}</p>
                           )}
                         </div>
                         <span className="ml-auto text-xs text-gray-600 shrink-0">{task.category}</span>

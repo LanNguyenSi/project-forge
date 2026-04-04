@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type {
@@ -14,10 +13,10 @@ import { readScaffoldPreview, resolvePlanforgeOutputPaths } from '@/lib/planforg
 import { buildPlanforgeInput } from '@/lib/planforge-orchestrator';
 import { executePlanforgeWorkflow } from '@/lib/planforge-runner';
 import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } from '@/lib/post-scaffold-review';
+import { runCommand } from '@/lib/subprocess';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
 const PLANFORGE_PATH = process.env.PLANFORGE_PATH ?? '/root/.openclaw/workspace/git/agent-planforge';
-const SCAFFOLDKIT_PATH = process.env.SCAFFOLDKIT_PATH ?? '/root/.openclaw/workspace/git/scaffoldkit';
 const GENERATION_TIMEOUT_MS = 30_000;
 
 export async function POST(req: NextRequest) {
@@ -66,10 +65,10 @@ export async function POST(req: NextRequest) {
           'from-planforge',
           scaffoldkitInputPath,
           '--target', tempDir,
+          '--overwrite',
           '--no-install',
         ],
-        tempDir,
-        GENERATION_TIMEOUT_MS
+        { cwd: tempDir, timeoutMs: GENERATION_TIMEOUT_MS, verbose: true }
       ).catch((err: Error) => {
         // scaffoldkit failure is non-blocking — planforge output is still useful
         console.error('scaffoldkit FAILED:', err.message);
@@ -95,6 +94,11 @@ export async function POST(req: NextRequest) {
         const categoryMatch = content.match(/## Category\s*\n\s*\n\s*(.+)/);
         const priorityMatch = content.match(/## Priority\s*\n\s*\n\s*(.+)/);
         const summaryMatch = content.match(/## Summary\s*\n\s*\n\s*(.+)/);
+        const dependsOnMatch = content.match(/## Depends On\s*\n\s*\n\s*([\s\S]*?)(?=\n## )/);
+        const dependsOn = dependsOnMatch?.[1]
+          ?.split('\n')
+          .map((line) => line.replace(/^-\s*/, '').trim())
+          .filter(Boolean);
         return {
           id: idMatch?.[1] ?? file.replace('.md', ''),
           title: (titleMatch?.[1] ?? file).trim(),
@@ -102,6 +106,7 @@ export async function POST(req: NextRequest) {
           category: (categoryMatch?.[1] ?? 'feature').trim(),
           priority: (priorityMatch?.[1] ?? 'P1').trim(),
           summary: summaryMatch?.[1]?.trim(),
+          ...(dependsOn?.length ? { dependsOn } : {}),
         };
       })
     );
@@ -149,48 +154,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-function runCommand(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  timeout: number
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, {
-      cwd,
-      shell: false,
-      timeout,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to execute ${cmd}: ${err.message}`));
-    });
-
-    proc.on('exit', (code) => {
-      if (code === 0) {
-        console.log(`${cmd} output:`, stdout);
-        if (stderr) console.warn(`${cmd} stderr:`, stderr);
-        resolve();
-      } else {
-        reject(
-          new Error(`${cmd} exited with code ${code}\nStdout: ${stdout}\nStderr: ${stderr}`)
-        );
-      }
-    });
-  });
 }
 
 async function buildFileTree(

@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { PublishResponse, ErrorResponse } from "../../../lib/types";
+import { runCommand } from "@/lib/subprocess";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
     const repo = await repoRes.json() as { html_url: string; clone_url: string; default_branch: string };
 
     // 2. Git init + commit + push using user's token
-    await runGitCommands(tempDir, repo.clone_url, userToken, projectName);
+    await runGitCommands(tempDir, repo.clone_url, userToken);
 
     // 3. Cleanup temp dir
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -127,30 +127,17 @@ async function runGitCommands(
   repoPath: string,
   cloneUrl: string,
   token: string,
-  projectName: string
 ): Promise<void> {
   const authedUrl = cloneUrl.replace("https://", `https://${token}@`);
 
-  const commands = [
-    ["git", "init", "-b", "main"],
-    ["git", "config", "user.email", "forge@project-forge.dev"],
-    ["git", "config", "user.name", "project-forge"],
-    ["git", "add", "-A"],
-    ["git", "commit", "-m", `feat: initial scaffold\n\nGenerated with project-forge\nPlanned with agent-planforge (https://github.com/LanNguyenSi/agent-planforge) · Scaffolded with scaffoldkit (https://github.com/LanNguyenSi/scaffoldkit)`],
-    ["git", "remote", "add", "origin", authedUrl],
-    ["git", "push", "-u", "origin", "main"],
-  ];
+  const git = (args: string[], timeoutMs = 10_000) =>
+    runCommand("git", args, { cwd: repoPath, timeoutMs });
 
-  for (const [cmd, ...args] of commands) {
-    await new Promise<void>((resolve, reject) => {
-      const proc = spawn(cmd, args, { cwd: repoPath, stdio: "pipe" });
-      let stderr = "";
-      proc.stderr?.on("data", (d) => { stderr += d.toString(); });
-      proc.on("close", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`${cmd} ${args[0]} failed (${code}): ${stderr}`));
-      });
-      proc.on("error", reject);
-    });
-  }
+  await git(["init", "-b", "main"]);
+  await git(["config", "user.email", "forge@project-forge.dev"]);
+  await git(["config", "user.name", "project-forge"]);
+  await git(["add", "-A"]);
+  await git(["commit", "-m", "feat: initial scaffold\n\nGenerated with project-forge\nPlanned with agent-planforge (https://github.com/LanNguyenSi/agent-planforge) · Scaffolded with scaffoldkit (https://github.com/LanNguyenSi/scaffoldkit)"]);
+  await git(["remote", "add", "origin", authedUrl]);
+  await git(["push", "-u", "origin", "main"], 30_000);
 }
