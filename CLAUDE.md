@@ -25,7 +25,7 @@ npm run dev           # Start Next.js dev server only
 npm test              # Run tests (vitest run) — expects 45 passing
 npm run test:watch    # Watch mode
 npm run typecheck     # tsc --noEmit
-npm run lint          # next lint
+npm run lint          # eslint src/
 npm run build         # Production build
 npx prisma migrate deploy   # Run DB migrations
 npx prisma db push          # Push schema to local DB (dev)
