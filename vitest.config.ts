@@ -11,8 +11,6 @@ export default defineConfig({
     passWithNoTests: true,
     exclude: [
       'node_modules/**',
-      '_legacy_*/**',
-      '**/_legacy_*/**',
     ],
   },
   resolve: {

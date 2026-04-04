@@ -16,7 +16,8 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm ci --legacy-peer-deps
-      - run: npx tsc --noEmit --skipLibCheck
+      - run: npx tsc --noEmit
+      - run: npx eslint src/
       - run: npm run build
         env:
           GITHUB_TOKEN: "mock"
