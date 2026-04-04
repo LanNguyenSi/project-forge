@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded — project-forge was rewritten as a Next.js web application (March 2026). This ADR documents the original Python/typer decision for historical context only.
 
 ## Context
 
