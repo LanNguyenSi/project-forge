@@ -1,12 +1,31 @@
 # Copy to docker-compose.override.yml and fill in values
 services:
   app:
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       NEXTAUTH_SECRET: "generate-with-openssl-rand-hex-32"
       NEXTAUTH_URL: "https://project-forge.opentriologue.ai"
-      DATABASE_URL: "file:/data/project-forge.db"
+      DATABASE_URL: "postgresql://projectforge:projectforge_pw@db:5432/projectforge?schema=public"
+    networks:
+      - default
+      - traefik
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: projectforge
+      POSTGRES_USER: projectforge
+      POSTGRES_PASSWORD: projectforge_pw
+      PGDATA: /var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U projectforge -d projectforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
-      - forge_db:/data
+      - forge_db:/var/lib/postgresql/data
+    restart: unless-stopped
 
 volumes:
   forge_db:

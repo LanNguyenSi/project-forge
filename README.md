@@ -101,12 +101,16 @@ GITHUB_APP_INSTALLATION_ID=...
 git clone https://github.com/LanNguyenSi/project-forge.git
 cd project-forge
 cp .env.example .env
-# Fill in GitHub App credentials, Anthropic API key, and DATABASE_URL
+# Fill in GitHub App credentials and any optional AI provider keys
+# For Docker deploys, also copy docker-compose.override.example.yml
+# to docker-compose.override.yml
 
-docker compose up -d postgres
-npx prisma migrate deploy
-npm run dev
+docker compose up -d --build
 ```
+
+The production compose setup expects PostgreSQL. Start from
+`docker-compose.override.example.yml` and keep the app `DATABASE_URL`
+aligned with the `db` service shown there.
 
 ---
 
@@ -126,7 +130,7 @@ npm test
 - **Planning:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
 - **Scaffolding:** [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit)
 - **GitHub:** GitHub App + Git Data API (no local git)
-- **AI:** Anthropic Claude (via planforge)
+- **AI:** Local OpenAI-compatible server, Groq, or OpenAI for magic fill
 
 ---
 

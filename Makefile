@@ -26,7 +26,7 @@ dev-setup:
 	npm install
 	npx prisma generate
 
-# Push schema to local SQLite DB (creates file if missing)
+# Push schema to the database configured in DATABASE_URL
 dev-db:
 	npx prisma db push
 
@@ -37,11 +37,12 @@ dev-env:
 		cp .env.example .env; \
 		sed -i 's|^NEXTAUTH_SECRET=.*|NEXTAUTH_SECRET='$$(openssl rand -hex 32)'|' .env; \
 		sed -i 's|^NEXTAUTH_URL=.*|NEXTAUTH_URL=http://localhost:3000|' .env; \
+		sed -i 's|^DATABASE_URL=.*|DATABASE_URL=postgresql://projectforge:projectforge_pw@localhost:5432/projectforge?schema=public|' .env; \
 		echo ""; \
 		echo "━━━ .env created ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo "  NEXTAUTH_SECRET  generated"; \
 		echo "  NEXTAUTH_URL     http://localhost:3000"; \
-		echo "  DATABASE_URL     file:./db/project-forge.db"; \
+		echo "  DATABASE_URL     postgresql://projectforge:projectforge_pw@localhost:5432/projectforge?schema=public"; \
 		echo ""; \
 		echo "  Optional — fill in to enable all features:"; \
 		echo "    GITHUB_TOKEN   (repo creation)"; \
