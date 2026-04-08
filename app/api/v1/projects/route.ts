@@ -21,6 +21,45 @@ interface ProjectRequest {
   targetUsers?: string[];
 }
 
+export async function GET(req: NextRequest) {
+  const apiKey = req.headers.get("X-API-Key");
+  if (!apiKey) {
+    return NextResponse.json({ ok: false, error: "Missing X-API-Key header" }, { status: 401 });
+  }
+
+  const tokenRecord = await validateApiToken(apiKey);
+  if (!tokenRecord) {
+    return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
+  }
+
+  const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 50), 200);
+  const offset = Number(req.nextUrl.searchParams.get("offset") ?? 0);
+
+  const [projects, total] = await Promise.all([
+    prisma.usageLog.findMany({
+      where: { userId: tokenRecord.userId },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+      select: { id: true, repoUrl: true, createdAt: true },
+    }),
+    prisma.usageLog.count({ where: { userId: tokenRecord.userId } }),
+  ]);
+
+  return NextResponse.json({
+    ok: true,
+    projects: projects.map((p: { id: string; repoUrl: string; createdAt: Date }) => ({
+      id: p.id,
+      repoUrl: p.repoUrl,
+      projectName: p.repoUrl.split("/").pop() ?? "",
+      createdAt: p.createdAt.toISOString(),
+    })),
+    total,
+    limit,
+    offset,
+  });
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = req.headers.get("X-API-Key");
 
