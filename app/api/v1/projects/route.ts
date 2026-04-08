@@ -48,10 +48,10 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    projects: projects.map((p: { id: string; repoUrl: string; createdAt: Date }) => ({
+    projects: projects.map((p: { id: string; repoUrl: string | null; createdAt: Date }) => ({
       id: p.id,
-      repoUrl: p.repoUrl,
-      projectName: p.repoUrl.split("/").pop() ?? "",
+      repoUrl: p.repoUrl ?? "",
+      projectName: p.repoUrl?.split("/").pop() ?? "",
       createdAt: p.createdAt.toISOString(),
     })),
     total,
