@@ -1,5 +1,5 @@
 name: project-forge
-health: /health
+health: /
 health_port: 3000
 compose_file: docker-compose.yml
 rollback: true
