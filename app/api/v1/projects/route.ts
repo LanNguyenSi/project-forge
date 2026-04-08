@@ -34,16 +34,22 @@ export async function GET(req: NextRequest) {
 
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 50), 200);
   const offset = Number(req.nextUrl.searchParams.get("offset") ?? 0);
+  const includeDeleted = req.nextUrl.searchParams.get("includeDeleted") === "true";
+
+  const where = {
+    userId: tokenRecord.userId,
+    ...(!includeDeleted && { deletedAt: null }),
+  };
 
   const [projects, total] = await Promise.all([
     prisma.usageLog.findMany({
-      where: { userId: tokenRecord.userId },
+      where,
       orderBy: { createdAt: "desc" },
       take: limit,
       skip: offset,
-      select: { id: true, repoUrl: true, createdAt: true },
+      select: { id: true, repoUrl: true, createdAt: true, deletedAt: true },
     }),
-    prisma.usageLog.count({ where: { userId: tokenRecord.userId } }),
+    prisma.usageLog.count({ where }),
   ]);
 
   return NextResponse.json({
@@ -58,6 +64,42 @@ export async function GET(req: NextRequest) {
     limit,
     offset,
   });
+}
+
+export async function DELETE(req: NextRequest) {
+  const apiKey = req.headers.get("X-API-Key");
+  if (!apiKey) {
+    return NextResponse.json({ ok: false, error: "Missing X-API-Key header" }, { status: 401 });
+  }
+
+  const tokenRecord = await validateApiToken(apiKey);
+  if (!tokenRecord) {
+    return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
+  }
+
+  const id = req.nextUrl.searchParams.get("id");
+  if (!id) {
+    return NextResponse.json({ ok: false, error: "Missing id parameter" }, { status: 400 });
+  }
+
+  const entry = await prisma.usageLog.findFirst({
+    where: { id, userId: tokenRecord.userId },
+  });
+
+  if (!entry) {
+    return NextResponse.json({ ok: false, error: "Project not found" }, { status: 404 });
+  }
+
+  if (entry.deletedAt) {
+    return NextResponse.json({ ok: false, error: "Already deleted" }, { status: 409 });
+  }
+
+  await prisma.usageLog.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
+
+  return NextResponse.json({ ok: true });
 }
 
 export async function POST(req: NextRequest) {
