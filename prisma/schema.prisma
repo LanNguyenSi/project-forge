@@ -32,11 +32,12 @@ model ApiToken {
 }
 
 model UsageLog {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   userId     String
   tokenId    String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token      ApiToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      ApiToken  @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
   repoUrl    String?
+  deletedAt  DateTime?
 }
