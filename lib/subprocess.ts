@@ -5,6 +5,8 @@ export interface RunCommandOptions {
   timeoutMs: number;
   /** Log stdout/stderr to console (default: false). */
   verbose?: boolean;
+  /** Custom environment variables (merged with process.env if not provided). */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -21,6 +23,7 @@ export function runCommand(
       cwd: options.cwd,
       shell: false,
       timeout: options.timeoutMs,
+      env: options.env ?? process.env,
     });
 
     let stdout = "";

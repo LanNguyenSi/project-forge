@@ -1,0 +1,162 @@
+import { NextRequest, NextResponse } from "next/server";
+import { validateApiToken, checkRateLimit, prisma } from "@/lib/db";
+import * as fs from "fs/promises";
+import * as path from "path";
+import type { ErrorResponse } from "@/lib/types";
+import { runCommand } from "@/lib/subprocess";
+import { SESSION_UUID_RE, readForgeMeta, isSessionExpired } from "@/lib/v1-shared";
+
+const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
+
+export async function POST(req: NextRequest) {
+  const apiKey = req.headers.get("X-API-Key");
+  if (!apiKey) {
+    return NextResponse.json({ ok: false, error: "Missing X-API-Key header" }, { status: 401 });
+  }
+
+  const tokenRecord = await validateApiToken(apiKey);
+  if (!tokenRecord) {
+    return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
+  }
+
+  const rateLimit = await checkRateLimit(tokenRecord.userId);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { ok: false, error: "Rate limit exceeded", details: `Used: ${rateLimit.used}/10` },
+      { status: 429 },
+    );
+  }
+
+  try {
+    const { sessionId } = (await req.json()) as { sessionId?: string };
+
+    if (!sessionId || !SESSION_UUID_RE.test(sessionId)) {
+      return NextResponse.json({ ok: false, error: "Missing or invalid sessionId" }, { status: 400 });
+    }
+
+    const tempDir = path.join(TEMP_ROOT, sessionId);
+    const stat = await fs.stat(tempDir).catch(() => null);
+    if (!stat) {
+      return NextResponse.json({ ok: false, error: "Session not found or expired" }, { status: 404 });
+    }
+
+    const meta = await readForgeMeta(tempDir);
+
+    if (meta.userId !== tokenRecord.userId) {
+      return NextResponse.json({ ok: false, error: "Session not found or expired" }, { status: 404 });
+    }
+
+    if (isSessionExpired(meta)) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      return NextResponse.json({ ok: false, error: "Session expired" }, { status: 404 });
+    }
+
+    // Atomic publish lock — prevents race condition on concurrent requests
+    const publishedMarker = path.join(tempDir, ".forge-published");
+    const lockFd = await fs.open(publishedMarker, "wx").catch(() => null);
+    if (!lockFd) {
+      return NextResponse.json({ ok: false, error: "Session already published" }, { status: 409 });
+    }
+    await lockFd.writeFile(new Date().toISOString());
+    await lockFd.close();
+
+    // Get user's GitHub PAT
+    const user = tokenRecord.user;
+    if (!user.githubPat) {
+      // Remove lock so retry is possible after PAT is configured
+      await fs.rm(publishedMarker, { force: true }).catch(() => {});
+      return NextResponse.json(
+        { ok: false, error: "GitHub PAT not configured. Please add it in your dashboard." },
+        { status: 400 },
+      );
+    }
+
+    // Create GitHub repo and push
+    const repoUrl = await createAndPushRepo(tempDir, meta.projectName, user.githubPat);
+
+    // Log usage
+    await prisma.usageLog.create({
+      data: {
+        userId: tokenRecord.userId,
+        tokenId: tokenRecord.id,
+        repoUrl,
+      },
+    });
+
+    // Cleanup temp dir
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+
+    return NextResponse.json({
+      ok: true,
+      result: {
+        repoUrl,
+        cloneUrl: repoUrl + ".git",
+        projectName: meta.projectName,
+      },
+    });
+  } catch (error: unknown) {
+    console.error("Publish failed:", error);
+
+    return NextResponse.json<ErrorResponse>(
+      { ok: false, error: "Publish failed" },
+      { status: 500 },
+    );
+  }
+}
+
+async function createAndPushRepo(projectDir: string, repoName: string, githubPat: string): Promise<string> {
+  const createRes = await fetch("https://api.github.com/user/repos", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${githubPat}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name: repoName, private: false, auto_init: false }),
+  });
+
+  if (!createRes.ok) {
+    const errorText = await createRes.text();
+    if (createRes.status === 422) {
+      try {
+        const errorData = JSON.parse(errorText) as { message?: string };
+        if (errorData.message?.includes("name already exists")) {
+          throw new Error("repo_name_exists");
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message === "repo_name_exists") throw e;
+      }
+    }
+    throw new Error(`github_${createRes.status}`);
+  }
+
+  const repo = (await createRes.json()) as { html_url: string; clone_url: string };
+
+  // Remove forge metadata before committing
+  await fs.rm(path.join(projectDir, ".forge-meta.json"), { force: true }).catch(() => {});
+  await fs.rm(path.join(projectDir, ".forge-published"), { force: true }).catch(() => {});
+
+  // Use GIT_ASKPASS to avoid PAT in process argv
+  const askPassScript = path.join(projectDir, ".git-askpass.sh");
+  await fs.writeFile(askPassScript, `#!/bin/sh\necho "${githubPat}"`, { mode: 0o700 });
+
+  const gitEnv = {
+    GIT_ASKPASS: askPassScript,
+    GIT_TERMINAL_PROMPT: "0",
+  };
+
+  const git = (args: string[], timeoutMs = 10_000) =>
+    runCommand("git", args, { cwd: projectDir, timeoutMs, env: { ...process.env, ...gitEnv } });
+
+  await git(["init", "-b", "main"]);
+  await git(["config", "user.email", "forge@project-forge.dev"]);
+  await git(["config", "user.name", "project-forge"]);
+  await git(["add", "-A"]);
+  await git(["commit", "-m", "feat: initial scaffold\n\nGenerated with project-forge\nPlanned with agent-planforge · Scaffolded with scaffoldkit"]);
+  await git(["remote", "add", "origin", repo.clone_url]);
+  await git(["push", "-u", "origin", "main"], 30_000);
+
+  // Cleanup askpass script
+  await fs.rm(askPassScript, { force: true }).catch(() => {});
+
+  return repo.html_url;
+}
