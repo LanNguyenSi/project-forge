@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateApiToken, checkRateLimit } from "@/lib/db";
+import { validateApiToken } from "@/lib/db";
 import { randomUUID } from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { Task, FileTreeNode, ErrorResponse } from "@/lib/types";
-import { readScaffoldPreview, resolvePlanforgeOutputPaths } from "@/lib/planforge-output";
+import type { ErrorResponse } from "@/lib/types";
+import { resolvePlanforgeOutputPaths } from "@/lib/planforge-output";
 import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
 import { executePlanforgeWorkflow } from "@/lib/planforge-runner";
-import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } from "@/lib/post-scaffold-review";
+import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { runCommand } from "@/lib/subprocess";
+import { validateProjectName, readPreviewData } from "@/lib/v1-shared";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 const PLANFORGE_PATH = process.env.PLANFORGE_PATH ?? "/root/.openclaw/workspace/git/agent-planforge";
@@ -33,13 +34,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
   }
 
-  const rateLimit = await checkRateLimit(tokenRecord.userId);
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { ok: false, error: "Rate limit exceeded", details: `Used: ${rateLimit.used}/10` },
-      { status: 429 },
-    );
-  }
+  // Note: generate does NOT count against the daily project rate limit.
+  // Only publish does, since generate doesn't create a repo.
 
   let sessionId: string | null = null;
 
@@ -47,10 +43,11 @@ export async function POST(req: NextRequest) {
     const input: GenerateRequest = await req.json();
 
     if (!input.projectName || !input.summary) {
-      return NextResponse.json(
-        { ok: false, error: "Missing required fields: projectName, summary" },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: "Missing required fields: projectName, summary" }, { status: 400 });
+    }
+
+    if (!validateProjectName(input.projectName)) {
+      return NextResponse.json({ ok: false, error: "Invalid projectName. Use only letters, numbers, dots, hyphens, underscores (max 100 chars)." }, { status: 400 });
     }
 
     sessionId = randomUUID();
@@ -104,50 +101,9 @@ export async function POST(req: NextRequest) {
 
     await runPostScaffoldReview(tempDir);
 
-    // Parse output
-    const tasksDir = artifacts.tasksDir;
-    const taskFiles = (await fs.readdir(tasksDir).catch(() => [])).filter((f) => f.endsWith(".md"));
+    const preview = await readPreviewData(tempDir, input.projectName);
 
-    const tasks: Task[] = await Promise.all(
-      taskFiles.map(async (file) => {
-        const content = await fs.readFile(path.join(tasksDir, file), "utf-8");
-        const idMatch = file.match(/^(\d+)-/);
-        const titleMatch = content.match(/# Task \d+[:\s]+(.+)/);
-        const waveMatch = content.match(/## Wave\s*\n\s*\n\s*(.+)/);
-        const categoryMatch = content.match(/## Category\s*\n\s*\n\s*(.+)/);
-        const priorityMatch = content.match(/## Priority\s*\n\s*\n\s*(.+)/);
-        const summaryMatch = content.match(/## Summary\s*\n\s*\n\s*(.+)/);
-        return {
-          id: idMatch?.[1] ?? file.replace(".md", ""),
-          title: (titleMatch?.[1] ?? file).trim(),
-          wave: (waveMatch?.[1] ?? "wave-1").trim(),
-          category: (categoryMatch?.[1] ?? "feature").trim(),
-          priority: (priorityMatch?.[1] ?? "P1").trim(),
-          summary: summaryMatch?.[1]?.trim(),
-        };
-      }),
-    );
-
-    const architectureOverview = await fs.readFile(artifacts.architecturePath, "utf-8").catch(() => "(not generated)");
-    const scaffold = await readScaffoldPreview(tempDir);
-    const scaffoldFit = toScaffoldFitPreview(await readPostScaffoldReview(tempDir));
-    const fileTree = await buildFileTree(tempDir);
-    const waves = new Set(tasks.map((t) => t.wave));
-
-    return NextResponse.json({
-      ok: true,
-      sessionId,
-      preview: {
-        projectName: input.projectName,
-        tasks,
-        architectureOverview,
-        fileTree,
-        scaffold,
-        scaffoldFit,
-        taskCount: tasks.length,
-        waveCount: waves.size,
-      },
-    });
+    return NextResponse.json({ ok: true, sessionId, preview });
   } catch (error: unknown) {
     console.error("Generation failed:", error);
 
@@ -156,36 +112,9 @@ export async function POST(req: NextRequest) {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
 
-    const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json<ErrorResponse>(
-      { ok: false, error: "Generation failed", details: msg },
+      { ok: false, error: "Generation failed" },
       { status: 500 },
     );
   }
-}
-
-async function buildFileTree(dirPath: string, basePath = ""): Promise<FileTreeNode[]> {
-  const entries = await fs.readdir(dirPath, { withFileTypes: true });
-  const nodes: FileTreeNode[] = [];
-  const skipDirs = new Set(["node_modules", ".git", "venv", "__pycache__"]);
-  const skipFiles = new Set([".forge-meta.json"]);
-
-  for (const entry of entries) {
-    if (skipDirs.has(entry.name) || skipFiles.has(entry.name)) continue;
-    const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
-    const fullPath = path.join(dirPath, entry.name);
-
-    if (entry.isDirectory()) {
-      const children = await buildFileTree(fullPath, relativePath);
-      nodes.push({ name: entry.name, path: relativePath, type: "directory", children });
-    } else {
-      nodes.push({ name: entry.name, path: relativePath, type: "file" });
-    }
-  }
-
-  return nodes.sort((a, b) => {
-    if (a.type === "directory" && b.type === "file") return -1;
-    if (a.type === "file" && b.type === "directory") return 1;
-    return a.name.localeCompare(b.name);
-  });
 }
