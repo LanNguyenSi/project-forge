@@ -1,6 +1,9 @@
 services:
   app:
     build: .
+    env_file:
+      - path: .env
+        required: false
     environment:
       NODE_ENV: production
       PORT: "3000"
@@ -13,6 +16,7 @@ services:
       - /root/git/agent-planforge:/tools/agent-planforge:ro
       - /root/git/scaffoldkit:/tools/scaffoldkit:ro
       - forge_tmp:/tmp/project-forge
+      - forge_db:/data
     labels:
       traefik.enable: "true"
       traefik.http.routers.project-forge.rule: Host(`project-forge.opentriologue.ai`)
@@ -25,9 +29,8 @@ services:
 
 volumes:
   forge_tmp:
+  forge_db:
 
 networks:
   traefik:
     external: true
-# Note: append these to the app service environment section manually,
-# or use an override file. See docker-compose.override.example.yml
