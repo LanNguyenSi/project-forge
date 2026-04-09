@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  let tempDir = "";
   try {
     const { sessionId } = (await req.json()) as { sessionId?: string };
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing or invalid sessionId" }, { status: 400 });
     }
 
-    const tempDir = path.join(TEMP_ROOT, sessionId);
+    tempDir = path.join(TEMP_ROOT, sessionId);
     const stat = await fs.stat(tempDir).catch(() => null);
     if (!stat) {
       return NextResponse.json({ ok: false, error: "Session not found or expired" }, { status: 404 });
@@ -95,7 +96,12 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    console.error("Publish failed:", error);
+    // Sanitize PAT from error messages before logging
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Publish failed:", msg.replace(/x-access-token:[^@]+@/g, "x-access-token:***@"));
+
+    // Cleanup temp dir on failure (PAT may be in .git/config)
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
     return NextResponse.json<ErrorResponse>(
       { ok: false, error: "Publish failed" },
@@ -151,6 +157,8 @@ async function createAndPushRepo(projectDir: string, repoName: string, githubPat
   await git(["commit", "-m", "feat: initial scaffold\n\nGenerated with project-forge\nPlanned with agent-planforge · Scaffolded with scaffoldkit"]);
   await git(["remote", "add", "origin", authedUrl]);
   await git(["push", "-u", "origin", "main"], 30_000);
+  // Neutralize PAT from .git/config immediately after push
+  await git(["remote", "set-url", "origin", repo.clone_url]);
 
   return repo.html_url;
 }
