@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  let tempDir = "";
   try {
     const { sessionId } = (await req.json()) as { sessionId?: string };
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing or invalid sessionId" }, { status: 400 });
     }
 
-    const tempDir = path.join(TEMP_ROOT, sessionId);
+    tempDir = path.join(TEMP_ROOT, sessionId);
     const stat = await fs.stat(tempDir).catch(() => null);
     if (!stat) {
       return NextResponse.json({ ok: false, error: "Session not found or expired" }, { status: 404 });
@@ -95,7 +96,12 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    console.error("Publish failed:", error);
+    // Sanitize PAT from error messages before logging
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Publish failed:", msg.replace(/x-access-token:[^@]+@/g, "x-access-token:***@"));
+
+    // Cleanup temp dir on failure (PAT may be in .git/config)
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
     return NextResponse.json<ErrorResponse>(
       { ok: false, error: "Publish failed" },
@@ -135,14 +141,11 @@ async function createAndPushRepo(projectDir: string, repoName: string, githubPat
   await fs.rm(path.join(projectDir, ".forge-meta.json"), { force: true }).catch(() => {});
   await fs.rm(path.join(projectDir, ".forge-published"), { force: true }).catch(() => {});
 
-  // Use GIT_ASKPASS to avoid PAT in process argv
-  const askPassScript = path.join(projectDir, ".git-askpass.sh");
-  await fs.writeFile(askPassScript, `#!/bin/sh\necho "${githubPat}"`, { mode: 0o700 });
+  // Embed PAT in the remote URL for auth (standard CI pattern).
+  // clone_url is https://github.com/user/repo.git — inject token as username.
+  const authedUrl = repo.clone_url.replace("https://", `https://x-access-token:${githubPat}@`);
 
-  const gitEnv = {
-    GIT_ASKPASS: askPassScript,
-    GIT_TERMINAL_PROMPT: "0",
-  };
+  const gitEnv = { GIT_TERMINAL_PROMPT: "0" };
 
   const git = (args: string[], timeoutMs = 10_000) =>
     runCommand("git", args, { cwd: projectDir, timeoutMs, env: { ...process.env, ...gitEnv } });
@@ -152,11 +155,10 @@ async function createAndPushRepo(projectDir: string, repoName: string, githubPat
   await git(["config", "user.name", "project-forge"]);
   await git(["add", "-A"]);
   await git(["commit", "-m", "feat: initial scaffold\n\nGenerated with project-forge\nPlanned with agent-planforge · Scaffolded with scaffoldkit"]);
-  await git(["remote", "add", "origin", repo.clone_url]);
+  await git(["remote", "add", "origin", authedUrl]);
   await git(["push", "-u", "origin", "main"], 30_000);
-
-  // Cleanup askpass script
-  await fs.rm(askPassScript, { force: true }).catch(() => {});
+  // Neutralize PAT from .git/config immediately after push
+  await git(["remote", "set-url", "origin", repo.clone_url]);
 
   return repo.html_url;
 }
