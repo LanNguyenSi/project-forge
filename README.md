@@ -15,7 +15,7 @@ A web platform for creating AI-toolchain projects. Describe your project — [ag
 
 AI is optional. Without it, `project-forge` uses deterministic intake mapping plus `agent-planforge` heuristics. If a local or hosted AI provider is configured, `project-forge` also uses it server-side to enrich intake and review scaffold fit after `scaffoldkit` runs.
 
-Also available as a REST API for agents: `POST /api/v1/projects`
+Also available as a REST API for agents — see the [API section](#api) below.
 
 ## Prerequisites
 
@@ -74,6 +74,8 @@ make deploy
 | `LOCAL_AI_API_KEY` | Optional API key for the local AI endpoint |
 | `GITHUB_ID` | GitHub OAuth app Client ID |
 | `GITHUB_SECRET` | GitHub OAuth app Client Secret |
+| `FORGE_TEMP_DIR` | Directory for temporary build artifacts (defaults to OS temp dir) |
+| `SCAFFOLDKIT_PYTHON` | Path to Python 3 binary used by scaffoldkit (defaults to `python3`) |
 
 ### Docker Compose Volumes
 
@@ -94,12 +96,36 @@ See `docker-compose.override.example.yml` for a full example.
 
 ## API
 
-### `POST /api/v1/projects`
+All endpoints require an API token generated in the dashboard, passed via the `X-API-Key` header.
 
-Create a project programmatically. Requires an API token generated in the dashboard.
+Rate limit: 10 requests/day per API token.
+
+### `GET /api/v1/projects`
+
+List all projects for the authenticated user.
 
 ```bash
-curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \
+curl https://project-forge.opentriologue.ai/api/v1/projects \
+  -H "X-API-Key: pf_your_token_here"
+```
+
+### `DELETE /api/v1/projects`
+
+Delete a project by ID.
+
+```bash
+curl -X DELETE https://project-forge.opentriologue.ai/api/v1/projects \
+  -H "X-API-Key: pf_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{ "projectId": "clx..." }'
+```
+
+### `POST /api/v1/generate`
+
+Generate a project scaffold without publishing it. Returns a preview ID for inspection.
+
+```bash
+curl -X POST https://project-forge.opentriologue.ai/api/v1/generate \
   -H "X-API-Key: pf_your_token_here" \
   -H "Content-Type: application/json" \
   -d '{
@@ -109,6 +135,26 @@ curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \
     "constraints": ["TypeScript only", "no external databases"],
     "targetUsers": ["developers", "AI agents"]
   }'
+```
+
+### `GET /api/v1/preview`
+
+Fetch the generated preview (file tree, tasks, architecture) for a given preview ID.
+
+```bash
+curl "https://project-forge.opentriologue.ai/api/v1/preview?previewId=prev_abc123" \
+  -H "X-API-Key: pf_your_token_here"
+```
+
+### `POST /api/v1/publish`
+
+Finalize a previewed project and create the GitHub repository.
+
+```bash
+curl -X POST https://project-forge.opentriologue.ai/api/v1/publish \
+  -H "X-API-Key: pf_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{ "previewId": "prev_abc123" }'
 ```
 
 **Response:**
@@ -123,8 +169,6 @@ curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \
 }
 ```
 
-Rate limit: 10 projects/day per API token.
-
 Full API documentation: [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs)
 
 ## Tech Stack
@@ -134,7 +178,7 @@ Full API documentation: [project-forge.opentriologue.ai/docs](https://project-fo
 - **Database:** SQLite via Prisma (API tokens, users)
 - **Planning:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) (Node.js)
 - **Scaffolding:** [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) (Python 3.11+)
-- **AI:** Local OpenAI-compatible endpoint, Groq (llama-3.3-70b), or OpenAI (gpt-4o-mini)
+- **AI:** Local OpenAI-compatible endpoint, Groq (llama-3.3-70b-versatile), or OpenAI (gpt-4o-mini)
 - **Deploy:** Docker + Traefik
 
 ## Development
