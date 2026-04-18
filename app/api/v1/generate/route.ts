@@ -7,6 +7,7 @@ import type { ErrorResponse } from "@/lib/types";
 import { resolvePlanforgeOutputPaths } from "@/lib/planforge-output";
 import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
 import { executePlanforgeWorkflow } from "@/lib/planforge-runner";
+import { runPlanforgeViaHttp, PlanforgeClientError } from "@/lib/planforge-client";
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { runCommand } from "@/lib/subprocess";
 import { validateProjectName, readPreviewData } from "@/lib/v1-shared";
@@ -14,6 +15,21 @@ import { validateProjectName, readPreviewData } from "@/lib/v1-shared";
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 const PLANFORGE_PATH = process.env.PLANFORGE_PATH ?? "/root/.openclaw/workspace/git/agent-planforge";
 const GENERATION_TIMEOUT_MS = 30_000;
+
+// ADR-0002 sunset-window flag. Defaults to `http` (the new path) on
+// deploys that set `PLANFORGE_URL`; falls back to `shell` (legacy
+// subprocess) on boxes that don't have the planforge service deployed
+// alongside. Operators can force either explicitly via `PLANFORGE_MODE`
+// to smoke both paths during the rollout.
+//
+// Once the HTTP path is proven in prod, ticket #5 (`31e6f7db`) removes
+// the shell branch + the Python/scaffoldkit bind-mounts entirely.
+type PlanforgeMode = "shell" | "http";
+function resolvePlanforgeMode(): PlanforgeMode {
+  const explicit = process.env.PLANFORGE_MODE?.toLowerCase();
+  if (explicit === "shell" || explicit === "http") return explicit;
+  return process.env.PLANFORGE_URL ? "http" : "shell";
+}
 
 interface GenerateRequest {
   projectName: string;
@@ -74,15 +90,34 @@ export async function POST(req: NextRequest) {
       targetUsers: input.targetUsers,
     });
 
-    const inputPath = path.join(tempDir, "project-input.json");
-    await fs.writeFile(inputPath, JSON.stringify(planforgeInput, null, 2));
-
-    await executePlanforgeWorkflow({
-      planforgePath: PLANFORGE_PATH,
-      inputPath,
-      outdir: tempDir,
-      timeoutMs: GENERATION_TIMEOUT_MS,
-    });
+    const mode = resolvePlanforgeMode();
+    if (mode === "http") {
+      const baseUrl = process.env.PLANFORGE_URL;
+      const token = process.env.PLANFORGE_SERVICE_TOKEN;
+      if (!baseUrl || !token) {
+        throw new PlanforgeClientError(
+          "PLANFORGE_MODE=http requires both PLANFORGE_URL and PLANFORGE_SERVICE_TOKEN",
+        );
+      }
+      await runPlanforgeViaHttp({
+        baseUrl,
+        token,
+        input: planforgeInput,
+        outdir: tempDir,
+        timeoutMs: GENERATION_TIMEOUT_MS,
+      });
+    } else {
+      // Legacy shell-out path — kept for the ADR-0002 sunset window.
+      // Writes the input to disk so the CLI can read `--input` from it.
+      const inputPath = path.join(tempDir, "project-input.json");
+      await fs.writeFile(inputPath, JSON.stringify(planforgeInput, null, 2));
+      await executePlanforgeWorkflow({
+        planforgePath: PLANFORGE_PATH,
+        inputPath,
+        outdir: tempDir,
+        timeoutMs: GENERATION_TIMEOUT_MS,
+      });
+    }
 
     // Step 2: Run scaffoldkit
     const artifacts = await resolvePlanforgeOutputPaths(tempDir);
