@@ -60,8 +60,9 @@ make deploy
 | `NEXTAUTH_SECRET` | Random secret (`openssl rand -hex 32`) |
 | `NEXTAUTH_URL` | Public URL (e.g. `https://project-forge.example.com`) |
 | `DATABASE_URL` | SQLite path (e.g. `file:/data/project-forge.db`) |
-| `PLANFORGE_PATH` | Absolute path to agent-planforge repo |
-| `SCAFFOLDKIT_PATH` | Absolute path to scaffoldkit source directory |
+| `PLANFORGE_PATH` | Absolute path to agent-planforge repo (legacy shell-out, will be removed per [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md)) |
+| `SCAFFOLDKIT_PATH` | Absolute path to scaffoldkit source directory (same note) |
+| `PLANFORGE_SERVICE_TOKEN` | Shared bearer token for the planforge HTTP service. Generate with `openssl rand -hex 32`. Required on VPS deploys that run the `planforge` container from `docker-compose.yml`. Same value in both containers. |
 
 ### Optional
 
@@ -77,22 +78,27 @@ make deploy
 | `FORGE_TEMP_DIR` | Directory for temporary build artifacts (defaults to OS temp dir) |
 | `SCAFFOLDKIT_PYTHON` | Path to Python 3 binary used by scaffoldkit (defaults to `python3`) |
 
-### Docker Compose Volumes
+### Docker Compose
 
-The Docker container needs read access to the tool directories:
+The root `docker-compose.yml` ships two services:
 
-```yaml
-# docker-compose.override.yml
-services:
-  app:
-    environment:
-      PLANFORGE_PATH: /tools/agent-planforge
-    volumes:
-      - /path/to/agent-planforge:/tools/agent-planforge:ro
-      - /path/to/scaffoldkit:/tools/scaffoldkit:ro
+- `app` — the project-forge Next.js runtime
+- `planforge` — the agent-planforge HTTP service (new, per [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md)). Built from `/root/git/agent-planforge/server/Dockerfile`. **Internal-only** — no Traefik labels, no published ports. `app` reaches it via the shared `traefik` docker network at `http://planforge:8223`.
+
+Both services need `PLANFORGE_SERVICE_TOKEN` in `.env`. Compose propagates it; mismatched values cause `app` to get 401s from `planforge`.
+
+During the ADR-0002 sunset window, `app` also carries read-only bind-mounts for `/root/git/agent-planforge` and `/root/git/scaffoldkit` — these feed the legacy shell-out paths and disappear once the client-swap ticket lands.
+
+**Token rotation (manual, v1):**
+
+```bash
+cd /root/git/project-forge
+NEW_TOKEN=$(openssl rand -hex 32)
+sed -i "s/^PLANFORGE_SERVICE_TOKEN=.*/PLANFORGE_SERVICE_TOKEN=$NEW_TOKEN/" .env
+docker compose up -d --build  # rebuild both so the new token is live simultaneously
 ```
 
-See `docker-compose.override.example.yml` for a full example.
+A token store + in-place rotation is a follow-up (see ADR-0002).
 
 ## API
 

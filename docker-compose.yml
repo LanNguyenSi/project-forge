@@ -9,9 +9,17 @@ services:
       PORT: "3000"
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       GITHUB_OWNER: ${GITHUB_OWNER:-LanNguyenSi}
+      # Legacy shell-out paths — kept during the ADR-0002 sunset window
+      # (see `lib/planforge-runner.ts`). The client-swap ticket (agent-tasks
+      # `8080321b`) replaces both with the HTTP call below; ticket #5
+      # (`31e6f7db`) removes these env vars + the bind-mounts entirely.
       PLANFORGE_PATH: /tools/agent-planforge
       SCAFFOLDKIT_PATH: /tools/scaffoldkit
       FORGE_TEMP_DIR: /tmp/project-forge
+      # New HTTP boundary (ADR-0002). project-forge's client swap
+      # consumes these two; until it ships they are wired but unused.
+      PLANFORGE_URL: http://planforge:8223
+      PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN}
     volumes:
       - /root/git/agent-planforge:/tools/agent-planforge:ro
       - /root/git/scaffoldkit:/tools/scaffoldkit:ro
@@ -23,6 +31,46 @@ services:
       traefik.http.routers.project-forge.entrypoints: websecure
       traefik.http.routers.project-forge.tls.certresolver: letsencrypt
       traefik.http.services.project-forge.loadbalancer.server.port: "3000"
+    depends_on:
+      planforge:
+        # Wait until planforge reports healthy so project-forge boots with a
+        # live PLANFORGE_URL target. Without the condition, app would race
+        # the first request and 502 until the Hono server finishes booting.
+        condition: service_healthy
+    networks:
+      - traefik
+    restart: unless-stopped
+
+  # ── agent-planforge HTTP service (ADR-0002 follow-up #4) ────────────────
+  #
+  # Built from the agent-planforge repo checked out at /root/git/agent-planforge
+  # (same bind-mount convention the legacy shell-out uses). The image ships the
+  # planforge CLI, the TypeScript HTTP layer, and a pinned scaffoldkit venv —
+  # see `agent-planforge/server/Dockerfile` for the full breakdown.
+  #
+  # Intentionally NOT Traefik-exposed. Access is scoped to the shared `traefik`
+  # docker network, where project-forge reaches it via the internal DNS name
+  # `planforge:8223`. Anything outside the network is invisible to it.
+  planforge:
+    build:
+      context: /root/git/agent-planforge
+      dockerfile: server/Dockerfile
+    environment:
+      PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN}
+    # No ports: — traffic stays on the internal docker network. No Traefik
+    # labels either: public exposure would bypass the service-token contract.
+    healthcheck:
+      # Inline Node so we don't have to add curl/wget to the image. /healthz
+      # is unauth (by design), so the probe doesn't need the service token.
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://localhost:8223/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
     networks:
       - traefik
     restart: unless-stopped
