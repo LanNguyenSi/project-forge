@@ -123,8 +123,10 @@ removed in a later release; consumers should not depend on them.
 ### Changed
 
 - Generate route swapped from shell-out to planforge HTTP
-  service (ADR-0002 v1, #45). Service URL + bearer token come
-  from env (`PLANFORGE_SERVICE_URL`, `PLANFORGE_SERVICE_TOKEN`).
+  service when `PLANFORGE_URL` is set (ADR-0002 v1, #45). Service
+  URL + bearer token come from env (`PLANFORGE_URL`,
+  `PLANFORGE_SERVICE_TOKEN`); without `PLANFORGE_URL` the route
+  falls back to the legacy shell-out path.
 - Health endpoint is `/` (not `/health`) — agent-relay's
   `health:` field in `.relay.yml` reflects that.
 - Removed redundant `pre_update` build step in `.relay.yml`;
@@ -138,8 +140,11 @@ removed in a later release; consumers should not depend on them.
   (#34).
 - Publish flow embeds the user's PAT in the git push remote URL
   (#39) so brand-new empty repos get the first commit cleanly.
-- AI provider order: Groq primary, OpenAI fallback. Local AI
-  optional, third in the chain.
+- AI provider precedence: when `LOCAL_AI_BASE_URL` +
+  `LOCAL_AI_MODEL` are set, the local OpenAI-compatible endpoint
+  wins; otherwise Groq (`llama-3.3-70b-versatile`) when
+  `GROQ_API_KEY` is set; otherwise OpenAI (`gpt-4o-mini`) when
+  `OPENAI_API_KEY` is set; otherwise no AI features.
 - Footer links updated: project-forge → GitHub, planforge +
   scaffoldkit linked from footer.
 
