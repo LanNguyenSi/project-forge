@@ -167,6 +167,51 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     expect(apiToken.create).not.toHaveBeenCalled();
   });
 
+  it("403 when ALLOWED_GITHUB_LOGINS is set and login is not in list", async () => {
+    process.env.ALLOWED_GITHUB_LOGINS = "authorized-user";
+    try {
+      fetchMock.mockResolvedValue({
+        id: 77,
+        login: "stranger",
+        name: null,
+        avatar_url: "",
+        email: null,
+      });
+
+      const res = await POST(makeReq({ githubAccessToken: "valid" }));
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error).toBe("forbidden_github_login");
+      expect(user.create).not.toHaveBeenCalled();
+      expect(user.update).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.ALLOWED_GITHUB_LOGINS;
+    }
+  });
+
+  it("accepts when ALLOWED_GITHUB_LOGINS is set and login matches", async () => {
+    process.env.ALLOWED_GITHUB_LOGINS = "ok-user";
+    try {
+      fetchMock.mockResolvedValue({
+        id: 11,
+        login: "ok-user",
+        name: null,
+        avatar_url: "",
+        email: null,
+      });
+      user.findUnique.mockResolvedValue(null);
+      user.create.mockResolvedValue({ id: "user-ok", githubLogin: "ok-user" });
+      apiToken.findFirst.mockResolvedValue(null);
+
+      const res = await POST(makeReq({ githubAccessToken: "valid" }));
+
+      expect(res.status).toBe(200);
+    } finally {
+      delete process.env.ALLOWED_GITHUB_LOGINS;
+    }
+  });
+
   it("never leaks the GitHub access-token in response bodies (including errors)", async () => {
     fetchMock.mockRejectedValue(new GitHubAuthError("401"));
     const res = await POST(makeReq({ githubAccessToken: "super-secret-value-xyz" }));

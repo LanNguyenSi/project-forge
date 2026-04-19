@@ -90,6 +90,28 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Optional stop-gap allowlist, mirrored from deploy-panel (#57) and
+  // agent-tasks (#178). Empty/unset env var = back-compat accept-any;
+  // set to a comma-separated list to gate broker registration to those
+  // GitHub logins. Becomes optional product policy once per-user data
+  // isolation is in place.
+  const allowedGitHubLogins = (process.env.ALLOWED_GITHUB_LOGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (
+    allowedGitHubLogins.length > 0 &&
+    !allowedGitHubLogins.includes(githubUser.login)
+  ) {
+    return NextResponse.json(
+      {
+        error: "forbidden_github_login",
+        message: "This GitHub login is not permitted on this project-forge instance",
+      },
+      { status: 403 },
+    );
+  }
+
   const githubId = String(githubUser.id);
   const githubEmail = githubUser.email?.toLowerCase() ?? null;
 
