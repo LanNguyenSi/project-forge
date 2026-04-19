@@ -207,7 +207,7 @@ export async function POST(req: NextRequest) {
       tempDir,
       input.projectName,
       user.githubPat,
-      user.githubOwner || user.email.split("@")[0]
+      user.githubOwner || user.githubLogin || user.email?.split("@")[0] || "user"
     );
 
     // Log usage

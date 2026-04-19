@@ -8,9 +8,17 @@ datasource db {
 }
 
 model User {
+  // Users originate either from local email/password registration
+  // (email + passwordHash populated) or from an identity broker like
+  // project-pilot via GitHub OAuth (githubId populated, password/email
+  // optional since GitHub may hide the email). Hence both `email` and
+  // `passwordHash` are nullable; at least one of them or `githubId` is
+  // always set in practice.
   id           String     @id @default(cuid())
-  email        String     @unique
-  passwordHash String
+  email        String?    @unique
+  passwordHash String?
+  githubId     String?    @unique
+  githubLogin  String?
   githubPat    String?
   githubOwner  String?
   createdAt    DateTime   @default(now())
