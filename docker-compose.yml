@@ -21,12 +21,18 @@ services:
       PLANFORGE_URL: http://planforge:8223
       PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN}
     volumes:
-      # Sibling-relative paths: work both in local dev (git clones live
-      # side-by-side under ~/git) and via agent-relay on prod (the relay
-      # container mounts /root/git at /apps, so relative paths resolve
-      # correctly; absolute /root/git/* paths would fail inside the relay).
-      - ../agent-planforge:/tools/agent-planforge:ro
-      - ../scaffoldkit:/tools/scaffoldkit:ro
+      # Bind-mount sources are resolved by the docker DAEMON against the
+      # HOST filesystem (unlike build contexts, which are packaged by the
+      # compose CLI and follow the CLI's own view). On prod the daemon
+      # runs on the host where these absolute paths exist; in agent-relay
+      # the compose CLI never touches these — it only hands the sources
+      # to the daemon by name.
+      #
+      # Local dev note: if you clone agent-planforge/scaffoldkit somewhere
+      # other than /root/git, override these two lines via
+      # docker-compose.override.yml.
+      - /root/git/agent-planforge:/tools/agent-planforge:ro
+      - /root/git/scaffoldkit:/tools/scaffoldkit:ro
       - forge_tmp:/tmp/project-forge
       - forge_db:/data
     labels:
