@@ -21,8 +21,12 @@ services:
       PLANFORGE_URL: http://planforge:8223
       PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN}
     volumes:
-      - /root/git/agent-planforge:/tools/agent-planforge:ro
-      - /root/git/scaffoldkit:/tools/scaffoldkit:ro
+      # Sibling-relative paths: work both in local dev (git clones live
+      # side-by-side under ~/git) and via agent-relay on prod (the relay
+      # container mounts /root/git at /apps, so relative paths resolve
+      # correctly; absolute /root/git/* paths would fail inside the relay).
+      - ../agent-planforge:/tools/agent-planforge:ro
+      - ../scaffoldkit:/tools/scaffoldkit:ro
       - forge_tmp:/tmp/project-forge
       - forge_db:/data
     labels:
@@ -53,7 +57,10 @@ services:
   # `planforge:8223`. Anything outside the network is invisible to it.
   planforge:
     build:
-      context: /root/git/agent-planforge
+      # Sibling path. See rationale on the `app` service volumes above —
+      # absolute /root/git/* doesn't resolve inside agent-relay's container
+      # where the host's /root/git is mounted at /apps.
+      context: ../agent-planforge
       dockerfile: server/Dockerfile
     environment:
       PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN}
