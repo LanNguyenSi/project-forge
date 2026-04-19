@@ -1,4 +1,4 @@
-import type { NextAuthOptions, Account } from "next-auth";
+import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
@@ -24,7 +24,9 @@ export const authOptions: NextAuthOptions = {
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
-        if (!user) return null;
+        // OAuth-only users have no passwordHash — treat them as
+        // non-local-auth to avoid leaking account existence.
+        if (!user || !user.passwordHash || !user.email) return null;
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!valid) return null;
         return { id: user.id, email: user.email };
@@ -49,7 +51,10 @@ export const authOptions: NextAuthOptions = {
           },
           create: {
             email,
-            passwordHash: "", // no password for OAuth users
+            // OAuth users have no local password. passwordHash stays null so
+            // the Credentials provider's `!user.passwordHash` guard can
+            // reject them cleanly without a sentinel-string collision.
+            passwordHash: null,
             githubPat: account.access_token,
             githubOwner: githubUsername,
           },
