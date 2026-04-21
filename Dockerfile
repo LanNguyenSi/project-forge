@@ -10,16 +10,13 @@ RUN npm run build
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-# Install git, SSL, Python 3 (for scaffoldkit)
+# git + SSL only. Python / scaffoldkit venv removed 2026-04-21 (ADR-0002
+# follow-up #5) — planforge runs scaffoldkit in its own container and
+# returns the scaffolded tarball over HTTP. `tar` (for extracting that
+# tarball) is already in the base image.
 RUN apt-get update && apt-get install -y \
     git ca-certificates openssl \
-    python3 python3-pip python3-venv \
     --no-install-recommends && rm -rf /var/lib/apt/lists/*
-
-# Create scaffoldkit venv inside the image (scaffoldkit source mounted at runtime)
-# The venv is built at startup once scaffoldkit source is available
-ENV SCAFFOLDKIT_VENV=/app/.sk-venv
-ENV SCAFFOLDKIT_PYTHON=/app/.sk-venv/bin/python3
 
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
@@ -27,9 +24,4 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/public ./public
 EXPOSE 3000
-CMD ["sh", "-c", "\
-  npx prisma db push --skip-generate && \
-  python3 -m venv $SCAFFOLDKIT_VENV && \
-  $SCAFFOLDKIT_VENV/bin/pip install -e /tools/scaffoldkit -q && \
-  npx next start \
-"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate && npx next start"]

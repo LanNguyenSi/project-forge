@@ -11,13 +11,13 @@ import type {
 } from '../../../lib/types';
 import { readScaffoldPreview, resolvePlanforgeOutputPaths } from '@/lib/planforge-output';
 import { buildPlanforgeInput } from '@/lib/planforge-orchestrator';
-import { executePlanforgeWorkflow } from '@/lib/planforge-runner';
+import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from '@/lib/planforge-client';
 import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } from '@/lib/post-scaffold-review';
-import { runCommand } from '@/lib/subprocess';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
-const PLANFORGE_PATH = process.env.PLANFORGE_PATH ?? '/root/.openclaw/workspace/git/agent-planforge';
-const GENERATION_TIMEOUT_MS = 30_000;
+// End-to-end cap for plan + scaffold + tar + SSE + untar. Server-side
+// scaffoldkit timeout is 5 min; 3 min here leaves headroom.
+const GENERATION_TIMEOUT_MS = 3 * 60_000;
 
 export async function POST(req: NextRequest) {
   let sessionId: string | null = null;
@@ -36,44 +36,29 @@ export async function POST(req: NextRequest) {
     const tempDir = path.join(TEMP_ROOT, sessionId);
     await fs.mkdir(tempDir, { recursive: true });
 
-    // Step 1: Run planforge
+    // Plan + scaffold via the planforge HTTP service. The response tarball
+    // contains both planning artifacts and the scaffolded project tree;
+    // they're extracted directly into tempDir so downstream code reads
+    // from the same layout the legacy subprocess produced.
     const { planforgeInput } = await buildPlanforgeInput(input);
-
-    const inputPath = path.join(tempDir, 'project-input.json');
-    await fs.writeFile(inputPath, JSON.stringify(planforgeInput, null, 2));
-
-    await executePlanforgeWorkflow({
-      planforgePath: PLANFORGE_PATH,
-      inputPath,
+    const baseUrl = process.env.PLANFORGE_URL;
+    const token = process.env.PLANFORGE_SERVICE_TOKEN;
+    if (!baseUrl || !token) {
+      throw new PlanforgeClientError(
+        'PLANFORGE_URL and PLANFORGE_SERVICE_TOKEN are required',
+      );
+    }
+    const planforgeResult = await runPlanforgeViaHttp({
+      baseUrl,
+      token,
+      input: planforgeInput,
       outdir: tempDir,
       timeoutMs: GENERATION_TIMEOUT_MS,
     });
-
-    // Step 2: Run scaffoldkit from the generated planforge exports.
+    // Fail loud if scaffoldkit didn't run — without this the preview
+    // would silently render a planning-only structure to the user.
+    assertScaffoldkitRan(planforgeResult);
     const artifacts = await resolvePlanforgeOutputPaths(tempDir);
-    const scaffoldkitInputPath = artifacts.scaffoldkitInputPath;
-    // Write scaffold files directly into tempDir (not a subdirectory)
-    // so they appear at repo root when pushed to GitHub
-    const scaffoldkitPython = process.env.SCAFFOLDKIT_PYTHON ?? '/tmp/sk-venv/bin/python3';
-
-    const scaffoldkitExists = await fs.access(scaffoldkitInputPath).then(() => true).catch(() => false);
-    if (scaffoldkitExists) {
-      await runCommand(
-        scaffoldkitPython,
-        [
-          '-m', 'scaffoldkit.cli',
-          'from-planforge',
-          scaffoldkitInputPath,
-          '--target', tempDir,
-          '--overwrite',
-          '--no-install',
-        ],
-        { cwd: tempDir, timeoutMs: GENERATION_TIMEOUT_MS, verbose: true }
-      ).catch((err: Error) => {
-        // scaffoldkit failure is non-blocking — planforge output is still useful
-        console.error('scaffoldkit FAILED:', err.message);
-      });
-    }
 
     await runPostScaffoldReview(tempDir);
 

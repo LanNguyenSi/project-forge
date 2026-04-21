@@ -9,30 +9,13 @@ services:
       PORT: "3000"
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       GITHUB_OWNER: ${GITHUB_OWNER:-LanNguyenSi}
-      # Legacy shell-out paths — kept during the ADR-0002 sunset window
-      # (see `lib/planforge-runner.ts`). The client-swap ticket (agent-tasks
-      # `8080321b`) replaces both with the HTTP call below; ticket #5
-      # (`31e6f7db`) removes these env vars + the bind-mounts entirely.
-      PLANFORGE_PATH: /tools/agent-planforge
-      SCAFFOLDKIT_PATH: /tools/scaffoldkit
       FORGE_TEMP_DIR: /tmp/project-forge
-      # New HTTP boundary (ADR-0002). project-forge's client swap
-      # consumes these two; until it ships they are wired but unused.
+      # Planforge HTTP boundary (ADR-0002). The planforge service runs both
+      # the planforge CLI and scaffoldkit in-container; this app just POSTs
+      # input and untars the response. No bind-mounts needed.
       PLANFORGE_URL: http://planforge:8223
       PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN}
     volumes:
-      # Bind-mount sources are resolved by the docker DAEMON against the
-      # HOST filesystem (unlike build contexts, which are packaged by the
-      # compose CLI and follow the CLI's own view). On prod the daemon
-      # runs on the host where these absolute paths exist; in agent-relay
-      # the compose CLI never touches these — it only hands the sources
-      # to the daemon by name.
-      #
-      # Local dev note: if you clone agent-planforge/scaffoldkit somewhere
-      # other than /root/git, override these two lines via
-      # docker-compose.override.yml.
-      - /root/git/agent-planforge:/tools/agent-planforge:ro
-      - /root/git/scaffoldkit:/tools/scaffoldkit:ro
       - forge_tmp:/tmp/project-forge
       - forge_db:/data
     labels:
@@ -51,21 +34,19 @@ services:
       - traefik
     restart: unless-stopped
 
-  # ── agent-planforge HTTP service (ADR-0002 follow-up #4) ────────────────
+  # ── agent-planforge HTTP service (ADR-0002) ───────────────────────────
   #
-  # Built from the agent-planforge repo checked out at /root/git/agent-planforge
-  # (same bind-mount convention the legacy shell-out uses). The image ships the
-  # planforge CLI, the TypeScript HTTP layer, and a pinned scaffoldkit venv —
-  # see `agent-planforge/server/Dockerfile` for the full breakdown.
+  # Built from the agent-planforge repo checked out at the sibling path
+  # /root/git/agent-planforge. The image ships the planforge CLI, the
+  # TypeScript HTTP layer, AND a pinned scaffoldkit venv that runs
+  # scaffoldkit server-side — see `agent-planforge/server/Dockerfile`.
   #
-  # Intentionally NOT Traefik-exposed. Access is scoped to the shared `traefik`
-  # docker network, where project-forge reaches it via the internal DNS name
-  # `planforge:8223`. Anything outside the network is invisible to it.
+  # Intentionally NOT Traefik-exposed. Access is scoped to the shared
+  # `traefik` docker network, where project-forge reaches it via the
+  # internal DNS name `planforge:8223`. The service-token gate enforces
+  # auth on /api/*.
   planforge:
     build:
-      # Sibling path. See rationale on the `app` service volumes above —
-      # absolute /root/git/* doesn't resolve inside agent-relay's container
-      # where the host's /root/git is mounted at /apps.
       context: ../agent-planforge
       dockerfile: server/Dockerfile
     environment:

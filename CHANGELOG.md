@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **ADR-0002 sunset complete: legacy shell-out paths removed.** All four generate routes (`/api/generate`, `/api/planforge`, `/api/v1/generate`, `/api/v1/projects`) previously had a `child_process.spawn("node bootstrap-plan.js …")` code path guarded by `PLANFORGE_MODE` or env-presence checks, and a separate `runCommand(scaffoldkitPython, ["-m", "scaffoldkit.cli", "from-planforge", …])` step. Both are gone. The sole path is now `POST ${PLANFORGE_URL}/api/generate` with `scaffold: true` (default); planforge runs both the CLI and scaffoldkit in its container and returns a tarball carrying planning artifacts and scaffolded files together.
+
+### Removed
+
+- **Python + scaffoldkit venv from the runtime image.** `Dockerfile` no longer installs `python3`, `python3-pip`, or `python3-venv`; the `CMD` no longer creates `/app/.sk-venv` or `pip install -e /tools/scaffoldkit`. Expected image-size shrink is ~100–150 MB.
+- **Bind-mounts for `/root/git/agent-planforge` and `/root/git/scaffoldkit`** from `docker-compose.yml`. project-forge's `app` container no longer sees `/tools/agent-planforge` or `/tools/scaffoldkit`.
+- **`app/api/planforge/route.ts`** — dead route, no callers.
+- **`lib/planforge-runner.ts`** (`executePlanforgeWorkflow`) — no longer used by any caller.
+- **Env vars**: `PLANFORGE_PATH`, `PLANFORGE_MODE`, `SCAFFOLDKIT_PATH`, `SCAFFOLDKIT_PYTHON` deleted from `docker-compose.yml`, `Dockerfile`, `.github/workflows/ci.yml`.
+
+### Migration
+
+Operators running project-forge on VPS:
+1. Ensure the planforge container is running and healthy (it now runs scaffoldkit server-side; see agent-planforge PR #62 for the contract change). The default `docker-compose.yml` builds planforge from `../agent-planforge/server/Dockerfile` alongside `app`.
+2. After pulling this release, `docker compose build && docker compose up -d` recreates `app` without Python. No action needed for the planforge service — it's rebuilt by compose as usual.
+3. `PLANFORGE_URL` + `PLANFORGE_SERVICE_TOKEN` remain required in `.env`.
+
 ## [0.1.0] - 2026-04-18
 
 **Headline: First tagged release of project-forge — the web platform
