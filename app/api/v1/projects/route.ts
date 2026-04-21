@@ -3,14 +3,12 @@ import { validateApiToken, checkRateLimit, prisma } from "@/lib/db";
 import { randomUUID } from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { resolvePlanforgeOutputPaths } from "@/lib/planforge-output";
 import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
-import { executePlanforgeWorkflow } from "@/lib/planforge-runner";
+import { runPlanforgeViaHttp, PlanforgeClientError } from "@/lib/planforge-client";
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { runCommand } from "@/lib/subprocess";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
-const PLANFORGE_PATH = process.env.PLANFORGE_PATH ?? "/root/.openclaw/workspace/git/agent-planforge";
 const GENERATION_TIMEOUT_MS = 30_000;
 
 interface ProjectRequest {
@@ -155,7 +153,8 @@ export async function POST(req: NextRequest) {
     const tempDir = path.join(TEMP_ROOT, sessionId);
     await fs.mkdir(tempDir, { recursive: true });
 
-    // Step 1: Run planforge
+    // Plan + scaffold via the planforge HTTP service. The response tarball
+    // contains both planning artifacts and the scaffolded project tree.
     const { planforgeInput } = await buildPlanforgeInput({
       projectName: input.projectName,
       summary: input.summary,
@@ -163,42 +162,20 @@ export async function POST(req: NextRequest) {
       constraints: input.constraints ?? [],
       targetUsers: input.targetUsers,
     });
-
-    const inputPath = path.join(tempDir, "project-input.json");
-    await fs.writeFile(inputPath, JSON.stringify(planforgeInput, null, 2));
-
-    await executePlanforgeWorkflow({
-      planforgePath: PLANFORGE_PATH,
-      inputPath,
+    const baseUrl = process.env.PLANFORGE_URL;
+    const token = process.env.PLANFORGE_SERVICE_TOKEN;
+    if (!baseUrl || !token) {
+      throw new PlanforgeClientError(
+        "PLANFORGE_URL and PLANFORGE_SERVICE_TOKEN are required",
+      );
+    }
+    await runPlanforgeViaHttp({
+      baseUrl,
+      token,
+      input: planforgeInput,
       outdir: tempDir,
       timeoutMs: GENERATION_TIMEOUT_MS,
     });
-
-    // Step 2: Run scaffoldkit from-planforge
-    const artifacts = await resolvePlanforgeOutputPaths(tempDir);
-    const scaffoldInputPath = artifacts.scaffoldkitInputPath;
-    const scaffoldkitPython = process.env.SCAFFOLDKIT_PYTHON ?? "/tmp/sk-venv/bin/python3";
-    const scaffoldkitExists = await fs.access(scaffoldInputPath).then(() => true).catch(() => false);
-
-    if (scaffoldkitExists) {
-      await runCommand(
-        scaffoldkitPython,
-        [
-          "-m",
-          "scaffoldkit.cli",
-          "from-planforge",
-          scaffoldInputPath,
-          "--target",
-          tempDir,
-          "--overwrite",
-          "--no-install",
-        ],
-        { cwd: tempDir, timeoutMs: GENERATION_TIMEOUT_MS, verbose: true }
-      ).catch((err: Error) => {
-        // Non-blocking - planforge output is still useful
-        console.error("scaffoldkit failed (non-blocking):", err.message);
-      });
-    }
 
     await runPostScaffoldReview(tempDir);
 

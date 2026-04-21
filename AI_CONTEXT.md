@@ -5,7 +5,7 @@
 
 ## Project Overview
 
-**project-forge** is a full-stack web application for creating new software projects using the agent toolchain (agent-planforge, scaffoldkit). Users fill in a form, the server runs planforge and scaffoldkit in a temp directory, shows a preview of the generated structure (tasks, architecture, file tree), allows review and re-generation, then creates a GitHub repo and pushes on confirmation.
+**project-forge** is a full-stack web application for creating new software projects using the agent toolchain. Users fill in a form, the server POSTs to the agent-planforge HTTP service (which runs both planforge and scaffoldkit in-container and returns a tarball), extracts the result into a temp directory, shows a preview of the generated structure, allows review and re-generation, then creates a GitHub repo and pushes on confirmation.
 
 - **Language:** TypeScript (strict mode)
 - **Framework:** Next.js 15 (App Router)
@@ -13,7 +13,7 @@
 - **Database:** SQLite via Prisma
 - **Auth:** next-auth (GitHub OAuth + email/password, JWT sessions)
 - **Testing:** Vitest + Testing Library
-- **Deployment:** Docker (Node.js 20-slim + Python 3 for scaffoldkit)
+- **Deployment:** Docker (Node.js 20-slim; no Python / scaffoldkit in the project-forge image — those live inside the planforge container per ADR-0002)
 
 ## Repository Structure
 
@@ -49,7 +49,7 @@ project-forge/
 │   ├── auth.ts                   # NextAuth configuration
 │   ├── ai-provider.ts            # AI provider abstraction (Local/Groq/OpenAI)
 │   ├── planforge-orchestrator.ts # Intake mapping & AI enrichment
-│   ├── planforge-runner.ts       # Shell invocation of agent-planforge
+│   ├── planforge-client.ts       # HTTP client for the planforge service (SSE + tarball extract)
 │   ├── planforge-output.ts       # Artifact parsing and path resolution
 │   └── post-scaffold-review.ts   # Scaffold fit assessment
 │
@@ -86,9 +86,7 @@ project-forge/
 
 ### External Tools
 
-- **agent-planforge** (Node.js CLI): invoked via `child_process.spawn()` in `lib/planforge-runner.ts`
-- **scaffoldkit** (Python CLI): invoked similarly, requires Python 3.11+
-- Paths configured via `PLANFORGE_PATH` and `SCAFFOLDKIT_PATH` env vars
+- **agent-planforge HTTP service**: `POST ${PLANFORGE_URL}/api/generate` with `Bearer ${PLANFORGE_SERVICE_TOKEN}`. The service runs both the planforge CLI and scaffoldkit in its own container and streams back an SSE `done` event with a base64 gzipped tarball that the client untars into the request tempdir. See `lib/planforge-client.ts`. scaffoldkit is NOT invoked from project-forge — it lives entirely inside the planforge container (ADR-0002).
 
 ### Styling
 

@@ -19,27 +19,7 @@ Also available as a REST API for agents — see the [API section](#api) below.
 
 ## Prerequisites
 
-project-forge requires two external tools to be installed on the same machine as the server:
-
-### 1. [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
-
-```bash
-git clone https://github.com/LanNguyenSi/agent-planforge.git
-cd agent-planforge
-npm install
-```
-
-Set env: `PLANFORGE_PATH=/path/to/agent-planforge`
-
-### 2. [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit)
-
-```bash
-git clone https://github.com/LanNguyenSi/scaffoldkit.git
-```
-
-Set env: `SCAFFOLDKIT_PATH=/path/to/scaffoldkit`
-
-> **Note:** Python 3 is installed automatically inside the Docker container. You only need the scaffoldkit source directory.
+project-forge talks to a single dependency: the **agent-planforge HTTP service**, which runs both the planforge CLI and scaffoldkit in its own container and returns the scaffolded project as a tarball over HTTP (per [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md)). Docker Compose wires it in automatically; nothing to install on the host.
 
 ## Quick Start (Docker)
 
@@ -60,9 +40,8 @@ make deploy
 | `NEXTAUTH_SECRET` | Random secret (`openssl rand -hex 32`) |
 | `NEXTAUTH_URL` | Public URL (e.g. `https://project-forge.example.com`) |
 | `DATABASE_URL` | SQLite path (e.g. `file:/data/project-forge.db`) |
-| `PLANFORGE_PATH` | Absolute path to agent-planforge repo (legacy shell-out, will be removed per [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md)) |
-| `SCAFFOLDKIT_PATH` | Absolute path to scaffoldkit source directory (same note) |
-| `PLANFORGE_SERVICE_TOKEN` | Shared bearer token for the planforge HTTP service. Generate with `openssl rand -hex 32`. Required on VPS deploys that run the `planforge` container from `docker-compose.yml`. Same value in both containers. |
+| `PLANFORGE_URL` | URL of the planforge HTTP service (defaults to `http://planforge:8223` in compose). |
+| `PLANFORGE_SERVICE_TOKEN` | Shared bearer token for the planforge HTTP service. Generate with `openssl rand -hex 32`. Same value in both `app` and `planforge` containers. |
 
 ### Optional
 
@@ -76,18 +55,15 @@ make deploy
 | `GITHUB_ID` | GitHub OAuth app Client ID |
 | `GITHUB_SECRET` | GitHub OAuth app Client Secret |
 | `FORGE_TEMP_DIR` | Directory for temporary build artifacts (defaults to OS temp dir) |
-| `SCAFFOLDKIT_PYTHON` | Path to Python 3 binary used by scaffoldkit (defaults to `python3`) |
 
 ### Docker Compose
 
 The root `docker-compose.yml` ships two services:
 
-- `app` — the project-forge Next.js runtime
-- `planforge` — the agent-planforge HTTP service (new, per [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md)). Built from `/root/git/agent-planforge/server/Dockerfile`. **Internal-only** — no Traefik labels, no published ports. `app` reaches it via the shared `traefik` docker network at `http://planforge:8223`.
+- `app` — the project-forge Next.js runtime.
+- `planforge` — the agent-planforge HTTP service (per [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md)). Built from `/root/git/agent-planforge/server/Dockerfile`. Runs both the planforge CLI and scaffoldkit in-container. **Internal-only** — no Traefik labels, no published ports. `app` reaches it via the shared `traefik` docker network at `http://planforge:8223`.
 
 Both services need `PLANFORGE_SERVICE_TOKEN` in `.env`. Compose propagates it; mismatched values cause `app` to get 401s from `planforge`.
-
-During the ADR-0002 sunset window, `app` also carries read-only bind-mounts for `/root/git/agent-planforge` and `/root/git/scaffoldkit` — these feed the legacy shell-out paths and disappear once the client-swap ticket lands.
 
 **Token rotation (manual, v1):**
 
@@ -182,8 +158,7 @@ Full API documentation: [project-forge.opentriologue.ai/docs](https://project-fo
 - **Frontend:** Next.js 14 + TypeScript + Tailwind CSS
 - **Auth:** next-auth (email/password + GitHub OAuth)
 - **Database:** SQLite via Prisma (API tokens, users)
-- **Planning:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) (Node.js)
-- **Scaffolding:** [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) (Python 3.11+)
+- **Planning + Scaffolding:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) HTTP service (bundles [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) in its own container; project-forge is Node-only)
 - **AI:** Local OpenAI-compatible endpoint, Groq (llama-3.3-70b-versatile), or OpenAI (gpt-4o-mini)
 - **Deploy:** Docker + Traefik
 

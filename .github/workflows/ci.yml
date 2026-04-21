@@ -23,6 +23,4 @@ jobs:
         env:
           GITHUB_TOKEN: "mock"
           GITHUB_OWNER: "mock"
-          PLANFORGE_PATH: "/tmp"
-          SCAFFOLDKIT_PYTHON: "python3"
       - run: npx vitest run

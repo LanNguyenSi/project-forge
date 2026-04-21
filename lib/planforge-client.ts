@@ -1,29 +1,26 @@
 /**
  * HTTP client for the agent-planforge service.
  *
- * Replaces the `child_process.spawn("node", [bootstrap-plan.js, ...])` path
- * in `lib/planforge-runner.ts` with a `POST /api/generate` call against the
- * deployed planforge container. Part of the ADR-0002 decoupling — see
+ * Sole path for invoking planforge + scaffoldkit from project-forge.
+ * ADR-0002 decoupling — see
  * `docs/adrs/0002-tool-decoupling-service-boundary.md`.
  *
  * Shape of the exchange:
  *   1. POST the planforge input JSON to `${PLANFORGE_URL}/api/generate` with
  *      a Bearer `PLANFORGE_SERVICE_TOKEN`.
  *   2. Server streams SSE events — `progress` lines forwarded as-is to the
- *      caller's optional `onProgress` hook so logs keep their existing
- *      shape, plus a final `done` event carrying `outputTarGz` (base64
- *      gzipped tarball of the CLI's output dir contents).
+ *      caller's optional `onProgress` hook, plus a final `done` event
+ *      carrying `outputTarGz` (base64 gzipped tarball) and a structured
+ *      `scaffoldkit` field describing whether the in-container scaffold
+ *      ran cleanly.
  *   3. Client untars `outputTarGz` into the caller-supplied `outdir`. The
  *      tar packs directory *contents* (server does `tar -C <dir> .`), so
- *      extracting straight into `outdir` reproduces the layout the CLI
- *      would have written there itself — no nested `out/` folder.
- *   4. Downstream code (`resolvePlanforgeOutputPaths`, scaffoldkit
- *      shell-out, post-scaffold review, preview read) keeps reading from
- *      `outdir` exactly as before.
- *
- * Keeps the scaffoldkit subprocess in `app/api/v1/generate/route.ts`
- * untouched for this ticket. Moving scaffoldkit into planforge is a
- * separate follow-up — sunset window stays open.
+ *      extracting straight into `outdir` reproduces the layout planforge
+ *      produced on its side — planning artifacts AND scaffolded project
+ *      files together, no nested `out/` folder.
+ *   4. Downstream code (`resolvePlanforgeOutputPaths`, post-scaffold
+ *      review, preview read) keeps reading from `outdir` exactly as
+ *      before. scaffoldkit is no longer invoked client-side.
  */
 import { spawn } from "node:child_process";
 
