@@ -5,12 +5,16 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { ErrorResponse } from "@/lib/types";
 import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
-import { runPlanforgeViaHttp, PlanforgeClientError } from "@/lib/planforge-client";
+import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from "@/lib/planforge-client";
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { validateProjectName, readPreviewData } from "@/lib/v1-shared";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
-const GENERATION_TIMEOUT_MS = 30_000;
+// End-to-end cap for plan + scaffold + tar + SSE + untar. The planforge
+// service alone gives scaffoldkit up to 5 minutes; 3 minutes on the
+// client leaves comfortable headroom under that ceiling while still
+// failing a stuck run before the Next.js worker timeout.
+const GENERATION_TIMEOUT_MS = 3 * 60_000;
 
 interface GenerateRequest {
   projectName: string;
@@ -82,13 +86,16 @@ export async function POST(req: NextRequest) {
         "PLANFORGE_URL and PLANFORGE_SERVICE_TOKEN are required",
       );
     }
-    await runPlanforgeViaHttp({
+    const planforgeResult = await runPlanforgeViaHttp({
       baseUrl,
       token,
       input: planforgeInput,
       outdir: tempDir,
       timeoutMs: GENERATION_TIMEOUT_MS,
     });
+    // Fail loud if scaffoldkit didn't run or exited nonzero — without this
+    // the preview would silently reflect planning-only artifacts.
+    assertScaffoldkitRan(planforgeResult);
 
     await runPostScaffoldReview(tempDir);
 

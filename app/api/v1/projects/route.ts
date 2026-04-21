@@ -4,12 +4,14 @@ import { randomUUID } from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
-import { runPlanforgeViaHttp, PlanforgeClientError } from "@/lib/planforge-client";
+import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from "@/lib/planforge-client";
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { runCommand } from "@/lib/subprocess";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
-const GENERATION_TIMEOUT_MS = 30_000;
+// End-to-end cap for plan + scaffold + tar + SSE + untar + git push.
+// Server-side scaffoldkit timeout is 5 min; 3 min here leaves headroom.
+const GENERATION_TIMEOUT_MS = 3 * 60_000;
 
 interface ProjectRequest {
   projectName: string;
@@ -169,13 +171,16 @@ export async function POST(req: NextRequest) {
         "PLANFORGE_URL and PLANFORGE_SERVICE_TOKEN are required",
       );
     }
-    await runPlanforgeViaHttp({
+    const planforgeResult = await runPlanforgeViaHttp({
       baseUrl,
       token,
       input: planforgeInput,
       outdir: tempDir,
       timeoutMs: GENERATION_TIMEOUT_MS,
     });
+    // Fail loud if scaffoldkit didn't run — pushing a planning-only repo
+    // to the user's GitHub with no error signal is a silent regression.
+    assertScaffoldkitRan(planforgeResult);
 
     await runPostScaffoldReview(tempDir);
 

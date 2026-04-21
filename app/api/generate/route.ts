@@ -11,11 +11,13 @@ import type {
 } from '../../../lib/types';
 import { readScaffoldPreview, resolvePlanforgeOutputPaths } from '@/lib/planforge-output';
 import { buildPlanforgeInput } from '@/lib/planforge-orchestrator';
-import { runPlanforgeViaHttp, PlanforgeClientError } from '@/lib/planforge-client';
+import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from '@/lib/planforge-client';
 import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } from '@/lib/post-scaffold-review';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
-const GENERATION_TIMEOUT_MS = 30_000;
+// End-to-end cap for plan + scaffold + tar + SSE + untar. Server-side
+// scaffoldkit timeout is 5 min; 3 min here leaves headroom.
+const GENERATION_TIMEOUT_MS = 3 * 60_000;
 
 export async function POST(req: NextRequest) {
   let sessionId: string | null = null;
@@ -46,13 +48,16 @@ export async function POST(req: NextRequest) {
         'PLANFORGE_URL and PLANFORGE_SERVICE_TOKEN are required',
       );
     }
-    await runPlanforgeViaHttp({
+    const planforgeResult = await runPlanforgeViaHttp({
       baseUrl,
       token,
       input: planforgeInput,
       outdir: tempDir,
       timeoutMs: GENERATION_TIMEOUT_MS,
     });
+    // Fail loud if scaffoldkit didn't run — without this the preview
+    // would silently render a planning-only structure to the user.
+    assertScaffoldkitRan(planforgeResult);
     const artifacts = await resolvePlanforgeOutputPaths(tempDir);
 
     await runPostScaffoldReview(tempDir);

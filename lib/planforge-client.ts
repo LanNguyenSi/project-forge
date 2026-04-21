@@ -43,10 +43,26 @@ export interface RunPlanforgeOptions {
   timeoutMs?: number;
 }
 
+export interface ScaffoldkitResult {
+  invoked: boolean;
+  exitCode?: number;
+  stderr?: string;
+  skipped?: "no_input" | "opt_out" | "not_installed";
+}
+
 export interface PlanforgeRunResult {
   requestId: string;
   planOutput: unknown;
   scaffoldkitInput: unknown | null;
+  /**
+   * Populated unconditionally by the planforge service (post v0.1.0+).
+   * `undefined` only on the transition deploys that predate the
+   * scaffoldkit-in-service contract. Callers that expect a scaffolded
+   * repo MUST assert `scaffoldkit?.invoked === true && exitCode === 0`
+   * before publishing — otherwise the tarball contains planning
+   * artifacts only and the published repo will look empty to the user.
+   */
+  scaffoldkit?: ScaffoldkitResult;
 }
 
 export class PlanforgeClientError extends Error {
@@ -54,6 +70,32 @@ export class PlanforgeClientError extends Error {
     super(message);
     this.name = "PlanforgeClientError";
   }
+}
+
+/**
+ * Route-side guard: throw if the planforge service didn't actually run
+ * scaffoldkit. Without this, a misconfigured planforge container (e.g.
+ * missing SCAFFOLDKIT_PYTHON → `skipped: "not_installed"`) would return
+ * a tarball with planning artifacts only, and a downstream publish would
+ * push a nearly-empty repo to the user's GitHub with no error signal.
+ * Fail loud at the service boundary instead.
+ *
+ * Tolerant on `undefined` — older planforge deploys that predate the
+ * scaffoldkit-in-service contract don't populate this field; we skip
+ * the assertion in that case so the client stays backward-compatible.
+ */
+export function assertScaffoldkitRan(result: PlanforgeRunResult): void {
+  const sk = result.scaffoldkit;
+  if (!sk) return;
+  if (sk.invoked && sk.exitCode === 0) return;
+  if (sk.invoked) {
+    throw new PlanforgeClientError(
+      `scaffoldkit ran but exited ${sk.exitCode ?? "unknown"}: ${sk.stderr?.slice(0, 200) ?? "no stderr"}`,
+    );
+  }
+  throw new PlanforgeClientError(
+    `scaffoldkit did not run (skipped: ${sk.skipped ?? "unknown"}); published repo would be missing scaffolded files`,
+  );
 }
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -74,7 +116,11 @@ export async function runPlanforgeViaHttp(
         Authorization: `Bearer ${options.token}`,
         Accept: "text/event-stream",
       },
-      body: JSON.stringify({ input: options.input }),
+      // `scaffold: true` is the server's default, but sending it explicitly
+      // pins the intent in the wire format. If a future planforge release
+      // flips the default to false, this keeps project-forge's contract
+      // stable.
+      body: JSON.stringify({ input: options.input, scaffold: true }),
       signal: controller.signal,
     });
 
@@ -102,6 +148,7 @@ export async function runPlanforgeViaHttp(
       planOutput: unknown;
       scaffoldkitInput: unknown | null;
       outputTarGz?: string;
+      scaffoldkit?: ScaffoldkitResult;
     } | null = null;
 
     while (true) {
@@ -156,6 +203,7 @@ export async function runPlanforgeViaHttp(
       requestId: doneEvent.requestId,
       planOutput: doneEvent.planOutput,
       scaffoldkitInput: doneEvent.scaffoldkitInput ?? null,
+      scaffoldkit: doneEvent.scaffoldkit,
     };
   } finally {
     clearTimeout(timeout);

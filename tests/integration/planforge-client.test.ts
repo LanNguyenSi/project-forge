@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { runPlanforgeViaHttp, PlanforgeClientError } from "../../lib/planforge-client";
+import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from "../../lib/planforge-client";
 
 const execFileP = promisify(execFile);
 
@@ -160,6 +160,65 @@ describe("runPlanforgeViaHttp", () => {
     ).rejects.toThrow(/done event/);
   });
 
+  it("surfaces scaffoldkit metadata from the done event to callers", async () => {
+    const tarGz = await buildFixtureTarGzB64();
+    global.fetch = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          event: "done",
+          data: {
+            requestId: "req-sk",
+            planOutput: {},
+            scaffoldkitInput: { blueprint: "none" },
+            outputTarGz: tarGz,
+            scaffoldkit: { invoked: true, exitCode: 0, stderr: "" },
+            exitCode: 0,
+          },
+        },
+      ]),
+    ) as unknown as typeof fetch;
+
+    const result = await runPlanforgeViaHttp({
+      baseUrl: "http://planforge:8223",
+      token: "t",
+      input: {},
+      outdir,
+    });
+
+    expect(result.scaffoldkit).toEqual({ invoked: true, exitCode: 0, stderr: "" });
+  });
+
+  it("sends `scaffold: true` explicitly on the request body", async () => {
+    const tarGz = await buildFixtureTarGzB64();
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          event: "done",
+          data: {
+            requestId: "req-explicit",
+            planOutput: {},
+            scaffoldkitInput: null,
+            outputTarGz: tarGz,
+            scaffoldkit: { invoked: false, skipped: "no_input" },
+            exitCode: 0,
+          },
+        },
+      ]),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await runPlanforgeViaHttp({
+      baseUrl: "http://planforge:8223",
+      token: "t",
+      input: { projectName: "X" },
+      outdir,
+    });
+
+    const sentBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sentBody.scaffold).toBe(true);
+    expect(sentBody.input).toEqual({ projectName: "X" });
+  });
+
   it("throws when done arrives without outputTarGz (service predates tarball contract)", async () => {
     global.fetch = vi.fn().mockResolvedValue(
       sseResponse([
@@ -178,5 +237,55 @@ describe("runPlanforgeViaHttp", () => {
         outdir,
       }),
     ).rejects.toThrow(/outputTarGz/);
+  });
+});
+
+describe("assertScaffoldkitRan", () => {
+  it("passes when scaffoldkit ran cleanly", () => {
+    expect(() =>
+      assertScaffoldkitRan({
+        requestId: "r",
+        planOutput: {},
+        scaffoldkitInput: {},
+        scaffoldkit: { invoked: true, exitCode: 0, stderr: "" },
+      }),
+    ).not.toThrow();
+  });
+
+  it("throws loudly when scaffoldkit was skipped with not_installed", () => {
+    // This is the critical failure mode: planforge container misconfigured
+    // (no SCAFFOLDKIT_PYTHON venv). Without this guard, /api/v1/projects
+    // would push a planning-only repo to the user's GitHub silently.
+    expect(() =>
+      assertScaffoldkitRan({
+        requestId: "r",
+        planOutput: {},
+        scaffoldkitInput: null,
+        scaffoldkit: { invoked: false, skipped: "not_installed" },
+      }),
+    ).toThrow(/not_installed/);
+  });
+
+  it("throws when scaffoldkit ran but exited nonzero", () => {
+    expect(() =>
+      assertScaffoldkitRan({
+        requestId: "r",
+        planOutput: {},
+        scaffoldkitInput: {},
+        scaffoldkit: { invoked: true, exitCode: 7, stderr: "boom" },
+      }),
+    ).toThrow(/exited 7/);
+  });
+
+  it("is tolerant when the service predates the scaffoldkit-metadata contract", () => {
+    // Old planforge deploys don't emit the `scaffoldkit` field at all.
+    // Don't block project-forge until the whole fleet is upgraded.
+    expect(() =>
+      assertScaffoldkitRan({
+        requestId: "r",
+        planOutput: {},
+        scaffoldkitInput: {},
+      }),
+    ).not.toThrow();
   });
 });
