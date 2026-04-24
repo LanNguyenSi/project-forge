@@ -1,4 +1,4 @@
-import type { ProjectInput } from "@/lib/types";
+import type { ProjectInput, Attachment } from "@/lib/types";
 import { getAiCapabilities, generateStructuredJson, type AiProviderName } from "@/lib/ai-provider";
 
 export interface PlanforgePlanningInput {
@@ -56,7 +56,8 @@ Rules:
 - Be conservative. If something is unclear, prefer openQuestions over inventing requirements.
 - Only infer plannerProfile or dataSensitivity when there is a strong signal.
 - Use short concrete strings, not paragraphs.
-- If no enrichment is justified, return {}.`;
+- If no enrichment is justified, return {}.
+- If the user supplied \`additionalContext\` (uploaded arc42, RFCs, charters, prior ADRs), treat it as primary evidence for architectural decisions. Reflect its named integrations (databases, auth providers, queues), non-functional requirements (performance, compliance), data-sensitivity signals (PII, PHI, regulatory language), and enterprise requirements in the output. Prefer facts stated in additionalContext over speculation from the intake form alone.`;
 
 function uniqueStrings(values: string[] | undefined): string[] | undefined {
   if (!values || values.length === 0) {
@@ -121,14 +122,39 @@ function mergePlanforgeInput(
   };
 }
 
+/**
+ * Shape attachments pass into the enrichment prompt. Only `text`-tier
+ * entries with non-empty `inlineText` contribute — other tiers are
+ * shape-validated at the planforge service boundary but are no-ops
+ * here until later slices add vision/structured parsing.
+ */
+function attachmentsForPrompt(
+  attachments: Attachment[] | undefined,
+): Array<{ name: string; inlineText: string }> {
+  if (!attachments || attachments.length === 0) return [];
+  const out: Array<{ name: string; inlineText: string }> = [];
+  for (const a of attachments) {
+    if (a.tier !== "text") continue;
+    if (typeof a.inlineText !== "string" || a.inlineText.length === 0) continue;
+    out.push({ name: a.name, inlineText: a.inlineText });
+  }
+  return out;
+}
+
 async function enrichIntake(
   input: ProjectInput,
-  base: PlanforgePlanningInput
+  base: PlanforgePlanningInput,
+  attachments?: Attachment[]
 ): Promise<{ enrichment: IntakeEnrichment; provider: AiProviderName; model: string }> {
+  const additionalContext = attachmentsForPrompt(attachments);
   const userPrompt = JSON.stringify(
     {
       projectInput: input,
       currentPlanforgeInput: base,
+      // Only include `additionalContext` when the user actually uploaded
+      // something. Keeps the no-attachment call byte-identical to the
+      // pre-v0.1d path so cached completions and test fixtures don't drift.
+      ...(additionalContext.length > 0 ? { additionalContext } : {}),
     },
     null,
     2
@@ -147,7 +173,10 @@ async function enrichIntake(
   };
 }
 
-export async function buildPlanforgeInput(input: ProjectInput): Promise<{
+export async function buildPlanforgeInput(
+  input: ProjectInput,
+  attachments?: Attachment[]
+): Promise<{
   planforgeInput: PlanforgePlanningInput;
   orchestration: PlanforgeOrchestrationMetadata;
 }> {
@@ -167,7 +196,7 @@ export async function buildPlanforgeInput(input: ProjectInput): Promise<{
   }
 
   try {
-    const { enrichment, provider, model } = await enrichIntake(input, base);
+    const { enrichment, provider, model } = await enrichIntake(input, base, attachments);
     return {
       planforgeInput: mergePlanforgeInput(base, enrichment),
       orchestration: {

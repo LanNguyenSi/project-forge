@@ -38,15 +38,18 @@ export async function POST(req: NextRequest) {
 
     // Attachments are a service-layer concern in planforge's contract —
     // they ride alongside `input` in the POST body, not inside it. Peel
-    // them off here so buildPlanforgeInput sees only the CLI-input shape,
-    // then forward them as a sibling field to runPlanforgeViaHttp.
+    // them off the ProjectInput so the rest of the planforge-side shape
+    // (`planforgeInputSource`) stays lean, but **pass them as a sibling
+    // arg into buildPlanforgeInput** so the AI enrichment step gets
+    // visibility on uploaded arc42/RFC/charter content — without that,
+    // v0.1c attachments never reached the LLM (only the heuristic CLI).
     // Back-compat: absent/empty → pipeline sees the pre-v0.1 shape.
     const { attachments, ...planforgeInputSource } = input;
     // Plan + scaffold via the planforge HTTP service. The response tarball
     // contains both planning artifacts and the scaffolded project tree;
     // they're extracted directly into tempDir so downstream code reads
     // from the same layout the legacy subprocess produced.
-    const { planforgeInput } = await buildPlanforgeInput(planforgeInputSource);
+    const { planforgeInput } = await buildPlanforgeInput(planforgeInputSource, attachments);
     const baseUrl = process.env.PLANFORGE_URL;
     const token = process.env.PLANFORGE_SERVICE_TOKEN;
     if (!baseUrl || !token) {
