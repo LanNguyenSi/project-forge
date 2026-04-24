@@ -60,6 +60,20 @@ interface AiAssistRequest {
   fileName?: string;
 }
 
+// Server-side cap on file-mode content. Mirrors the UI's 50k char limit
+// so a direct API caller (bypassing the browser) can't drive unbounded
+// token costs at our provider. Matches the same cap planforge's v0.1b
+// ingest enforces further down the pipeline.
+const FILE_MODE_MAX_CHARS = 50_000;
+// Filename is user-controlled and goes verbatim into the userPrompt.
+// Strip newlines (prevents in-prompt instruction smuggling via a crafted
+// filename that fakes a system-prompt break) and truncate so a pathologically
+// long name doesn't eat into the content budget.
+function sanitizeFileName(raw: unknown): string {
+  const s = typeof raw === "string" ? raw : "document";
+  return s.replace(/[\r\n]+/g, " ").slice(0, 200) || "document";
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as AiAssistRequest;
@@ -72,11 +86,20 @@ export async function POST(req: NextRequest) {
 
     if (mode === "file") {
       const fileContent = typeof body.fileContent === "string" ? body.fileContent : "";
-      const fileName = typeof body.fileName === "string" ? body.fileName : "document";
+      const fileName = sanitizeFileName(body.fileName);
       if (fileContent.trim().length === 0) {
         return NextResponse.json(
           { error: "fileContent is required for mode=file" },
           { status: 400 },
+        );
+      }
+      if (fileContent.length > FILE_MODE_MAX_CHARS) {
+        return NextResponse.json(
+          {
+            error: "fileContent exceeds size limit",
+            details: `${fileContent.length.toLocaleString()} chars; limit is ${FILE_MODE_MAX_CHARS.toLocaleString()}`,
+          },
+          { status: 413 },
         );
       }
       systemPrompt = FILE_SYSTEM_PROMPT;
