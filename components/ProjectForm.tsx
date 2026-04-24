@@ -41,6 +41,11 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
   const [magicPrompt, setMagicPrompt] = useState("");
   const [magicLoading, setMagicLoading] = useState(false);
   const [magicEnabled, setMagicEnabled] = useState(false);
+  // Which tab of the unified seed panel is active. Default: Prompt —
+  // most users arrive with an idea, not a document. The File tab lets
+  // existing-project onboarders drop an arc42 / charter / RFC and get
+  // the form pre-filled without prose retyping.
+  const [seedMode, setSeedMode] = useState<"prompt" | "file">("prompt");
 
   useEffect(() => {
     fetch("/api/ai-assist")
@@ -111,15 +116,32 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
     setAttachmentError(null);
   };
 
+  // One handler dispatches on seedMode. In file mode the attachment
+  // stays set so it rides along in the eventual submit payload (v0.1d
+  // enrichment + v0.2a persist both still run on the raw document).
   const handleMagicFill = async () => {
-    if (!magicPrompt.trim()) return;
+    const body =
+      seedMode === "file"
+        ? (() => {
+            if (!attachment || !attachment.inlineText) return null;
+            return {
+              mode: "file" as const,
+              fileContent: attachment.inlineText,
+              fileName: attachment.name,
+            };
+          })()
+        : magicPrompt.trim()
+          ? { mode: "prompt" as const, prompt: magicPrompt }
+          : null;
+    if (!body) return;
+
     setMagicLoading(true);
     setFormError(null);
     try {
       const res = await fetch("/api/ai-assist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: magicPrompt }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -133,7 +155,9 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
       setFeaturesText(aiData.features?.join("\n") || "");
       setConstraintsText(aiData.constraints?.join("\n") || "");
       setTargetUsersText(aiData.targetUsers?.join("\n") || "");
-      setMagicPrompt("");
+      // Only clear the prompt on prompt-mode success. The attachment
+      // stays on purpose (see comment above).
+      if (seedMode === "prompt") setMagicPrompt("");
     } catch (error: any) {
       setFormError(error.message || "Failed to connect to AI service");
     } finally {
@@ -169,7 +193,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* AI Magic Fill */}
+      {/* Unified Magic-Fill Seed (Prompt | File) */}
       {magicEnabled && (
         <div className="rounded-md bg-purple-950/20 p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -179,34 +203,167 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
             <h3 className="font-semibold text-purple-300 text-sm">AI Magic Fill</h3>
           </div>
           <p className="text-xs text-gray-400 mb-3">
-            Describe your project idea in one sentence. AI will fill the form for you.
+            Seed the form with a one-line prompt, or upload a document (arc42, RFC, charter) to extract the intake.
           </p>
-          <div className="flex gap-2">
-            <Input
-              value={magicPrompt}
-              onChange={(e) => setMagicPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleMagicFill();
-                }
-              }}
-              placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
-              disabled={magicLoading || isLoading}
-              className="flex-1 text-sm focus:border-purple-500 focus:ring-purple-500"
-            />
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={handleMagicFill}
-              disabled={!magicPrompt.trim() || isLoading}
-              loading={magicLoading}
-              className="bg-purple-600 hover:bg-purple-500"
-            >
-              Fill Form
-            </Button>
+
+          {/* Tab switcher. Two equal-width buttons; the active one gets
+              the purple-accent border. Keyboard: ArrowLeft/Right cycles
+              when focus is on the tablist. */}
+          <div
+            role="tablist"
+            aria-label="Seed source"
+            className="flex gap-1 mb-3 rounded-md border border-purple-900/40 bg-purple-950/40 p-1 text-xs"
+          >
+            {(["prompt", "file"] as const).map((mode) => {
+              const active = seedMode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-controls={`seed-panel-${mode}`}
+                  onClick={() => setSeedMode(mode)}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                      e.preventDefault();
+                      setSeedMode(mode === "prompt" ? "file" : "prompt");
+                    }
+                  }}
+                  disabled={magicLoading || isLoading}
+                  className={
+                    "flex-1 rounded px-3 py-1.5 font-medium transition " +
+                    (active
+                      ? "bg-purple-600/30 text-purple-100 ring-1 ring-purple-500/60"
+                      : "text-purple-300 hover:bg-purple-900/40")
+                  }
+                >
+                  {mode === "prompt" ? "Prompt" : "File"}
+                </button>
+              );
+            })}
           </div>
+
+          {seedMode === "prompt" ? (
+            <div id="seed-panel-prompt" role="tabpanel" className="flex gap-2">
+              <Input
+                value={magicPrompt}
+                onChange={(e) => setMagicPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleMagicFill();
+                  }
+                }}
+                placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
+                disabled={magicLoading || isLoading}
+                className="flex-1 text-sm focus:border-purple-500 focus:ring-purple-500"
+              />
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={handleMagicFill}
+                disabled={!magicPrompt.trim() || isLoading}
+                loading={magicLoading}
+                className="bg-purple-600 hover:bg-purple-500"
+              >
+                Fill Form
+              </Button>
+            </div>
+          ) : (
+            <div id="seed-panel-file" role="tabpanel" className="space-y-2">
+              {attachment ? (
+                <div className="flex items-center justify-between rounded-md bg-gray-900/60 border border-gray-800 px-3 py-2 text-sm">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <svg
+                      className="w-4 h-4 text-gray-400 shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+                      />
+                    </svg>
+                    <span className="truncate font-mono text-gray-300" title={attachment.name}>
+                      {attachment.name}
+                    </span>
+                    <span className="text-xs text-gray-500 shrink-0">
+                      {(attachment.inlineText?.length ?? 0).toLocaleString()} chars
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveAttachment}
+                    disabled={magicLoading || isLoading}
+                    aria-label={`Remove attachment ${attachment.name}`}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ) : (
+                <Input
+                  type="file"
+                  accept={ACCEPTED_EXTENSIONS.join(",")}
+                  onChange={handleFileSelect}
+                  disabled={magicLoading || isLoading}
+                />
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-gray-500">
+                  Accepted: {ACCEPTED_EXTENSIONS.join(", ")} — 50k char limit. The document rides along to the planner after form extraction.
+                </p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={handleMagicFill}
+                  disabled={!attachment || isLoading}
+                  loading={magicLoading}
+                  className="bg-purple-600 hover:bg-purple-500 shrink-0"
+                >
+                  Fill Form
+                </Button>
+              </div>
+              {attachmentError && (
+                <p className="text-xs text-red-400" role="alert">
+                  {attachmentError}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Standing chip: even after the File tab successfully populates
+          the form, users stay on whichever tab they're switching between.
+          This persistent chip reminds them the attachment will still
+          ride along on submit (v0.1d enrichment + v0.2a persist), so
+          they don't think "I already filled the form, the doc is gone". */}
+      {magicEnabled && attachment && seedMode === "prompt" && (
+        <div className="flex items-center justify-between rounded-md bg-gray-900/40 border border-gray-800 px-3 py-2 text-xs">
+          <span className="text-gray-400">
+            Attached for planner: <span className="font-mono text-gray-300">{attachment.name}</span>{" "}
+            <span className="text-gray-500">
+              ({(attachment.inlineText?.length ?? 0).toLocaleString()} chars)
+            </span>
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleRemoveAttachment}
+            disabled={isLoading}
+            aria-label={`Remove attachment ${attachment.name}`}
+          >
+            Remove
+          </Button>
         </div>
       )}
 
@@ -264,59 +421,6 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           placeholder={"developers\ninternal team"}
           rows={2}
         />
-      </div>
-
-      <div>
-        <Label hint="(optional, arc42/RFC/notes: .md, .txt, .adoc; 50k char limit)">
-          Planning Context
-        </Label>
-        {attachment ? (
-          <div className="flex items-center justify-between rounded-md bg-gray-900/60 border border-gray-800 px-3 py-2 text-sm">
-            <div className="flex min-w-0 items-center gap-2">
-              <svg
-                className="w-4 h-4 text-gray-400 shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
-                />
-              </svg>
-              <span className="truncate font-mono text-gray-300" title={attachment.name}>
-                {attachment.name}
-              </span>
-              <span className="text-xs text-gray-500 shrink-0">
-                {(attachment.inlineText?.length ?? 0).toLocaleString()} chars
-              </span>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleRemoveAttachment}
-              disabled={isLoading}
-              aria-label={`Remove attachment ${attachment.name}`}
-            >
-              Remove
-            </Button>
-          </div>
-        ) : (
-          <Input
-            type="file"
-            accept={ACCEPTED_EXTENSIONS.join(",")}
-            onChange={handleFileSelect}
-            disabled={isLoading}
-          />
-        )}
-        {attachmentError && (
-          <p className="mt-2 text-xs text-red-400" role="alert">
-            {attachmentError}
-          </p>
-        )}
       </div>
 
       <Button
