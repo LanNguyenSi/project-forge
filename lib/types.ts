@@ -1,3 +1,16 @@
+/**
+ * Mirrors the top-level `attachments` field on planforge's POST /api/generate.
+ * v0.1c carries only text-tier entries with inlineText; diagram / structured
+ * tiers are part of the contract but not produced by this UI yet.
+ */
+export interface Attachment {
+  name: string;
+  mimeType: string;
+  tier: "text" | "diagram" | "structured";
+  inlineText?: string;
+  contentRef?: string;
+}
+
 // Input from the project creation form
 export interface ProjectInput {
   projectName: string;
@@ -5,6 +18,14 @@ export interface ProjectInput {
   features: string[];
   constraints: string[];
   targetUsers?: string[];
+  /**
+   * Optional attachments (arc42 docs, RFCs, etc.) submitted alongside the
+   * intake form. These are a service-layer concern — the /api/generate
+   * route peels them off the body and forwards them to planforge's
+   * top-level `attachments` field; they are NOT forwarded into the
+   * PlanforgePlanningInput the CLI consumes.
+   */
+  attachments?: Attachment[];
 }
 
 // A single task from planforge output
