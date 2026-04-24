@@ -7,9 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-24
+
+**Headline: Attachments land end-to-end. A user can now upload an
+arc42 / RFC / charter document on the create form, watch the AI
+extract intake fields into the form for review, let the attachment
+ride through to planforge where its content influences plan generation,
+and see the original document committed into the generated GitHub repo
+under `docs/context/`. The create-flow also got a unified "Magic Fill"
+surface with Prompt | File tabs — single pattern, two seed sources.**
+
+### Added
+
+#### Attachments (v0.1c / v0.1d / v0.2a)
+
+- **Upload control on the create form** (`.md`, `.txt`, `.adoc`; 50k char limit). Filename + char-count chip; Remove button. File content is read UTF-8 client-side and travels in the request body as `attachments: [{ name, mimeType, tier: "text", inlineText }]`.
+- **AI enrichment sees the attachment**. `enrichIntake` threads attachment content into the enrichment LLM call under an `additionalContext` key; `ENRICHMENT_SYSTEM_PROMPT` directs the model to use it as primary evidence for NFRs, integrations, data-sensitivity, and planner profile. Single existing LLM call — no new provider hop, no fan-out.
+- **Attachments persist into the scaffolded repo** under `docs/context/<name>`, with a README.md index listing each attachment's name + char count + mimeType. The files ride through to the published GitHub repo so the document used as planning input lives alongside the generated code.
+- Server-side safety: `persistableAttachments` filters to text-tier with safe filenames (rejects `/`, `\`, `\0`, `.`, `..`, > 200 chars); `writeAttachmentsToScaffold` runs a `path.resolve` + `startsWith(dirPrefix)` runtime guard as defense-in-depth against a future filter regression.
+
+#### Unified Magic Fill
+
+- One "AI Magic Fill" panel with **Prompt | File tabs** (`components/ProjectForm.tsx`) replaces the previous two separate surfaces (prompt row + standalone attachment block).
+- Prompt tab: unchanged one-line input.
+- File tab: drop a `.md`/`.txt`/`.adoc`, click Fill Form, the five intake fields populate from the document's content (extraction mode; the LLM is prompted not to invent scope beyond what's stated). The attachment is retained in state after the fill so it still rides along on submit.
+- Standing chip in the Prompt tab reminds users the doc will still travel with the submit (v0.1d enrichment + v0.2a persist remain active).
+- Server-side hardenings on the route: 50k-char cap on `fileContent` (**413** on overflow) and `fileName` sanitization (collapse newlines, truncate to 200 chars) to block in-prompt injection via a crafted filename.
+
+#### Auth
+
+- `register-from-project-pilot` identity-broker endpoint + optional GitHub-login allowlist.
+- Per-user isolation test suite pinning v1 REST endpoints against cross-user leakage.
+
 ### Changed
 
 - **ADR-0002 sunset complete: legacy shell-out paths removed.** All four generate routes (`/api/generate`, `/api/planforge`, `/api/v1/generate`, `/api/v1/projects`) previously had a `child_process.spawn("node bootstrap-plan.js …")` code path guarded by `PLANFORGE_MODE` or env-presence checks, and a separate `runCommand(scaffoldkitPython, ["-m", "scaffoldkit.cli", "from-planforge", …])` step. Both are gone. The sole path is now `POST ${PLANFORGE_URL}/api/generate` with `scaffold: true` (default); planforge runs both the CLI and scaffoldkit in its container and returns a tarball carrying planning artifacts and scaffolded files together.
+- Docker compose sibling-relative build contexts fixed (host-path for volumes, relative for build).
 
 ### Removed
 
@@ -22,9 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Migration
 
 Operators running project-forge on VPS:
-1. Ensure the planforge container is running and healthy (it now runs scaffoldkit server-side; see agent-planforge PR #62 for the contract change). The default `docker-compose.yml` builds planforge from `../agent-planforge/server/Dockerfile` alongside `app`.
-2. After pulling this release, `docker compose build && docker compose up -d` recreates `app` without Python. No action needed for the planforge service — it's rebuilt by compose as usual.
+1. Ensure the planforge container (>= v0.2.0) is running and healthy. The default `docker-compose.yml` builds planforge from `../agent-planforge/server/Dockerfile` alongside `app`.
+2. After pulling this release, `docker compose build && docker compose up -d` recreates `app` without Python.
 3. `PLANFORGE_URL` + `PLANFORGE_SERVICE_TOKEN` remain required in `.env`.
+
+### Known follow-ups (non-blocking)
+
+- `67b5b608` — injection-sentinel wrap for attachment `inlineText` in the enrichment prompt
+- `96ec97bc` — soften "primary evidence" prompt wording so explicit user intake choices aren't silently overridden
+- `bb8d1687` — per-provider token-budget for small-context local models
 
 ## [0.1.0] - 2026-04-18
 
