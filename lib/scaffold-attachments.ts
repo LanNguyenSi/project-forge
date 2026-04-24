@@ -57,7 +57,14 @@ function readmeLine(a: Attachment): string {
 
 /**
  * Write attachments into `${scaffoldRoot}/docs/context/<name>` and
- * produce a README.md index. Idempotent on re-run (overwrites).
+ * produce a README.md index. Idempotent on re-run (overwrites the
+ * same filenames and the README).
+ *
+ * **Not a full sync.** If run N+1 has fewer attachments than run N,
+ * stale files from run N are NOT removed. That's safe for the current
+ * route (each request gets a fresh UUID tempdir — no re-entry into the
+ * same directory) but worth knowing before wiring this into any other
+ * flow.
  *
  * No-op when nothing is persistable — docs/context/ is not created,
  * so scaffold trees stay pristine for the no-attachment flow.
@@ -75,11 +82,25 @@ export async function writeAttachmentsToScaffold(
   const dir = path.join(scaffoldRoot, SCAFFOLD_ATTACHMENTS_DIR);
   await fs.mkdir(dir, { recursive: true });
 
+  // Runtime containment guard: even though `isSafeFilename` rejects
+  // traversal tokens at the filter layer, belt-and-braces here catches
+  // any future filter regression at the write layer. If a crafted name
+  // ever slipped through the filter, `path.resolve(dir, name)` would
+  // land above `dir` and this check throws before the write happens.
+  const dirAbs = path.resolve(dir);
+  const dirPrefix = dirAbs + path.sep;
+
   // Use 0o644 (world-readable): these files end up in a published repo
   // and have no secret value beyond what the user chose to upload.
   // Explicit mode documents the intent (Node's default depends on umask).
   for (const a of toWrite) {
-    await fs.writeFile(path.join(dir, a.name), a.inlineText ?? "", {
+    const target = path.resolve(dir, a.name);
+    if (!target.startsWith(dirPrefix)) {
+      throw new Error(
+        `attachment filename escapes scaffold dir: ${JSON.stringify(a.name)}`,
+      );
+    }
+    await fs.writeFile(target, a.inlineText ?? "", {
       encoding: "utf8",
       mode: 0o644,
     });

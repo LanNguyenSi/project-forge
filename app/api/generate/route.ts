@@ -83,9 +83,12 @@ export async function POST(req: NextRequest) {
     // the pre-v0.2a flow.
     const persisted = await writeAttachmentsToScaffold(tempDir, attachments);
     if (persisted.length > 0) {
-      console.info(
-        `[generate] persisted ${persisted.length} attachment(s) to docs/context/: ${persisted.map((a) => a.name).join(", ")}`,
-      );
+      // Intentionally log count only — attachment filenames can carry
+      // PII or project-specific context ("internal-roadmap-q2.md") that
+      // shouldn't land in shared server logs. The names DO end up in
+      // the published GitHub repo, but that's a different audience
+      // than log aggregation.
+      console.info(`[generate] persisted ${persisted.length} attachment(s) to docs/context/`);
     }
 
     await runPostScaffoldReview(tempDir);
