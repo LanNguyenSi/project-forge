@@ -36,11 +36,17 @@ export async function POST(req: NextRequest) {
     const tempDir = path.join(TEMP_ROOT, sessionId);
     await fs.mkdir(tempDir, { recursive: true });
 
+    // Attachments are a service-layer concern in planforge's contract —
+    // they ride alongside `input` in the POST body, not inside it. Peel
+    // them off here so buildPlanforgeInput sees only the CLI-input shape,
+    // then forward them as a sibling field to runPlanforgeViaHttp.
+    // Back-compat: absent/empty → pipeline sees the pre-v0.1 shape.
+    const { attachments, ...planforgeInputSource } = input;
     // Plan + scaffold via the planforge HTTP service. The response tarball
     // contains both planning artifacts and the scaffolded project tree;
     // they're extracted directly into tempDir so downstream code reads
     // from the same layout the legacy subprocess produced.
-    const { planforgeInput } = await buildPlanforgeInput(input);
+    const { planforgeInput } = await buildPlanforgeInput(planforgeInputSource);
     const baseUrl = process.env.PLANFORGE_URL;
     const token = process.env.PLANFORGE_SERVICE_TOKEN;
     if (!baseUrl || !token) {
@@ -52,6 +58,12 @@ export async function POST(req: NextRequest) {
       baseUrl,
       token,
       input: planforgeInput,
+      // Only send `attachments` to planforge when the caller supplied some.
+      // An empty array would still satisfy the server's shape validator,
+      // but sending it on every request makes logs and packet captures
+      // noisier without adding information — preserve the pre-v0.1 body
+      // for the no-attachments case.
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
       outdir: tempDir,
       timeoutMs: GENERATION_TIMEOUT_MS,
     });

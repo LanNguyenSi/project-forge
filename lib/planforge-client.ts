@@ -31,6 +31,13 @@ export interface RunPlanforgeOptions {
   token: string;
   /** The planforge input payload — same shape the CLI's `--input` accepts. */
   input: unknown;
+  /**
+   * Optional attachments forwarded as planforge's top-level `attachments`
+   * field (v0.1a contract, text-tier ingest in v0.1b). Kept opaque here
+   * to avoid coupling this client to the Attachment interface's concrete
+   * shape — the server validates and rejects with 400 on malformed entries.
+   */
+  attachments?: unknown[];
   /** Local directory to extract the CLI output into. Must already exist. */
   outdir: string;
   /**
@@ -120,7 +127,16 @@ export async function runPlanforgeViaHttp(
       // pins the intent in the wire format. If a future planforge release
       // flips the default to false, this keeps project-forge's contract
       // stable.
-      body: JSON.stringify({ input: options.input, scaffold: true }),
+      //
+      // `attachments` is only added when present — a caller with no
+      // attachments produces a body identical to the pre-v0.1 shape, so
+      // older planforge deploys that predate the attachments contract
+      // keep working.
+      body: JSON.stringify({
+        input: options.input,
+        scaffold: true,
+        ...(options.attachments !== undefined ? { attachments: options.attachments } : {}),
+      }),
       signal: controller.signal,
     });
 
