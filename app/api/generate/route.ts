@@ -13,6 +13,7 @@ import { readScaffoldPreview, resolvePlanforgeOutputPaths } from '@/lib/planforg
 import { buildPlanforgeInput } from '@/lib/planforge-orchestrator';
 import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from '@/lib/planforge-client';
 import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } from '@/lib/post-scaffold-review';
+import { writeAttachmentsToScaffold } from '@/lib/scaffold-attachments';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
 // End-to-end cap for plan + scaffold + tar + SSE + untar. Server-side
@@ -74,6 +75,21 @@ export async function POST(req: NextRequest) {
     // would silently render a planning-only structure to the user.
     assertScaffoldkitRan(planforgeResult);
     const artifacts = await resolvePlanforgeOutputPaths(tempDir);
+
+    // v0.2a: persist the user's uploaded attachments inside the scaffold
+    // tree BEFORE the post-scaffold review + file-tree walk so they
+    // appear in the preview and travel with the eventual publish. No-op
+    // when no attachments were sent — the scaffold stays pristine for
+    // the pre-v0.2a flow.
+    const persisted = await writeAttachmentsToScaffold(tempDir, attachments);
+    if (persisted.length > 0) {
+      // Intentionally log count only — attachment filenames can carry
+      // PII or project-specific context ("internal-roadmap-q2.md") that
+      // shouldn't land in shared server logs. The names DO end up in
+      // the published GitHub repo, but that's a different audience
+      // than log aggregation.
+      console.info(`[generate] persisted ${persisted.length} attachment(s) to docs/context/`);
+    }
 
     await runPostScaffoldReview(tempDir);
 
