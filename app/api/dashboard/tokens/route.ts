@@ -36,9 +36,9 @@ export async function POST(req: NextRequest) {
         createdAt: apiToken.createdAt,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
-      { error: "Failed to create token", details: error.message },
+      { error: "Failed to create token", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

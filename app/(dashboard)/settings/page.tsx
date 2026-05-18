@@ -70,8 +70,8 @@ export default function SettingsPage() {
       const data = await res.json();
       if (!res.ok) setError(data.error || "Failed to save PAT");
       else setSuccess("GitHub PAT saved! You can now create projects.");
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
     }
@@ -98,8 +98,8 @@ export default function SettingsPage() {
         setNewTokenName("");
         loadData();
       }
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
     }
@@ -239,7 +239,7 @@ export default function SettingsPage() {
 
             {newlyCreatedToken && (
               <Alert variant="success" onClose={() => setNewlyCreatedToken(null)} className="mb-4">
-                <p className="font-medium mb-1">Token created! Copy it now, it won't be shown again.</p>
+                <p className="font-medium mb-1">Token created! Copy it now, it won&apos;t be shown again.</p>
                 <code className="block bg-gray-800 rounded px-3 py-2 font-mono text-sm text-green-400 mt-2 break-all">
                   {newlyCreatedToken}
                 </code>

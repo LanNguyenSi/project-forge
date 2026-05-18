@@ -158,8 +158,8 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
       // Only clear the prompt on prompt-mode success. The attachment
       // stays on purpose (see comment above).
       if (seedMode === "prompt") setMagicPrompt("");
-    } catch (error: any) {
-      setFormError(error.message || "Failed to connect to AI service");
+    } catch (error: unknown) {
+      setFormError(error instanceof Error ? error.message : "Failed to connect to AI service");
     } finally {
       setMagicLoading(false);
     }
