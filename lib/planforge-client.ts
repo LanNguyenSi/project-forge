@@ -54,7 +54,23 @@ export interface ScaffoldkitResult {
   invoked: boolean;
   exitCode?: number;
   stderr?: string;
-  skipped?: "no_input" | "opt_out" | "not_installed";
+  /**
+   * Reason scaffoldkit did not run. Mirrors agent-planforge
+   * `server/src/generate.ts` `ScaffoldkitResult.skipped`:
+   *   - `no_input`         CLI didn't write scaffoldkit-input.json (ENOENT)
+   *   - `input_unreadable` file exists but JSON.parse / IO failed (CLI bug)
+   *   - `opt_out`          caller passed `scaffold: false`
+   *   - `not_installed`    SCAFFOLDKIT_PYTHON binary is missing (dev/tests)
+   * Keep in sync with the server union; an unknown string flows through
+   * verbatim via the `?? "unknown"` fallback in `assertScaffoldkitRan`.
+   */
+  skipped?: "no_input" | "input_unreadable" | "opt_out" | "not_installed";
+  /**
+   * Populated only when `skipped === "input_unreadable"`. Carries the
+   * underlying error message (JSON.parse text or IO errno) so callers
+   * can distinguish a CLI bug from a permission issue without rerunning.
+   */
+  inputReadError?: string;
 }
 
 export interface PlanforgeRunResult {
@@ -100,8 +116,13 @@ export function assertScaffoldkitRan(result: PlanforgeRunResult): void {
       `scaffoldkit ran but exited ${sk.exitCode ?? "unknown"}: ${sk.stderr?.slice(0, 200) ?? "no stderr"}`,
     );
   }
+  const reason = sk.skipped ?? "unknown";
+  const detail =
+    sk.skipped === "input_unreadable" && sk.inputReadError
+      ? ` (${sk.inputReadError})`
+      : "";
   throw new PlanforgeClientError(
-    `scaffoldkit did not run (skipped: ${sk.skipped ?? "unknown"}); published repo would be missing scaffolded files`,
+    `scaffoldkit did not run (skipped: ${reason}${detail}); published repo would be missing scaffolded files`,
   );
 }
 

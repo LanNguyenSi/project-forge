@@ -277,6 +277,39 @@ describe("assertScaffoldkitRan", () => {
     ).toThrow(/exited 7/);
   });
 
+  it("handles input_unreadable without the inputReadError field cleanly", () => {
+    // Defensive: a transitional planforge deploy that emits the new
+    // skipped value but not yet the inputReadError field should still
+    // produce a clean error message (just without the parser detail).
+    expect(() =>
+      assertScaffoldkitRan({
+        requestId: "r",
+        planOutput: {},
+        scaffoldkitInput: null,
+        scaffoldkit: { invoked: false, skipped: "input_unreadable" },
+      }),
+    ).toThrow(/skipped: input_unreadable\)/);
+  });
+
+  it("surfaces the underlying parser error when skipped is input_unreadable", () => {
+    // The input_unreadable branch (added in agent-planforge PR #71)
+    // indicates a CLI bug, not a normal skip. The thrown error must
+    // carry the parser's message so operators can act on it without
+    // re-running the request.
+    expect(() =>
+      assertScaffoldkitRan({
+        requestId: "r",
+        planOutput: {},
+        scaffoldkitInput: null,
+        scaffoldkit: {
+          invoked: false,
+          skipped: "input_unreadable",
+          inputReadError: "Unexpected token { in JSON at position 12",
+        },
+      }),
+    ).toThrow(/input_unreadable.*Unexpected token/);
+  });
+
   it("is tolerant when the service predates the scaffoldkit-metadata contract", () => {
     // Old planforge deploys don't emit the `scaffoldkit` field at all.
     // Don't block project-forge until the whole fleet is upgraded.
