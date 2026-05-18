@@ -50,10 +50,10 @@ export async function POST(req: NextRequest) {
         email: user.email,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Registration error:", error);
     return NextResponse.json(
-      { error: "Registration failed", details: error.message },
+      { error: "Registration failed", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

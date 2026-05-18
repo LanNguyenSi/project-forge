@@ -13,17 +13,6 @@ const compat = new FlatCompat({ baseDirectory: __dirname });
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
-    // Pre-existing baseline drift inherited from the `next lint` → ESLint
-    // CLI migration. The new `next/typescript` Strict ruleset is harsher
-    // than the legacy `next lint` default; downgrading these rules to
-    // warnings keeps the migration a no-op for the working tree while
-    // preserving the signal. See follow-up task on agent-tasks for the
-    // proper cleanup pass.
-    rules: {
-      "@typescript-eslint/no-explicit-any": "warn",
-    },
-  },
-  {
     ignores: [
       "node_modules/**",
       ".next/**",

@@ -212,7 +212,7 @@ export async function POST(req: NextRequest) {
         projectName: input.projectName,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Project generation failed:", error);
 
     if (sessionId) {
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error: "Project generation failed",
-        details: error.message,
+        details: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
     );

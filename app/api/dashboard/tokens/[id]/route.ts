@@ -33,9 +33,9 @@ export async function DELETE(
     });
 
     return NextResponse.json({ ok: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
-      { error: "Failed to revoke token", details: error.message },
+      { error: "Failed to revoke token", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

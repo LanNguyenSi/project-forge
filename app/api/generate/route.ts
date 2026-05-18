@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
     };
 
     return NextResponse.json(response);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Generation failed:', error);
 
     if (sessionId) {
@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error: 'Failed to generate project',
-        details: error.message,
+        details: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
     );
