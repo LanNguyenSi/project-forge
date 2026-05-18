@@ -3,7 +3,7 @@ import { InputHTMLAttributes, TextareaHTMLAttributes, forwardRef } from "react";
 const baseStyles =
   "w-full rounded-md border-0 bg-gray-800 px-3.5 py-2 text-gray-100 placeholder-gray-500 ring-1 ring-inset ring-gray-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none";
 
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
+type InputProps = InputHTMLAttributes<HTMLInputElement>;
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ className = "", ...props }, ref) => {
@@ -14,7 +14,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 );
 Input.displayName = "Input";
 
-interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {}
+type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement>;
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ className = "", ...props }, ref) => {
