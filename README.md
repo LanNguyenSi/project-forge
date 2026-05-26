@@ -61,7 +61,7 @@ make deploy
 The root `docker-compose.yml` ships two services:
 
 - `app` — the project-forge Next.js runtime.
-- `planforge` — the agent-planforge HTTP service (per [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md)). Built from `/root/git/agent-planforge/server/Dockerfile`. Runs both the planforge CLI and scaffoldkit in-container. **Internal-only** — no Traefik labels, no published ports. `app` reaches it via the shared `traefik` docker network at `http://planforge:8223`.
+- `planforge`: the agent-planforge HTTP service (per [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md)). Built from the sibling `agent-planforge` checkout via `context: ../agent-planforge` (see `docker-compose.yml`). Runs both the planforge CLI and scaffoldkit in-container. **Internal-only**, no Traefik labels, no published ports. `app` reaches it via the shared `traefik` docker network at `http://planforge:8223`.
 
 Both services need `PLANFORGE_SERVICE_TOKEN` in `.env`. Compose propagates it; mismatched values cause `app` to get 401s from `planforge`.
 
@@ -155,7 +155,7 @@ Full API documentation: [project-forge.opentriologue.ai/docs](https://project-fo
 
 ## Tech Stack
 
-- **Frontend:** Next.js 14 + TypeScript + Tailwind CSS
+- **Frontend:** Next.js 15 + TypeScript + Tailwind CSS
 - **Auth:** next-auth (email/password + GitHub OAuth)
 - **Database:** SQLite via Prisma (API tokens, users)
 - **Planning + Scaffolding:** [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) HTTP service (bundles [scaffoldkit](https://github.com/LanNguyenSi/scaffoldkit) in its own container; project-forge is Node-only)

@@ -36,10 +36,10 @@ services:
 
   # ── agent-planforge HTTP service (ADR-0002) ───────────────────────────
   #
-  # Built from the agent-planforge repo checked out at the sibling path
-  # /root/git/agent-planforge. The image ships the planforge CLI, the
-  # TypeScript HTTP layer, AND a pinned scaffoldkit venv that runs
-  # scaffoldkit server-side — see `agent-planforge/server/Dockerfile`.
+  # Built from the agent-planforge repo checked out as a sibling
+  # (context: ../agent-planforge below). The image ships the planforge CLI,
+  # the TypeScript HTTP layer, AND a pinned scaffoldkit venv that runs
+  # scaffoldkit server-side, see `agent-planforge/server/Dockerfile`.
   #
   # Intentionally NOT Traefik-exposed. Access is scoped to the shared
   # `traefik` docker network, where project-forge reaches it via the
