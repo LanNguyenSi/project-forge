@@ -276,6 +276,51 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     expect(user.update.mock.calls[0][0].data.githubPat).toBe("gho_backfilled");
   });
 
+  it("refreshes an existing OAuth (gho_) githubPat so scope upgrades propagate", async () => {
+    fetchMock.mockResolvedValue({
+      id: 99,
+      login: "returning",
+      name: null,
+      avatar_url: "",
+      email: null,
+    });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      // Old OAuth token (e.g. without the workflow scope).
+      githubPat: "gho_old_narrow_scope_token",
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+    apiToken.findFirst.mockResolvedValue({ token: "pf_x", revokedAt: null });
+
+    await POST(makeReq({ githubAccessToken: "gho_new_token_with_workflow" }));
+
+    expect(user.update.mock.calls[0][0].data.githubPat).toBe("gho_new_token_with_workflow");
+  });
+
+  it("does NOT overwrite a manually-set fine-grained (github_pat_) githubPat", async () => {
+    fetchMock.mockResolvedValue({
+      id: 99,
+      login: "returning",
+      name: null,
+      avatar_url: "",
+      email: null,
+    });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      githubPat: "github_pat_manual_finegrained",
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+    apiToken.findFirst.mockResolvedValue({ token: "pf_x", revokedAt: null });
+
+    await POST(makeReq({ githubAccessToken: "gho_should_be_ignored" }));
+
+    expect(user.update.mock.calls[0][0].data).not.toHaveProperty("githubPat");
+  });
+
   it("does NOT overwrite a manually-set githubPat on an existing user", async () => {
     fetchMock.mockResolvedValue({
       id: 99,

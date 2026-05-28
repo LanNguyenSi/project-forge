@@ -141,18 +141,23 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Decide whether to (re)store the verified OAuth token as githubPat. Refresh
+  // it when there is none yet OR when the existing value is itself an OAuth
+  // token (gho_): that way scope upgrades on the project-pilot side (e.g.
+  // adding `workflow`) propagate on the next login instead of leaving the old,
+  // narrower-scoped token stuck. A manually-entered PAT (classic ghp_ or
+  // fine-grained github_pat_) is preserved, never overwritten.
+  const existingPat = existingByGithubId?.githubPat ?? null;
+  const preserveManualPat = !!existingPat && !existingPat.startsWith("gho_");
+
   const user = existingByGithubId
     ? await prisma.user.update({
         where: { id: existingByGithubId.id },
         data: {
           githubLogin: githubUser.login,
           email: githubEmail ?? existingByGithubId.email,
-          // Backfill githubPat from the verified OAuth access-token, but only
-          // when the user has none yet. This lets a project-pilot SSO user
-          // publish (create + push repos) without a second GitHub step, while
-          // never clobbering a classic PAT the user entered manually in the
-          // forge dashboard. githubOwner/passwordHash stay untouched.
-          ...(existingByGithubId.githubPat ? {} : { githubPat: githubAccessToken }),
+          // githubOwner/passwordHash stay untouched.
+          ...(preserveManualPat ? {} : { githubPat: githubAccessToken }),
         },
       })
     : await prisma.user.create({
