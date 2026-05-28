@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizePublishError } from "@/app/api/v1/publish/route";
+import { summarizePublishError } from "@/lib/publish-error";
 
 describe("summarizePublishError", () => {
   it("maps the repo-name-exists code to a friendly reason", () => {
