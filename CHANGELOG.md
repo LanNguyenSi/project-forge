@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-28
+
+**Headline: Publishing now works for project-pilot SSO users without a second GitHub step. The OAuth token forwarded from pilot is stored and reused to create and push the repo, and when publish fails the real reason surfaces instead of an opaque error. Plus two AI-input hardenings and a round of dependency/security bumps.**
+
+### Added
+
+- **Injection-sentinel wrap for attachment `inlineText`** in the enrichment prompt, so attachment content can no longer smuggle instructions into the LLM call (#58).
+- Mirror planforge's `input_unreadable` skipped value through the generate flow so an unreadable input is surfaced rather than silently dropped (#64).
+
+### Fixed
+
+- **SSO publish: store and reuse the forwarded GitHub OAuth token.** `register-from-project-pilot` persists the verified token as `githubPat` (on create always; on update when none is set or the stored one is itself an OAuth `gho_` token), so a pilot SSO user can publish without connecting GitHub a second time, and a pilot-side scope upgrade propagates on next login. A manually-entered classic (`ghp_`) or fine-grained (`github_pat_`) PAT is never overwritten (#67, #68).
+- **Surface the real publish failure reason.** A failed publish now returns a PAT-sanitized, one-line reason in `error` (e.g. a missing `workflow` OAuth scope on a git push) instead of an opaque "Publish failed". The error path also scrubs bare token shapes as defense-in-depth (#68).
+- Migrate `next lint` to the ESLint CLI and fix the `any` sites it surfaced, unblocking preflight (#63).
+
+### Security
+
+- Bump `next` to ^15.5.18 to patch 3 high-severity CVEs (#62).
+- Bump `brace-expansion` and `ws` to patch CVE-2026-45149 (#65).
+- Bump `postcss` (XSS, alert #15) (#60) and `uuid` to ^14.0.0 (bounds-check) (#59).
+
+### Documentation
+
+- Open-source surface: Code of Conduct, contributing, security policy, issue + PR templates (#61).
+- Align README and compose comments with Next 15 and the relative planforge path (#66).
+
 ## [0.2.0] - 2026-04-24
 
 **Headline: Attachments land end-to-end. A user can now upload an
