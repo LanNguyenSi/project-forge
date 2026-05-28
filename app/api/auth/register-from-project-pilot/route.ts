@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  // Capture the validated token: control-flow narrowing on body.githubAccessToken
+  // is lost across the GitHub-verification call below, so hold a typed const.
+  const githubAccessToken: string = body.githubAccessToken;
   if (body.githubLogin !== undefined && typeof body.githubLogin !== "string") {
     return NextResponse.json(
       { error: "bad_request", message: "githubLogin must be a string if provided" },
@@ -57,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   let githubUser;
   try {
-    githubUser = await fetchGitHubUser(body.githubAccessToken);
+    githubUser = await fetchGitHubUser(githubAccessToken);
   } catch (err) {
     if (err instanceof GitHubAuthError) {
       return NextResponse.json(
@@ -144,8 +147,12 @@ export async function POST(req: NextRequest) {
         data: {
           githubLogin: githubUser.login,
           email: githubEmail ?? existingByGithubId.email,
-          // Keep githubPat/githubOwner/passwordHash untouched — this endpoint
-          // never overwrites existing project-forge-specific credentials.
+          // Backfill githubPat from the verified OAuth access-token, but only
+          // when the user has none yet. This lets a project-pilot SSO user
+          // publish (create + push repos) without a second GitHub step, while
+          // never clobbering a classic PAT the user entered manually in the
+          // forge dashboard. githubOwner/passwordHash stay untouched.
+          ...(existingByGithubId.githubPat ? {} : { githubPat: githubAccessToken }),
         },
       })
     : await prisma.user.create({
@@ -153,6 +160,11 @@ export async function POST(req: NextRequest) {
           githubId,
           githubLogin: githubUser.login,
           email: githubEmail,
+          // Store the verified OAuth access-token as the GitHub PAT so a
+          // project-pilot SSO user can publish immediately, without connecting
+          // GitHub a second time on the forge side. pilot's OAuth requests the
+          // `repo` scope, which is what createAndPushRepo needs.
+          githubPat: githubAccessToken,
           // OAuth-provisioned users have no password; column is nullable.
         },
       });

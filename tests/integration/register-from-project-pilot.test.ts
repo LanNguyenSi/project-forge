@@ -212,6 +212,94 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     }
   });
 
+  it("stores the verified OAuth token as githubPat when provisioning a new user", async () => {
+    fetchMock.mockResolvedValue({
+      id: 42,
+      login: "newbie",
+      name: "New",
+      avatar_url: "",
+      email: "new@example.com",
+    });
+    user.findUnique.mockResolvedValue(null);
+    user.create.mockResolvedValue({ id: "user-1" });
+    apiToken.findFirst.mockResolvedValue(null);
+    apiToken.create.mockResolvedValue({});
+
+    await POST(makeReq({ githubAccessToken: "gho_oauth_token", githubLogin: "newbie" }));
+
+    expect(user.create).toHaveBeenCalledTimes(1);
+    expect(user.create.mock.calls[0][0].data.githubPat).toBe("gho_oauth_token");
+  });
+
+  it("backfills githubPat on an existing user that has none yet", async () => {
+    fetchMock.mockResolvedValue({
+      id: 99,
+      login: "returning",
+      name: null,
+      avatar_url: "",
+      email: null,
+    });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      githubPat: null,
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+    apiToken.findFirst.mockResolvedValue({ token: "pf_x", revokedAt: null });
+
+    await POST(makeReq({ githubAccessToken: "gho_fresh_token" }));
+
+    expect(user.update).toHaveBeenCalledTimes(1);
+    expect(user.update.mock.calls[0][0].data.githubPat).toBe("gho_fresh_token");
+  });
+
+  it("treats an empty-string githubPat as 'none' and backfills it", async () => {
+    fetchMock.mockResolvedValue({
+      id: 99,
+      login: "returning",
+      name: null,
+      avatar_url: "",
+      email: null,
+    });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      githubPat: "",
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+    apiToken.findFirst.mockResolvedValue({ token: "pf_x", revokedAt: null });
+
+    await POST(makeReq({ githubAccessToken: "gho_backfilled" }));
+
+    expect(user.update.mock.calls[0][0].data.githubPat).toBe("gho_backfilled");
+  });
+
+  it("does NOT overwrite a manually-set githubPat on an existing user", async () => {
+    fetchMock.mockResolvedValue({
+      id: 99,
+      login: "returning",
+      name: null,
+      avatar_url: "",
+      email: null,
+    });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      githubPat: "ghp_manual_classic_pat",
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+    apiToken.findFirst.mockResolvedValue({ token: "pf_x", revokedAt: null });
+
+    await POST(makeReq({ githubAccessToken: "gho_should_be_ignored" }));
+
+    expect(user.update).toHaveBeenCalledTimes(1);
+    // No githubPat key in the update payload → the existing PAT is preserved.
+    expect(user.update.mock.calls[0][0].data).not.toHaveProperty("githubPat");
+  });
+
   it("never leaks the GitHub access-token in response bodies (including errors)", async () => {
     fetchMock.mockRejectedValue(new GitHubAuthError("401"));
     const res = await POST(makeReq({ githubAccessToken: "super-secret-value-xyz" }));
