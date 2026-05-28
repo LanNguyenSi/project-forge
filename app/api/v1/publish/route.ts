@@ -96,18 +96,52 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    // Sanitize PAT from error messages before logging
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error("Publish failed:", msg.replace(/x-access-token:[^@]+@/g, "x-access-token:***@"));
+    // Sanitize any embedded PAT before it touches logs or the response.
+    // First the known `x-access-token:TOKEN@` remote-URL form, then a
+    // defense-in-depth scrub of bare GitHub token shapes in case the auth
+    // embedding ever changes (Authorization header echo, `https://TOKEN@`, …).
+    const raw = error instanceof Error ? error.message : String(error);
+    const sanitized = raw
+      .replace(/x-access-token:[^@]+@/g, "x-access-token:***@")
+      .replace(/\b(gho|ghp|ghu|ghs)_[A-Za-z0-9]+/g, "$1_***")
+      .replace(/\bgithub_pat_[A-Za-z0-9_]+/g, "github_pat_***");
+    console.error("Publish failed:", sanitized);
 
     // Cleanup temp dir on failure (PAT may be in .git/config)
     if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
+    // Surface *why* publish failed instead of an opaque "Publish failed":
+    // project-pilot forwards `error` to the UI, so the reason (e.g. a missing
+    // `workflow` OAuth scope on a git push) reaches the user. `details` carries
+    // the fuller sanitized message for direct API callers.
     return NextResponse.json<ErrorResponse>(
-      { ok: false, error: "Publish failed" },
+      { ok: false, error: `Publish failed: ${summarizePublishError(sanitized)}`, details: sanitized.slice(0, 1000) },
       { status: 500 },
     );
   }
+}
+
+/**
+ * Turn a raw (PAT-sanitized) failure message into a short, user-facing reason.
+ * Maps the known createAndPushRepo error codes; otherwise surfaces the most
+ * telling line of git's captured stderr (e.g. a "remote rejected" push error).
+ */
+export function summarizePublishError(sanitized: string): string {
+  // The createAndPushRepo codes are thrown as the *entire* error message
+  // ("repo_name_exists" / "github_422"). Anchor on that so a 3-digit run
+  // inside a multi-line git-push stderr blob can't be misread as an HTTP code.
+  const trimmed = sanitized.trim();
+  if (/^(?:Error:\s*)?repo_name_exists$/.test(trimmed)) {
+    return "a repository with that name already exists on your GitHub account";
+  }
+  const ghMatch = trimmed.match(/^(?:Error:\s*)?github_(\d{3})$/);
+  if (ghMatch) return `GitHub rejected the request (HTTP ${ghMatch[1]})`;
+
+  const lines = sanitized.split("\n").map((l) => l.trim()).filter(Boolean);
+  const telling = lines.find((l) => /\[remote rejected\]|^remote:|^error:|refusing to/i.test(l));
+  if (telling) return telling.replace(/^remote:\s*/i, "").slice(0, 300);
+
+  return (lines[lines.length - 1] ?? "unknown error").slice(0, 300);
 }
 
 async function createAndPushRepo(projectDir: string, repoName: string, githubPat: string): Promise<string> {
