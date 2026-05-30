@@ -6,6 +6,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { PublishResponse, ErrorResponse } from "../../../lib/types";
 import { runCommand } from "@/lib/subprocess";
+import { SESSION_UUID_RE } from "@/lib/v1-shared";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 
@@ -19,6 +20,13 @@ export async function POST(req: NextRequest) {
     if (!sessionId || !projectName) {
       return NextResponse.json<ErrorResponse>(
         { ok: false, error: "Missing sessionId or projectName" },
+        { status: 400 }
+      );
+    }
+
+    if (!SESSION_UUID_RE.test(sessionId)) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: "Invalid sessionId" },
         { status: 400 }
       );
     }
