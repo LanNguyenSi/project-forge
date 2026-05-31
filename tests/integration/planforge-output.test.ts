@@ -46,13 +46,14 @@ describe("planforge output resolver", () => {
             agents: "AGENTS.md",
             claude: "CLAUDE.md",
             project: "PROJECT.md",
-            charter: "project-charter.md",
-            architecture: "architecture-overview.md",
-            deliveryPlan: "delivery-plan.md",
-            intakeQuestionnaire: "intake-questionnaire.md",
+            charter: ".planforge/docs/project-charter.md",
+            architecture: ".planforge/docs/architecture-overview.md",
+            deliveryPlan: ".planforge/docs/delivery-plan.md",
+            intakeQuestionnaire: ".planforge/docs/intake-questionnaire.md",
           },
           directories: {
             ai: ".ai",
+            docs: ".planforge/docs",
             planning: "planning",
             handoff: "handoff",
             exports: "exports",
@@ -92,6 +93,9 @@ describe("planforge output resolver", () => {
 
     expect(resolved.hasIndex).toBe(true);
     expect(resolved.indexPath).toBe(path.join(tempDir, "planforge-index.json"));
+    expect(resolved.architecturePath).toBe(
+      path.join(tempDir, ".planforge", "docs", "architecture-overview.md")
+    );
     expect(resolved.scaffoldkitInputPath).toBe(
       path.join(tempDir, "exports", "scaffoldkit-input.json")
     );
@@ -140,13 +144,14 @@ describe("planforge output resolver", () => {
             agents: "AGENTS.md",
             claude: "CLAUDE.md",
             project: "PROJECT.md",
-            charter: "project-charter.md",
-            architecture: "architecture-overview.md",
-            deliveryPlan: "delivery-plan.md",
-            intakeQuestionnaire: "intake-questionnaire.md",
+            charter: ".planforge/docs/project-charter.md",
+            architecture: ".planforge/docs/architecture-overview.md",
+            deliveryPlan: ".planforge/docs/delivery-plan.md",
+            intakeQuestionnaire: ".planforge/docs/intake-questionnaire.md",
           },
           directories: {
             ai: ".ai",
+            docs: ".planforge/docs",
             planning: "planning",
             handoff: "handoff",
             exports: "exports",

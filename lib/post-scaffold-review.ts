@@ -93,11 +93,15 @@ interface ReviewPayload {
 
 // Planforge artifacts that should NOT be counted as runtime scaffold signals.
 // Since the output reorganization (bf7a491), most JSON files moved into
-// planning/, handoff/, and exports/ subdirectories. The directory entries
-// below cover both the subdirs and the root-level markdown/index files.
+// planning/, handoff/, and exports/ subdirectories, and the planning prose
+// docs now live under .planforge/docs/. The directory entries below cover
+// the subdirs (including the .planforge/ namespace) and the root-level
+// markdown/index files. The bare root-level doc names are retained so older
+// flat-root tarballs still match.
 const PLANFORGE_TOP_LEVEL_PATHS = new Set([
   // Directories
   ".ai",
+  ".planforge",
   "adrs",
   "exports",
   "governance",
