@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -14,6 +16,7 @@ import { buildPlanforgeInput } from '@/lib/planforge-orchestrator';
 import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from '@/lib/planforge-client';
 import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } from '@/lib/post-scaffold-review';
 import { writeAttachmentsToScaffold } from '@/lib/scaffold-attachments';
+import { validateProjectName } from '@/lib/v1-shared';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
 // End-to-end cap for plan + scaffold + tar + SSE + untar. Server-side
@@ -24,6 +27,17 @@ export async function POST(req: NextRequest) {
   let sessionId: string | null = null;
 
   try {
+    // Gate the costly plan + scaffold pipeline behind a logged-in session.
+    // Mirrors app/api/publish/route.ts so an anonymous caller can't drive
+    // the planforge/LLM generation, and so the temp dir carries an owner.
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: 'Not authenticated' },
+        { status: 401 }
+      );
+    }
+
     const input: ProjectInput = await req.json();
 
     if (!input.projectName || !input.summary) {
@@ -33,9 +47,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!validateProjectName(input.projectName)) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: 'Invalid projectName. Use only letters, numbers, dots, hyphens, underscores (max 100 chars).' },
+        { status: 400 }
+      );
+    }
+
     sessionId = randomUUID();
     const tempDir = path.join(TEMP_ROOT, sessionId);
     await fs.mkdir(tempDir, { recursive: true });
+
+    // Record ownership so app/api/publish/route.ts can bind the session
+    // dir to its creator (IDOR guard). Matches the v1 generate route's
+    // .forge-meta.json shape, scoped by NextAuth session.user.id.
+    await fs.writeFile(
+      path.join(tempDir, '.forge-meta.json'),
+      JSON.stringify({
+        userId: session.user.id,
+        projectName: input.projectName,
+        createdAt: new Date().toISOString(),
+      })
+    );
 
     // Attachments are a service-layer concern in planforge's contract —
     // they ride alongside `input` in the POST body, not inside it. Peel
@@ -181,9 +214,12 @@ async function buildFileTree(
 
   // Skip certain directories
   const skipDirs = new Set(['node_modules', '.git', 'venv', '__pycache__']);
+  // Skip forge bookkeeping files so they don't surface in the preview or
+  // travel into the published repo (matches lib/v1-shared buildFileTree).
+  const skipFiles = new Set(['.forge-meta.json', '.forge-published']);
 
   for (const entry of entries) {
-    if (skipDirs.has(entry.name)) continue;
+    if (skipDirs.has(entry.name) || skipFiles.has(entry.name)) continue;
 
     const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
     const fullPath = path.join(dirPath, entry.name);

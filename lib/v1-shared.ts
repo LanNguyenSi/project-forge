@@ -15,7 +15,9 @@ export const SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}
 export const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface ForgeMeta {
-  tokenId: string;
+  // Present only for v1 (API-token) sessions; the legacy NextAuth-driven
+  // generate route writes meta without a token, so this is optional.
+  tokenId?: string;
   userId: string;
   projectName: string;
   createdAt: string;
