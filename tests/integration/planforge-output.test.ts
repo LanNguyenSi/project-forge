@@ -355,6 +355,56 @@ describe("planforge output resolver", () => {
     expect(preview.status).toBe("planning-baseline");
   });
 
+  it("labels a strong-confidence scaffold that emitted no source as planning baseline, not full", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    // Strong confidence and the agent need not create structure, but the scaffold
+    // wrote no real source file (only the planforge input manifest). The label
+    // must not overclaim "full scaffold".
+    await fs.writeFile(
+      path.join(tempDir, "scaffoldkit-input.json"),
+      JSON.stringify({ blueprintConfidence: "strong", agentMustCreateStructure: false }, null, 2)
+    );
+
+    const preview = await readScaffoldPreview(tempDir);
+
+    expect(preview.status).toBe("planning-baseline");
+    expect(preview.label).not.toBe("Full scaffold");
+  });
+
+  it("labels a strong-confidence scaffold with real source as full", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    await fs.writeFile(
+      path.join(tempDir, "scaffoldkit-input.json"),
+      JSON.stringify({ blueprintConfidence: "strong", agentMustCreateStructure: false }, null, 2)
+    );
+    await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "src", "index.ts"), "export const x = 1;\n");
+
+    const preview = await readScaffoldPreview(tempDir);
+
+    expect(preview.status).toBe("full");
+  });
+
+  it("keeps weak confidence as planning baseline even when source is present (confidence gate wins)", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    await fs.writeFile(
+      path.join(tempDir, "scaffoldkit-input.json"),
+      JSON.stringify({ blueprintConfidence: "weak" }, null, 2)
+    );
+    await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "src", "index.ts"), "export const x = 1;\n");
+
+    const preview = await readScaffoldPreview(tempDir);
+
+    expect(preview.status).toBe("planning-baseline");
+  });
+
   it("treats an index without a handoff block as valid (post-Phase-3 layout)", async () => {
     const tempDir = await makeTempDir();
     tempDirs.push(tempDir);

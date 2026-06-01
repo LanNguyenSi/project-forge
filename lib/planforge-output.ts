@@ -1,5 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
+import { collectRuntimePaths, hasRuntimeSignals } from "@/lib/runtime-signals";
 import type { ScaffoldPreview } from "@/lib/types";
 
 type PathMap = Record<string, string>;
@@ -128,6 +129,15 @@ export async function readScaffoldPreview(tempDir: string): Promise<ScaffoldPrev
     };
 
     if (parsed.agentMustCreateStructure || parsed.blueprintConfidence === "weak") {
+      return PLANNING_BASELINE;
+    }
+
+    // A strong blueprint selection is not enough: if the scaffold emitted no real
+    // source (only a manifest plus empty dirs), it is a planning baseline, not a
+    // "full scaffold". Reuse the exact source-file signal #82 added to the
+    // post-scaffold review verdict so the preview label and the verdict agree.
+    const runtimeIndicators = await collectRuntimePaths(tempDir);
+    if (!hasRuntimeSignals(runtimeIndicators)) {
       return PLANNING_BASELINE;
     }
 
