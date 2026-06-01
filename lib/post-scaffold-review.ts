@@ -465,6 +465,92 @@ Confirm that the selected scaffold baseline is appropriate for this project befo
   return { path: filePath, contents };
 }
 
+const BLUEPRINT_GATE_TASK_ID = "900";
+const BLUEPRINT_GATE_TASK_FILE = "tasks/900-blueprint-fit-review.md";
+
+const AI_TASKS_WAVE0_BLOCK = `## wave-0
+
+Resolve the blueprint-fit review before any wave-1 work.
+
+### ${BLUEPRINT_GATE_TASK_ID} Review scaffold blueprint fit against the plan
+
+- Priority: P0
+- Category: foundation
+- Depends on: none
+- Summary: The selected scaffold blueprint may not match the plan; resolve \`${BLUEPRINT_GATE_TASK_FILE}\` before starting wave-1 implementation.
+
+`;
+
+const AGENTS_GATE_CALLOUT = `> Blocked: resolve the wave-0 blueprint-fit review in \`${BLUEPRINT_GATE_TASK_FILE}\` before any wave-1 work. The selected scaffold blueprint may not match the plan.`;
+
+// planforge writes .ai/TASKS.md and the root AGENTS.md before project-forge runs
+// the scaffold-fit review, so when this review emits the wave-0 blueprint-fit
+// gate (tasks/900) neither entry doc references it: an agent following the
+// entry path starts wave-1, which the gate forbids. Surface the gate at the
+// front of both. Best-effort and idempotent: if the expected structure is
+// absent, leave the file untouched rather than risk corrupting generated output.
+// The regex anchors below mirror agent-planforge's generator output
+// (scripts/bootstrap-plan.js: renderAiTasks for .ai/TASKS.md, the root AGENTS.md
+// renderer for "## Build This Next"); if that format drifts, these patches
+// no-op instead of mangling the file.
+async function surfaceBlueprintGateInEntryArtifacts(tempDir: string): Promise<void> {
+  await surfaceGateInAiTasks(path.join(tempDir, ".ai", "TASKS.md"));
+  await surfaceGateInRootAgents(path.join(tempDir, "AGENTS.md"));
+}
+
+async function surfaceGateInAiTasks(filePath: string): Promise<void> {
+  let body: string;
+  try {
+    body = await fs.readFile(filePath, "utf-8");
+  } catch {
+    return;
+  }
+
+  let next = body;
+
+  // Prepend the gate to the Critical Path line (idempotent).
+  next = next.replace(
+    /(## Critical Path\n\n)([^\n]*)/,
+    (match, heading: string, criticalPath: string) =>
+      criticalPath.startsWith(`${BLUEPRINT_GATE_TASK_ID} -> `)
+        ? match
+        : `${heading}${BLUEPRINT_GATE_TASK_ID} -> ${criticalPath}`
+  );
+
+  // Insert a wave-0 section before the first wave section (idempotent).
+  if (!next.includes("## wave-0") && /\n## wave-/.test(next)) {
+    next = next.replace(/\n## wave-/, `\n${AI_TASKS_WAVE0_BLOCK}## wave-`);
+  }
+
+  if (next !== body) {
+    await fs.writeFile(filePath, next);
+  }
+}
+
+async function surfaceGateInRootAgents(filePath: string): Promise<void> {
+  let body: string;
+  try {
+    body = await fs.readFile(filePath, "utf-8");
+  } catch {
+    return;
+  }
+
+  // The gate file path only appears here once surfaced, so it doubles as the
+  // idempotency marker.
+  if (body.includes(BLUEPRINT_GATE_TASK_FILE)) {
+    return;
+  }
+
+  const next = body.replace(
+    /(## Build This Next\n\n)/,
+    `$1${AGENTS_GATE_CALLOUT}\n\n`
+  );
+
+  if (next !== body) {
+    await fs.writeFile(filePath, next);
+  }
+}
+
 // post-scaffold-review is project-forge's own assessment artifact, not part of
 // the planforge handoff bundle. It is written under .planforge/ (a planner-side
 // namespace) so it no longer depends on the handoff/ directory, which
@@ -557,6 +643,7 @@ export async function runPostScaffoldReview(tempDir: string): Promise<PostScaffo
       `${JSON.stringify(review, null, 2)}\n`
     );
     await fs.writeFile(path.join(reviewDir, "post-scaffold-review.md"), renderReviewMarkdown(review));
+    await surfaceBlueprintGateInEntryArtifacts(tempDir);
   }
 
   return review;
@@ -588,4 +675,5 @@ export const __internal = {
   buildDeterministicChecks,
   summarizeDeterministicVerdict,
   toScaffoldFitPreview,
+  surfaceBlueprintGateInEntryArtifacts,
 };

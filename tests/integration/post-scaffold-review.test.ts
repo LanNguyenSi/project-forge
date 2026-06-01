@@ -137,3 +137,158 @@ describe("post-scaffold review artifact relocation", () => {
     expect(readBack?.blueprint.selected).toBe("rest-api");
   });
 });
+
+describe("post-scaffold review surfaces the blueprint-fit gate in the entry path", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      tempDirs.map((dir) => fs.rm(dir, { recursive: true, force: true }))
+    );
+    tempDirs.length = 0;
+  });
+
+  const AI_TASKS_FIXTURE = `# TASKS
+
+## Critical Path
+
+001 -> 002 -> 003
+
+## wave-1
+
+Lock scope, assumptions, and engineering baseline.
+
+### 001 Write project charter and architecture baseline
+
+- Priority: P0
+- Category: foundation
+- Depends on: none
+- Summary: Capture scope.
+`;
+
+  const AGENTS_FIXTURE = `# AGENTS
+
+## Build This Next
+
+1. Read \`.planforge/docs/architecture-overview.md\` for the intended architecture.
+2. Work the generated tasks in \`tasks/\` in dependency order (see \`.ai/TASKS.md\`).
+3. Keep \`PROJECT.md\` and \`.ai/\` as the standing context.
+
+## Important Files
+
+- Machine-readable index: \`planforge-index.json\`
+`;
+
+  async function makeEntryRepo(): Promise<string> {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "project-forge-gate-"));
+    tempDirs.push(tempDir);
+    await fs.mkdir(path.join(tempDir, ".ai"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "tasks"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, ".ai", "TASKS.md"), AI_TASKS_FIXTURE);
+    await fs.writeFile(path.join(tempDir, "AGENTS.md"), AGENTS_FIXTURE);
+    return tempDir;
+  }
+
+  it("prepends the gate to .ai/TASKS.md and AGENTS.md when surfaced", async () => {
+    const tempDir = await makeEntryRepo();
+    await __internal.surfaceBlueprintGateInEntryArtifacts(tempDir);
+
+    const tasks = await fs.readFile(path.join(tempDir, ".ai", "TASKS.md"), "utf-8");
+    expect(tasks).toContain("## Critical Path\n\n900 -> 001 -> 002 -> 003");
+    expect(tasks).toContain("### 900 Review scaffold blueprint fit against the plan");
+    // wave-0 sits before wave-1.
+    expect(tasks.indexOf("## wave-0")).toBeGreaterThanOrEqual(0);
+    expect(tasks.indexOf("## wave-0")).toBeLessThan(tasks.indexOf("## wave-1"));
+
+    const agents = await fs.readFile(path.join(tempDir, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("tasks/900-blueprint-fit-review.md");
+    // The gate callout sits under the Build This Next heading, before step 1.
+    expect(agents.indexOf("Blocked: resolve")).toBeGreaterThanOrEqual(0);
+    expect(agents.indexOf("Blocked: resolve")).toBeLessThan(agents.indexOf("1. Read"));
+  });
+
+  it("is idempotent (no double insert)", async () => {
+    const tempDir = await makeEntryRepo();
+    await __internal.surfaceBlueprintGateInEntryArtifacts(tempDir);
+    const tasksOnce = await fs.readFile(path.join(tempDir, ".ai", "TASKS.md"), "utf-8");
+    const agentsOnce = await fs.readFile(path.join(tempDir, "AGENTS.md"), "utf-8");
+
+    await __internal.surfaceBlueprintGateInEntryArtifacts(tempDir);
+    const tasksTwice = await fs.readFile(path.join(tempDir, ".ai", "TASKS.md"), "utf-8");
+    const agentsTwice = await fs.readFile(path.join(tempDir, "AGENTS.md"), "utf-8");
+
+    expect(tasksTwice).toBe(tasksOnce);
+    expect(agentsTwice).toBe(agentsOnce);
+    expect((tasksTwice.match(/## wave-0/g) || []).length).toBe(1);
+    expect((agentsTwice.match(/Blocked: resolve/g) || []).length).toBe(1);
+  });
+
+  it("no-ops without throwing when the entry docs are absent", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "project-forge-gate-empty-"));
+    tempDirs.push(tempDir);
+    await expect(
+      __internal.surfaceBlueprintGateInEntryArtifacts(tempDir)
+    ).resolves.toBeUndefined();
+  });
+
+  it("runPostScaffoldReview surfaces the gate on a mismatch (weak confidence)", async () => {
+    const tempDir = await makeEntryRepo();
+    await fs.writeFile(
+      path.join(tempDir, "scaffoldkit-input.json"),
+      JSON.stringify(
+        {
+          projectName: "demo",
+          blueprint: "rest-api",
+          blueprintConfidence: "weak",
+          agentMustCreateStructure: true,
+        },
+        null,
+        2
+      )
+    );
+
+    const review = await runPostScaffoldReview(tempDir);
+    expect(review.verdict.mustReviewBeforeImplementation).toBe(true);
+
+    const tasks = await fs.readFile(path.join(tempDir, ".ai", "TASKS.md"), "utf-8");
+    const agents = await fs.readFile(path.join(tempDir, "AGENTS.md"), "utf-8");
+    expect(tasks).toContain("900 -> 001 -> 002 -> 003");
+    expect(tasks).toContain("## wave-0");
+    expect(agents).toContain("tasks/900-blueprint-fit-review.md");
+  });
+
+  it("runPostScaffoldReview leaves the entry docs untouched on an ok verdict", async () => {
+    const tempDir = await makeEntryRepo();
+    const tasksBefore = await fs.readFile(path.join(tempDir, ".ai", "TASKS.md"), "utf-8");
+    const agentsBefore = await fs.readFile(path.join(tempDir, "AGENTS.md"), "utf-8");
+
+    // Strong blueprint + a runtime signal file => all checks pass => ok => no gate.
+    await fs.writeFile(path.join(tempDir, "pyproject.toml"), '[project]\nname = "demo"\n');
+    await fs.writeFile(
+      path.join(tempDir, "scaffoldkit-input.json"),
+      JSON.stringify(
+        {
+          projectName: "demo",
+          blueprint: "rest-api",
+          blueprintConfidence: "strong",
+          agentMustCreateStructure: false,
+        },
+        null,
+        2
+      )
+    );
+
+    const review = await runPostScaffoldReview(tempDir);
+    expect(review.verdict.status).toBe("ok");
+
+    expect(await fs.readFile(path.join(tempDir, ".ai", "TASKS.md"), "utf-8")).toBe(
+      tasksBefore
+    );
+    expect(await fs.readFile(path.join(tempDir, "AGENTS.md"), "utf-8")).toBe(
+      agentsBefore
+    );
+    await expect(
+      fs.access(path.join(tempDir, "tasks", "900-blueprint-fit-review.md"))
+    ).rejects.toThrow();
+  });
+});
