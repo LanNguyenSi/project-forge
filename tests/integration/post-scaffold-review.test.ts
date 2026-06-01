@@ -195,6 +195,41 @@ describe("post-scaffold review artifact relocation", () => {
     expect(runtime?.status).toBe("warn");
     expect(review.verdict.status).not.toBe("ok");
   });
+
+  it("does not snapshot forge-internal bookkeeping (.forge-meta.json) as runtime structure", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "project-forge-forgemeta-"));
+    tempDirs.push(tempDir);
+
+    await fs.mkdir(path.join(tempDir, "tasks"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "src", "main.py"), "print('ok')\n");
+    await fs.writeFile(
+      path.join(tempDir, "scaffoldkit-input.json"),
+      JSON.stringify(
+        {
+          projectName: "demo",
+          blueprint: "rest-api",
+          blueprintConfidence: "strong",
+          agentMustCreateStructure: false,
+        },
+        null,
+        2
+      )
+    );
+    // The two-phase generate->publish flow writes .forge-meta.json before the
+    // review runs; publish removes it, so it must not be snapshotted as
+    // deliverable runtime structure (that would advertise an absent path).
+    await fs.writeFile(path.join(tempDir, ".forge-meta.json"), JSON.stringify({ owner: "u" }));
+
+    await runPostScaffoldReview(tempDir);
+
+    const persisted = JSON.parse(
+      await fs.readFile(path.join(tempDir, ".planforge", "post-scaffold-review.json"), "utf-8")
+    );
+    expect(persisted.runtimeIndicators.topLevelPaths).not.toContain(".forge-meta.json");
+    // The filter is specific to bookkeeping: real source still registers.
+    expect(persisted.runtimeIndicators.topLevelPaths).toContain("src");
+  });
 });
 
 describe("post-scaffold review surfaces the blueprint-fit gate in the entry path", () => {

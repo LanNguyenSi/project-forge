@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateApiToken, checkRateLimit, prisma } from "@/lib/db";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { excludePlanforgeArtifactsFromPublish } from "@/lib/planforge-output";
+import { excludePlanforgeArtifactsFromPublish, prunePublishedPlanforgeIndex } from "@/lib/planforge-output";
 import type { ErrorResponse } from "@/lib/types";
 import { summarizePublishError } from "@/lib/publish-error";
 import { runCommand } from "@/lib/subprocess";
@@ -165,6 +165,7 @@ async function createAndPushRepo(projectDir: string, repoName: string, githubPat
 
   await git(["init", "-b", "main"]);
   await excludePlanforgeArtifactsFromPublish(projectDir);
+  await prunePublishedPlanforgeIndex(projectDir);
   await git(["config", "user.email", "forge@project-forge.dev"]);
   await git(["config", "user.name", "project-forge"]);
   await git(["add", "-A"]);

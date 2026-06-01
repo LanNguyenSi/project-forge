@@ -5,6 +5,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   excludePlanforgeArtifactsFromPublish,
+  prunePublishedPlanforgeIndex,
   readScaffoldPreview,
   resolvePlanforgeOutputPaths,
 } from "../../lib/planforge-output";
@@ -116,6 +117,104 @@ describe("planforge publish exclusion", () => {
     expect(staged).not.toContain(".planforge/exports/scaffoldkit-input.json");
     expect(staged).toContain("README.md");
     expect(staged).toContain("planforge-index.json");
+  });
+
+  it("prunes excluded planning/exports entries from the shipped index, keeps the rest", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    await fs.mkdir(path.join(tempDir, "planning"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "exports"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "planning", "plan-output.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "exports", "scaffoldkit-input.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "exports", "devreview.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "README.md"), "# demo\n");
+    await fs.writeFile(
+      path.join(tempDir, "planforge-index.json"),
+      JSON.stringify(
+        {
+          generatedBy: "agent-planforge",
+          summary: "keep me",
+          rootFiles: { agents: "AGENTS.md" },
+          directories: { ai: ".ai", planning: "planning", exports: "exports", tasks: "tasks" },
+          planning: {
+            planOutput: "planning/plan-output.json",
+            structuredInput: "planning/structured-input.json",
+          },
+          exports: { scaffoldkit: "exports/scaffoldkit-input.json", devreview: "exports/devreview.json" },
+          ai: { agents: ".ai/AGENTS.md" },
+        },
+        null,
+        2
+      )
+    );
+
+    const git = (args: string[]) =>
+      execFileSync("git", args, { cwd: tempDir, stdio: "pipe" });
+    git(["init"]);
+    git(["config", "user.email", "t@example.com"]);
+    git(["config", "user.name", "t"]);
+
+    // Order is load-bearing: exclude reads the complete index, prune rewrites it after.
+    await excludePlanforgeArtifactsFromPublish(tempDir);
+    await prunePublishedPlanforgeIndex(tempDir);
+    git(["add", "-A"]);
+
+    const shipped = JSON.parse(
+      await fs.readFile(path.join(tempDir, "planforge-index.json"), "utf-8")
+    );
+
+    // Excluded entries are gone from the shipped index.
+    expect(shipped.planning).toEqual({});
+    expect(shipped.directories.planning).toBeUndefined();
+    expect(shipped.exports.scaffoldkit).toBeUndefined();
+    // A still-shipping export (devreview ships, so its dir entry stays) is kept.
+    expect(shipped.exports.devreview).toBe("exports/devreview.json");
+    expect(shipped.directories.exports).toBe("exports");
+    // Unrelated fields and other directories are preserved.
+    expect(shipped.summary).toBe("keep me");
+    expect(shipped.rootFiles.agents).toBe("AGENTS.md");
+    expect(shipped.directories.tasks).toBe("tasks");
+
+    const staged = execFileSync("git", ["ls-files"], { cwd: tempDir, encoding: "utf-8" })
+      .split("\n")
+      .filter(Boolean);
+    expect(staged).toContain("planforge-index.json");
+    expect(staged).toContain("exports/devreview.json");
+    expect(staged).not.toContain("planning/plan-output.json");
+    expect(staged).not.toContain("exports/scaffoldkit-input.json");
+  });
+
+  it("drops directories.exports from the shipped index when scaffoldkit-input was the only export", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    await fs.writeFile(
+      path.join(tempDir, "planforge-index.json"),
+      JSON.stringify(
+        {
+          generatedBy: "agent-planforge",
+          rootFiles: { agents: "AGENTS.md" },
+          directories: { ai: ".ai", planning: "planning", exports: "exports" },
+          planning: { planOutput: "planning/plan-output.json" },
+          exports: { scaffoldkit: "exports/scaffoldkit-input.json" },
+          ai: { agents: ".ai/AGENTS.md" },
+        },
+        null,
+        2
+      )
+    );
+
+    await prunePublishedPlanforgeIndex(tempDir);
+
+    const shipped = JSON.parse(
+      await fs.readFile(path.join(tempDir, "planforge-index.json"), "utf-8")
+    );
+    expect(shipped.exports).toEqual({});
+    expect(shipped.directories.exports).toBeUndefined();
+    expect(shipped.directories.planning).toBeUndefined();
+    expect(shipped.directories.ai).toBe(".ai");
+    expect(shipped.planning).toEqual({});
   });
 
   it("never emits a root exclude for a flat-layout index (root-guard)", async () => {

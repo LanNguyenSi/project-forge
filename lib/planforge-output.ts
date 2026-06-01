@@ -211,3 +211,44 @@ export async function excludePlanforgeArtifactsFromPublish(projectDir: string): 
     : `${block}\n`;
   await fs.writeFile(excludePath, next);
 }
+
+// Reconcile the committed planforge-index.json with what actually ships. The
+// generation-only artifacts excludePlanforgeArtifactsFromPublish keeps out of the
+// commit (the whole planning/ directory + exports/scaffoldkit-input.json) are not
+// in the deliverable, so an agent or tool that trusts the index for path discovery
+// would 404 on those entries. Drop them from the SHIPPED index here. This must run
+// AFTER excludePlanforgeArtifactsFromPublish, which reads the complete index to
+// derive its patterns, so the generation-time index on disk stays intact for that.
+export async function prunePublishedPlanforgeIndex(projectDir: string): Promise<void> {
+  const indexPath = path.join(projectDir, "planforge-index.json");
+  const index = await readPlanforgeIndex(indexPath);
+  if (!index) {
+    return;
+  }
+
+  // exports/scaffoldkit-input.json is the only excluded exports entry; other
+  // exports (e.g. devreview, when planforge still emits it) ship and stay.
+  const exports: PathMap = { ...(index.exports ?? {}) };
+  delete exports.scaffoldkit;
+
+  const directories: PathMap = { ...(index.directories ?? {}) };
+  // The entire planning/ directory is excluded from publish.
+  delete directories.planning;
+  // exports/ is committed only when a non-excluded exports entry survives; if
+  // scaffoldkit-input.json was the only one, the directory is absent from the commit.
+  if (Object.keys(exports).length === 0) {
+    delete directories.exports;
+  }
+
+  // Preserve every other field (version, summary, context, rootFiles, ai,
+  // handoff, ...); only the excluded blocks are pruned. planning is emptied
+  // rather than deleted so the index keeps its documented shape.
+  const pruned = {
+    ...index,
+    directories,
+    planning: {},
+    exports,
+  };
+
+  await fs.writeFile(indexPath, `${JSON.stringify(pruned, null, 2)}\n`);
+}
