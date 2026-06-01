@@ -61,7 +61,17 @@ export async function collectRuntimePaths(rootDir: string, maxPaths = 60): Promi
   const entries = await fs.readdir(rootDir, { withFileTypes: true }).catch(() => []);
   const topLevelPaths = entries
     .map((entry) => entry.name)
-    .filter((name) => !PLANFORGE_TOP_LEVEL_PATHS.has(name) && name !== ".git" && name !== "node_modules")
+    .filter(
+      (name) =>
+        !PLANFORGE_TOP_LEVEL_PATHS.has(name) &&
+        name !== ".git" &&
+        name !== "node_modules" &&
+        // forge-internal bookkeeping written during generation and removed before
+        // publish; never part of the deliverable, so it must not be snapshotted as
+        // runtime structure in the post-scaffold review.
+        name !== ".forge-meta.json" &&
+        name !== ".forge-published"
+    )
     .sort();
 
   const samplePaths: string[] = [];
