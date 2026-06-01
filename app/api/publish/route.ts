@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { excludePlanforgeArtifactsFromPublish } from "@/lib/planforge-output";
 import type { PublishResponse, ErrorResponse } from "../../../lib/types";
 import { runCommand } from "@/lib/subprocess";
 import { SESSION_UUID_RE, readForgeMeta, isSessionExpired } from "@/lib/v1-shared";
@@ -191,6 +192,7 @@ async function runGitCommands(
   await fs.rm(path.join(repoPath, ".forge-published"), { force: true }).catch(() => {});
 
   await git(["init", "-b", "main"]);
+  await excludePlanforgeArtifactsFromPublish(repoPath);
   await git(["config", "user.email", "forge@project-forge.dev"]);
   await git(["config", "user.name", "project-forge"]);
   await git(["add", "-A"]);

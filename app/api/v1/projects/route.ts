@@ -3,6 +3,7 @@ import { validateApiToken, checkRateLimit, prisma } from "@/lib/db";
 import { randomUUID } from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { excludePlanforgeArtifactsFromPublish } from "@/lib/planforge-output";
 import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
 import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from "@/lib/planforge-client";
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
@@ -289,6 +290,7 @@ async function createAndPushRepo(
     runCommand("git", args, { cwd: projectDir, timeoutMs });
 
   await git(["init"]);
+  await excludePlanforgeArtifactsFromPublish(projectDir);
   await git(["config", "user.email", "forge@project-forge.dev"]);
   await git(["config", "user.name", "project-forge"]);
   await git(["add", "."]);

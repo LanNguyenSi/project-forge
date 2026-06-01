@@ -136,3 +136,42 @@ export async function readScaffoldPreview(tempDir: string): Promise<ScaffoldPrev
     return PLANNING_BASELINE;
   }
 }
+
+// Generation-only planforge artifacts: downstream tools read these at
+// generation time (planforge resume reads plan-output.json; scaffoldkit and
+// project-forge read scaffoldkit-input.json before publish), but they have no
+// value once committed into the deliverable. They are kept out of the published
+// repo via .git/info/exclude, which is local to the temp clone and so never
+// collides with scaffoldkit's own committed root .gitignore.
+export const PLANFORGE_PUBLISH_EXCLUDES = [
+  "/planning/plan-output.json",
+  "/exports/scaffoldkit-input.json",
+];
+
+export async function excludePlanforgeArtifactsFromPublish(projectDir: string): Promise<void> {
+  // Derive the actual artifact locations from the generated index so the
+  // exclude list tracks whatever layout planforge emits (e.g. a future move
+  // under .planforge/) instead of drifting from hardcoded paths. Fall back to
+  // the current default paths only when no index is present.
+  const resolved = await resolvePlanforgeOutputPaths(projectDir);
+  const toPattern = (absolutePath: string) =>
+    `/${path.relative(projectDir, absolutePath).split(path.sep).join("/")}`;
+  const excludes = resolved.hasIndex
+    ? [toPattern(resolved.planOutputPath), toPattern(resolved.scaffoldkitInputPath)]
+    : PLANFORGE_PUBLISH_EXCLUDES;
+
+  const excludePath = path.join(projectDir, ".git", "info", "exclude");
+  await fs.mkdir(path.dirname(excludePath), { recursive: true });
+  const existing = await fs.readFile(excludePath, "utf-8").catch(() => "");
+  const block = [
+    "# planforge generation-only artifacts (kept out of the deliverable)",
+    ...excludes,
+  ].join("\n");
+  if (existing.includes(block)) {
+    return;
+  }
+  const next = existing.trim()
+    ? `${existing.replace(/\n+$/, "")}\n${block}\n`
+    : `${block}\n`;
+  await fs.writeFile(excludePath, next);
+}
