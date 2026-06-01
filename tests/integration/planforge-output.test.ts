@@ -102,9 +102,6 @@ describe("planforge output resolver", () => {
     expect(resolved.planOutputPath).toBe(
       path.join(tempDir, "planning", "plan-output.json")
     );
-    expect(resolved.handoffManifestPath).toBe(
-      path.join(tempDir, "handoff", "manifest.json")
-    );
   });
 
   it("falls back to legacy root paths when no index is present", async () => {
@@ -118,9 +115,6 @@ describe("planforge output resolver", () => {
       path.join(tempDir, "scaffoldkit-input.json")
     );
     expect(resolved.planOutputPath).toBe(path.join(tempDir, "plan-output.json"));
-    expect(resolved.handoffManifestPath).toBe(
-      path.join(tempDir, "handoff-manifest.json")
-    );
   });
 
   it("reads scaffold preview from the indexed exports path", async () => {
@@ -195,5 +189,79 @@ describe("planforge output resolver", () => {
     const preview = await readScaffoldPreview(tempDir);
 
     expect(preview.status).toBe("planning-baseline");
+  });
+
+  it("treats an index without a handoff block as valid (post-Phase-3 layout)", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    await fs.mkdir(path.join(tempDir, ".planforge", "exports"), { recursive: true });
+    // No handoff block, exports/plan-output relocated under .planforge/ — the
+    // shape agent-planforge emits once the runner/handoff vision is removed.
+    await fs.writeFile(
+      path.join(tempDir, "planforge-index.json"),
+      JSON.stringify(
+        {
+          version: "2.0",
+          generatedBy: "agent-planforge",
+          rootFiles: {
+            agents: "AGENTS.md",
+            architecture: ".planforge/docs/architecture-overview.md",
+          },
+          directories: { ai: ".ai", tasks: "tasks" },
+          planning: { planOutput: ".planforge/planning/plan-output.json" },
+          exports: { scaffoldkit: ".planforge/exports/scaffoldkit-input.json" },
+          ai: { agents: ".ai/AGENTS.md" },
+        },
+        null,
+        2
+      )
+    );
+
+    const resolved = await resolvePlanforgeOutputPaths(tempDir);
+
+    // The missing handoff block must NOT invalidate the index and silently
+    // fall back to flat-layout defaults (which would mis-resolve scaffoldkit
+    // input and degrade every scaffold-fit check to PLANNING_BASELINE).
+    expect(resolved.hasIndex).toBe(true);
+    expect(resolved.scaffoldkitInputPath).toBe(
+      path.join(tempDir, ".planforge", "exports", "scaffoldkit-input.json")
+    );
+    expect(resolved.planOutputPath).toBe(
+      path.join(tempDir, ".planforge", "planning", "plan-output.json")
+    );
+  });
+
+  it("rejects an index whose handoff block is present but malformed", async () => {
+    // The optional-handoff branch must tolerate an ABSENT handoff only — a
+    // present-but-broken handoff still invalidates the whole index (otherwise a
+    // malformed block would slip through as valid).
+    const malformedHandoffs: unknown[] = ["not-a-map", { manifest: "" }, { manifest: 123 }];
+
+    for (const handoff of malformedHandoffs) {
+      const tempDir = await makeTempDir();
+      tempDirs.push(tempDir);
+
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        JSON.stringify(
+          {
+            generatedBy: "agent-planforge",
+            rootFiles: { agents: "AGENTS.md", architecture: "architecture-overview.md" },
+            directories: { ai: ".ai", tasks: "tasks" },
+            planning: { planOutput: "planning/plan-output.json" },
+            handoff,
+            exports: { scaffoldkit: "exports/scaffoldkit-input.json" },
+            ai: { agents: ".ai/AGENTS.md" },
+          },
+          null,
+          2
+        )
+      );
+
+      const resolved = await resolvePlanforgeOutputPaths(tempDir);
+
+      expect(resolved.hasIndex).toBe(false);
+    }
   });
 });

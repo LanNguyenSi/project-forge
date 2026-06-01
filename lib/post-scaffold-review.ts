@@ -105,6 +105,9 @@ const PLANFORGE_TOP_LEVEL_PATHS = new Set([
   "adrs",
   "exports",
   "governance",
+  // Back-compat: agent-planforge stops emitting handoff/ once the runner vision
+  // is removed (Phase 3). Retained so older flat tarballs still match; safe to
+  // drop after the migration window.
   "handoff",
   "planning",
   "prompts",
@@ -462,6 +465,14 @@ Confirm that the selected scaffold baseline is appropriate for this project befo
   return { path: filePath, contents };
 }
 
+// post-scaffold-review is project-forge's own assessment artifact, not part of
+// the planforge handoff bundle. It is written under .planforge/ (a planner-side
+// namespace) so it no longer depends on the handoff/ directory, which
+// agent-planforge is removing in Phase 3.
+function planforgeStateDir(tempDir: string): string {
+  return path.join(tempDir, ".planforge");
+}
+
 export async function runPostScaffoldReview(tempDir: string): Promise<PostScaffoldReview> {
   const artifacts = await resolvePlanforgeOutputPaths(tempDir);
   const scaffoldInput = await readJsonFile<ScaffoldkitInput>(artifacts.scaffoldkitInputPath);
@@ -525,13 +536,13 @@ export async function runPostScaffoldReview(tempDir: string): Promise<PostScaffo
     ...(aiAssessment ? { aiAssessment } : {}),
   };
 
-  const handoffDir = path.dirname(artifacts.handoffManifestPath);
-  await fs.mkdir(handoffDir, { recursive: true });
+  const reviewDir = planforgeStateDir(tempDir);
+  await fs.mkdir(reviewDir, { recursive: true });
   await fs.writeFile(
-    path.join(handoffDir, "post-scaffold-review.json"),
+    path.join(reviewDir, "post-scaffold-review.json"),
     `${JSON.stringify(review, null, 2)}\n`
   );
-  await fs.writeFile(path.join(handoffDir, "post-scaffold-review.md"), renderReviewMarkdown(review));
+  await fs.writeFile(path.join(reviewDir, "post-scaffold-review.md"), renderReviewMarkdown(review));
 
   const followUpTask = createFollowUpTask(review);
   if (followUpTask) {
@@ -542,19 +553,18 @@ export async function runPostScaffoldReview(tempDir: string): Promise<PostScaffo
       mustCompleteBeforeWave: "wave-1",
     };
     await fs.writeFile(
-      path.join(handoffDir, "post-scaffold-review.json"),
+      path.join(reviewDir, "post-scaffold-review.json"),
       `${JSON.stringify(review, null, 2)}\n`
     );
-    await fs.writeFile(path.join(handoffDir, "post-scaffold-review.md"), renderReviewMarkdown(review));
+    await fs.writeFile(path.join(reviewDir, "post-scaffold-review.md"), renderReviewMarkdown(review));
   }
 
   return review;
 }
 
 export async function readPostScaffoldReview(tempDir: string): Promise<PostScaffoldReview | null> {
-  const artifacts = await resolvePlanforgeOutputPaths(tempDir);
   return readJsonFile<PostScaffoldReview>(
-    path.join(path.dirname(artifacts.handoffManifestPath), "post-scaffold-review.json")
+    path.join(planforgeStateDir(tempDir), "post-scaffold-review.json")
   );
 }
 

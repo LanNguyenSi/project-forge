@@ -6,12 +6,14 @@ type PathMap = Record<string, string>;
 
 interface PlanforgeIndex {
   generatedBy?: string;
-  rootFiles?: PathMap;
-  directories?: PathMap;
-  planning?: PathMap;
+  rootFiles: PathMap;
+  directories: PathMap;
+  planning: PathMap;
+  exports: PathMap;
+  ai: PathMap;
+  // Optional: agent-planforge drops this block once the runner/handoff vision
+  // is removed (Phase 3). Every other block above is required by isPlanforgeIndex.
   handoff?: PathMap;
-  exports?: PathMap;
-  ai?: PathMap;
 }
 
 export interface ResolvedPlanforgeOutputPaths {
@@ -21,8 +23,6 @@ export interface ResolvedPlanforgeOutputPaths {
   architecturePath: string;
   scaffoldkitInputPath: string;
   planOutputPath: string;
-  handoffManifestPath: string;
-  runnerContractPath: string;
 }
 
 const PLANNING_BASELINE: ScaffoldPreview = {
@@ -57,7 +57,10 @@ function isPlanforgeIndex(value: unknown): value is PlanforgeIndex {
     isPathMap(candidate.rootFiles) &&
     isPathMap(candidate.directories) &&
     isPathMap(candidate.planning) &&
-    isPathMap(candidate.handoff) &&
+    // handoff is optional: agent-planforge stopped emitting the runner/handoff
+    // block (Phase 3). Accept an index with no handoff key, but still validate
+    // it when present so a malformed block is rejected.
+    (candidate.handoff === undefined || isPathMap(candidate.handoff)) &&
     isPathMap(candidate.exports) &&
     isPathMap(candidate.ai)
   );
@@ -89,8 +92,6 @@ export async function resolvePlanforgeOutputPaths(tempDir: string): Promise<Reso
       architecturePath: path.join(tempDir, "architecture-overview.md"),
       scaffoldkitInputPath: path.join(tempDir, "scaffoldkit-input.json"),
       planOutputPath: path.join(tempDir, "plan-output.json"),
-      handoffManifestPath: path.join(tempDir, "handoff-manifest.json"),
-      runnerContractPath: path.join(tempDir, "runner-contract.json"),
     };
   }
 
@@ -112,16 +113,6 @@ export async function resolvePlanforgeOutputPaths(tempDir: string): Promise<Reso
       tempDir,
       index.planning?.planOutput,
       path.join(tempDir, "plan-output.json")
-    ),
-    handoffManifestPath: resolveArtifactPath(
-      tempDir,
-      index.handoff?.manifest,
-      path.join(tempDir, "handoff-manifest.json")
-    ),
-    runnerContractPath: resolveArtifactPath(
-      tempDir,
-      index.handoff?.runnerContract,
-      path.join(tempDir, "runner-contract.json")
     ),
   };
 }
