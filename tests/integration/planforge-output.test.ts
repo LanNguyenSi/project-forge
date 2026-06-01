@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import {
+  excludePlanforgeArtifactsFromPublish,
   readScaffoldPreview,
   resolvePlanforgeOutputPaths,
 } from "../../lib/planforge-output";
@@ -10,6 +12,100 @@ import {
 async function makeTempDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "project-forge-planforge-"));
 }
+
+describe("planforge publish exclusion", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      tempDirs.map((dir) => fs.rm(dir, { recursive: true, force: true }))
+    );
+    tempDirs.length = 0;
+  });
+
+  it("keeps generation-only artifacts out of git while staging the rest", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    await fs.mkdir(path.join(tempDir, "planning"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "exports"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "planning", "plan-output.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "exports", "scaffoldkit-input.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "planning", "structured-input.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "README.md"), "# demo\n");
+
+    const git = (args: string[]) =>
+      execFileSync("git", args, { cwd: tempDir, stdio: "pipe" });
+    git(["init"]);
+    git(["config", "user.email", "t@example.com"]);
+    git(["config", "user.name", "t"]);
+
+    await excludePlanforgeArtifactsFromPublish(tempDir);
+    git(["add", "-A"]);
+
+    const staged = execFileSync("git", ["ls-files"], {
+      cwd: tempDir,
+      encoding: "utf-8",
+    })
+      .split("\n")
+      .filter(Boolean);
+
+    expect(staged).not.toContain("planning/plan-output.json");
+    expect(staged).not.toContain("exports/scaffoldkit-input.json");
+    // Unrelated and not-yet-excluded files are still committed.
+    expect(staged).toContain("README.md");
+    expect(staged).toContain("planning/structured-input.json");
+  });
+
+  it("derives exclude paths from the index when artifacts are relocated", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    // A future .planforge/-relocated layout: the exclude must follow the index,
+    // not hardcoded paths, or the artifacts silently leak back in.
+    await fs.mkdir(path.join(tempDir, ".planforge", "planning"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, ".planforge", "exports"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, ".planforge", "planning", "plan-output.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, ".planforge", "exports", "scaffoldkit-input.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "README.md"), "# demo\n");
+    await fs.writeFile(
+      path.join(tempDir, "planforge-index.json"),
+      JSON.stringify(
+        {
+          generatedBy: "agent-planforge",
+          rootFiles: { agents: "AGENTS.md" },
+          directories: { ai: ".ai", tasks: "tasks" },
+          planning: { planOutput: ".planforge/planning/plan-output.json" },
+          exports: { scaffoldkit: ".planforge/exports/scaffoldkit-input.json" },
+          ai: { agents: ".ai/AGENTS.md" },
+        },
+        null,
+        2
+      )
+    );
+
+    const git = (args: string[]) =>
+      execFileSync("git", args, { cwd: tempDir, stdio: "pipe" });
+    git(["init"]);
+    git(["config", "user.email", "t@example.com"]);
+    git(["config", "user.name", "t"]);
+
+    await excludePlanforgeArtifactsFromPublish(tempDir);
+    git(["add", "-A"]);
+
+    const staged = execFileSync("git", ["ls-files"], {
+      cwd: tempDir,
+      encoding: "utf-8",
+    })
+      .split("\n")
+      .filter(Boolean);
+
+    expect(staged).not.toContain(".planforge/planning/plan-output.json");
+    expect(staged).not.toContain(".planforge/exports/scaffoldkit-input.json");
+    expect(staged).toContain("README.md");
+    expect(staged).toContain("planforge-index.json");
+  });
+});
 
 describe("planforge output resolver", () => {
   const tempDirs: string[] = [];
