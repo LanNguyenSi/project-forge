@@ -29,6 +29,7 @@ describe("POST /api/ai-assist — mode dispatch & validation", () => {
         provider: "local",
         model: "qwen-local",
         features: { magicFill: true, intakeEnrichment: true },
+        maxContextChars: 50_000,
       }),
       generateStructuredJson:
         generateMock ??

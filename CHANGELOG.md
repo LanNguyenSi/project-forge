@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Per-provider character budget for the intake-enrichment call.** A new `maxContextChars` capability (local 20000, hosted 50000) drives proportional truncation of large uploaded attachment bodies so the enrichment prompt no longer risks a silent context-window overflow on small-context local models; truncation keeps the injection sentinels intact and is surfaced non-silently via `orchestration.attachmentsTruncated`/`notice` and a warning.
+
 ## [0.3.0] - 2026-05-28
 
 **Headline: Publishing now works for project-pilot SSO users without a second GitHub step. The OAuth token forwarded from pilot is stored and reused to create and push the repo, and when publish fails the real reason surfaces instead of an opaque error. Plus two AI-input hardenings and a round of dependency/security bumps.**

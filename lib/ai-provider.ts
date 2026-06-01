@@ -11,7 +11,29 @@ export interface AiCapabilities {
     intakeEnrichment: boolean;
     postScaffoldReview: boolean;
   };
+  /**
+   * Conservative CHARACTER budget (not a token count) for an enrichment
+   * payload sent to this provider. Used to proportionally truncate large
+   * uploaded attachments so we do not silently overflow a small-context
+   * local model's window. Roughly 4 chars per token, so 20000 chars is a
+   * deliberately cautious ceiling for a typical 8k-token local model.
+   */
+  maxContextChars: number;
 }
+
+// Per-provider conservative character budgets for the enrichment payload.
+// These are CHARACTER budgets, not token counts: local models often run an
+// 8k-token (~32k char) window, so 20000 chars leaves comfortable headroom
+// for the system prompt and the model's own output. Hosted providers (groq,
+// openai) carry much larger windows, so 50000 chars is safe there.
+const MAX_CONTEXT_CHARS: Record<AiProviderName, number> = {
+  local: 20000,
+  groq: 50000,
+  openai: 50000,
+};
+// Default used when no provider is configured. Matches the hosted ceiling so
+// deterministic-fallback callers that still read the field get a sane value.
+const DEFAULT_MAX_CONTEXT_CHARS = 50000;
 
 interface AiProviderConfig {
   provider: AiProviderName;
@@ -89,6 +111,7 @@ export function getAiCapabilities(): AiCapabilities {
       intakeEnrichment: !!config,
       postScaffoldReview: !!config,
     },
+    maxContextChars: config ? MAX_CONTEXT_CHARS[config.provider] : DEFAULT_MAX_CONTEXT_CHARS,
   };
 }
 
