@@ -143,8 +143,12 @@ export async function readScaffoldPreview(tempDir: string): Promise<ScaffoldPrev
 // value once committed into the deliverable. They are kept out of the published
 // repo via .git/info/exclude, which is local to the temp clone and so never
 // collides with scaffoldkit's own committed root .gitignore.
+// The entire planning/ directory is planforge generation/replanning state
+// (plan-output.json + structured-input.json + rerun-report.json +
+// rerun-summary.md). Downstream tools read these at generation time from disk
+// before publish, so none of it belongs in the committed deliverable.
 export const PLANFORGE_PUBLISH_EXCLUDES = [
-  "/planning/plan-output.json",
+  "/planning/",
   "/exports/scaffoldkit-input.json",
 ];
 
@@ -156,9 +160,31 @@ export async function excludePlanforgeArtifactsFromPublish(projectDir: string): 
   const resolved = await resolvePlanforgeOutputPaths(projectDir);
   const toPattern = (absolutePath: string) =>
     `/${path.relative(projectDir, absolutePath).split(path.sep).join("/")}`;
-  const excludes = resolved.hasIndex
-    ? [toPattern(resolved.planOutputPath), toPattern(resolved.scaffoldkitInputPath)]
-    : PLANFORGE_PUBLISH_EXCLUDES;
+  // Exclude the whole planning/ directory (the parent of plan-output.json) so
+  // structured-input.json + rerun-report.json + rerun-summary.md and any future
+  // planning-only artifact are kept out too, not just plan-output.json. Guard
+  // against a flat layout where plan-output.json sits at the repo root: never
+  // turn that into a "/" exclude that would drop the entire deliverable.
+  let excludes: string[];
+  if (resolved.hasIndex) {
+    const planningRel = path
+      .relative(projectDir, path.dirname(resolved.planOutputPath))
+      .split(path.sep)
+      .join("/");
+    const planningDirPattern =
+      planningRel && !planningRel.startsWith("..")
+        ? `/${planningRel}/`
+        : toPattern(resolved.planOutputPath);
+    excludes = [planningDirPattern, toPattern(resolved.scaffoldkitInputPath)];
+  } else {
+    excludes = PLANFORGE_PUBLISH_EXCLUDES;
+  }
+
+  // Never emit a bare "/" (or empty) pattern: a degenerate index value such as
+  // planOutput="." would resolve the planning directory to the repo root. A
+  // bare "/" is a git no-op in practice, but drop it defensively so the exclude
+  // block can never target the whole deliverable.
+  excludes = excludes.filter((pattern) => pattern && pattern !== "/");
 
   const excludePath = path.join(projectDir, ".git", "info", "exclude");
   await fs.mkdir(path.dirname(excludePath), { recursive: true });

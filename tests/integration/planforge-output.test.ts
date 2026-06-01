@@ -32,6 +32,8 @@ describe("planforge publish exclusion", () => {
     await fs.writeFile(path.join(tempDir, "planning", "plan-output.json"), "{}\n");
     await fs.writeFile(path.join(tempDir, "exports", "scaffoldkit-input.json"), "{}\n");
     await fs.writeFile(path.join(tempDir, "planning", "structured-input.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "planning", "rerun-report.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "planning", "rerun-summary.md"), "# rerun\n");
     await fs.writeFile(path.join(tempDir, "README.md"), "# demo\n");
 
     const git = (args: string[]) =>
@@ -50,11 +52,16 @@ describe("planforge publish exclusion", () => {
       .split("\n")
       .filter(Boolean);
 
+    // The whole planning/ directory is generation-only state, not just
+    // plan-output.json: structured-input.json + rerun-report.json +
+    // rerun-summary.md are kept out of the deliverable too.
     expect(staged).not.toContain("planning/plan-output.json");
     expect(staged).not.toContain("exports/scaffoldkit-input.json");
-    // Unrelated and not-yet-excluded files are still committed.
+    expect(staged).not.toContain("planning/structured-input.json");
+    expect(staged).not.toContain("planning/rerun-report.json");
+    expect(staged).not.toContain("planning/rerun-summary.md");
+    // Deliverable files outside planning/ are still committed.
     expect(staged).toContain("README.md");
-    expect(staged).toContain("planning/structured-input.json");
   });
 
   it("derives exclude paths from the index when artifacts are relocated", async () => {
@@ -66,6 +73,7 @@ describe("planforge publish exclusion", () => {
     await fs.mkdir(path.join(tempDir, ".planforge", "planning"), { recursive: true });
     await fs.mkdir(path.join(tempDir, ".planforge", "exports"), { recursive: true });
     await fs.writeFile(path.join(tempDir, ".planforge", "planning", "plan-output.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, ".planforge", "planning", "structured-input.json"), "{}\n");
     await fs.writeFile(path.join(tempDir, ".planforge", "exports", "scaffoldkit-input.json"), "{}\n");
     await fs.writeFile(path.join(tempDir, "README.md"), "# demo\n");
     await fs.writeFile(
@@ -100,10 +108,70 @@ describe("planforge publish exclusion", () => {
       .split("\n")
       .filter(Boolean);
 
+    // The exclude follows the index-derived planning directory, so every
+    // planning artifact under .planforge/planning/ is kept out, not just
+    // plan-output.json.
     expect(staged).not.toContain(".planforge/planning/plan-output.json");
+    expect(staged).not.toContain(".planforge/planning/structured-input.json");
     expect(staged).not.toContain(".planforge/exports/scaffoldkit-input.json");
     expect(staged).toContain("README.md");
     expect(staged).toContain("planforge-index.json");
+  });
+
+  it("never emits a root exclude for a flat-layout index (root-guard)", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    // Degenerate flat layout: planning artifacts sit at the repo root, so the
+    // planning directory resolves to the repo root. The guard must fall back to
+    // excluding the single plan-output.json file, never a bare "/" that would
+    // drop the whole deliverable.
+    await fs.writeFile(path.join(tempDir, "plan-output.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "scaffoldkit-input.json"), "{}\n");
+    await fs.writeFile(path.join(tempDir, "README.md"), "# demo\n");
+    await fs.writeFile(
+      path.join(tempDir, "planforge-index.json"),
+      JSON.stringify(
+        {
+          generatedBy: "agent-planforge",
+          rootFiles: { agents: "AGENTS.md" },
+          directories: { ai: ".ai", tasks: "tasks" },
+          planning: { planOutput: "plan-output.json" },
+          exports: { scaffoldkit: "scaffoldkit-input.json" },
+          ai: { agents: ".ai/AGENTS.md" },
+        },
+        null,
+        2
+      )
+    );
+
+    const git = (args: string[]) =>
+      execFileSync("git", args, { cwd: tempDir, stdio: "pipe" });
+    git(["init"]);
+    git(["config", "user.email", "t@example.com"]);
+    git(["config", "user.name", "t"]);
+
+    await excludePlanforgeArtifactsFromPublish(tempDir);
+
+    const excludeLines = (
+      await fs.readFile(path.join(tempDir, ".git", "info", "exclude"), "utf-8")
+    )
+      .split("\n")
+      .map((line) => line.trim());
+    expect(excludeLines).not.toContain("/");
+
+    git(["add", "-A"]);
+    const staged = execFileSync("git", ["ls-files"], {
+      cwd: tempDir,
+      encoding: "utf-8",
+    })
+      .split("\n")
+      .filter(Boolean);
+
+    expect(staged).toContain("README.md");
+    expect(staged).toContain("planforge-index.json");
+    expect(staged).not.toContain("plan-output.json");
+    expect(staged).not.toContain("scaffoldkit-input.json");
   });
 });
 
