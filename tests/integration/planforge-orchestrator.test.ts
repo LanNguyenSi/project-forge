@@ -128,6 +128,53 @@ describe("planforge intake orchestration", () => {
     );
   });
 
+  it("instructs the model to treat attachments as authoritative without overriding explicit projectInput choices", async () => {
+    const generateMock = vi.fn(async () => ({
+      provider: "local" as const,
+      model: "qwen-local",
+      data: {},
+    }));
+    vi.doMock("@/lib/ai-provider", () => ({
+      getAiCapabilities: () => ({
+        enabled: true,
+        provider: "local",
+        model: "qwen-local",
+        features: { magicFill: true, intakeEnrichment: true },
+      }),
+      generateStructuredJson: generateMock,
+    }));
+
+    const { buildPlanforgeInput } = await import("../../lib/planforge-orchestrator");
+
+    await buildPlanforgeInput(
+      {
+        projectName: "demo-app",
+        summary: "An internal portal.",
+        features: ["dashboard"],
+        constraints: [],
+        targetUsers: ["staff"],
+      },
+      [
+        {
+          name: "arc42-snippet.md",
+          mimeType: "text/markdown",
+          tier: "text",
+          inlineText: "## Datastore\n\nUses PostgreSQL exclusively.",
+        },
+      ]
+    );
+
+    const [systemPrompt] = generateMock.mock.calls[0] as unknown as [string, string];
+
+    // Attachments are authoritative for facts they assert.
+    expect(systemPrompt).toMatch(/authoritative evidence/);
+    // But they must NOT silently override explicit projectInput choices;
+    // conflicts surface via openQuestions instead of flipping the value.
+    expect(systemPrompt).toMatch(/Do NOT override explicit choices/);
+    expect(systemPrompt).toMatch(/projectInput/);
+    expect(systemPrompt).toMatch(/surface the conflict via openQuestions/);
+  });
+
   it("wraps attachment inlineText in injection-sentinels and instructs the model to disregard embedded directives", async () => {
     const generateMock = vi.fn(async () => ({
       provider: "local" as const,
