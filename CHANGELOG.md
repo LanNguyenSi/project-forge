@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-01
+
+### Added
+
+- **Surface the wave-0 blueprint-fit gate at the front of the agent entry path.** When the post-scaffold review emits a blueprint-fit follow-up, the generated entry artifacts (`.ai/TASKS.md`, root `AGENTS.md`) now lead with `tasks/900`, so a fresh agent resolves the scaffold-vs-plan mismatch before starting wave-1 work (#81).
+
+### Changed
+
+- **Keep planforge generation-only artifacts out of the published deliverable.** The whole `planning/` directory and `exports/scaffoldkit-input.json` are excluded from the published repository, and a post-Phase-3 `planforge-index.json` that omits the `handoff` block is tolerated, so a published repo carries only what a consumer needs (#78, #79, #80).
+
+### Fixed
+
+- **Published machine artifacts no longer advertise excluded paths.** The shipped `planforge-index.json` is pruned of the excluded `planning/` and `exports/scaffoldkit-input.json` entries, and the post-scaffold review no longer snapshots the transient `.forge-meta.json`, so a tool that trusts the index for path discovery does not 404 (#84).
+- **Honest scaffold verdict and label.** The post-scaffold `runtime-structure-present` check and the preview "Full scaffold" label both require a real source file (by extension), so an empty scaffold (a manifest plus empty directories) is reported as a planning baseline instead of being over-claimed as a full scaffold (#82, #83).
+
 ## [0.4.0] - 2026-06-01
 
 ### Added
