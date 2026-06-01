@@ -42,6 +42,35 @@ describe("post-scaffold review helpers", () => {
     expect(verdict.mustReviewBeforeImplementation).toBe(true);
   });
 
+  it("treats a manifest plus an empty src/ as NOT runtime-present (honest verdict)", () => {
+    // The r4 over-claim: pyproject.toml is generated but src/ is an empty dir
+    // with no source files, so collectRuntimePaths samples only the manifest.
+    const checks = __internal.buildDeterministicChecks(
+      { blueprint: "rest-api", blueprintConfidence: "strong", agentMustCreateStructure: false },
+      { topLevelPaths: ["pyproject.toml", "src"], samplePaths: ["pyproject.toml"] }
+    );
+
+    const runtime = checks.find((check) => check.id === "runtime-structure-present");
+    expect(runtime?.status).toBe("warn");
+
+    const verdict = __internal.summarizeDeterministicVerdict(checks);
+    expect(verdict.status).not.toBe("ok");
+    expect(verdict.mustReviewBeforeImplementation).toBe(true);
+  });
+
+  it("treats a generated source file as runtime-present", () => {
+    const checks = __internal.buildDeterministicChecks(
+      { blueprint: "rest-api", blueprintConfidence: "strong", agentMustCreateStructure: false },
+      { topLevelPaths: ["src"], samplePaths: ["src/index.ts"] }
+    );
+
+    const runtime = checks.find((check) => check.id === "runtime-structure-present");
+    expect(runtime?.status).toBe("pass");
+
+    const verdict = __internal.summarizeDeterministicVerdict(checks);
+    expect(verdict.status).toBe("ok");
+  });
+
   it("maps implementation gate into scaffold fit preview", () => {
     const preview = __internal.toScaffoldFitPreview({
       version: "1.0",
@@ -135,6 +164,36 @@ describe("post-scaffold review artifact relocation", () => {
     expect(readBack).not.toBeNull();
     expect(readBack?.verdict.status).toBe(written.verdict.status);
     expect(readBack?.blueprint.selected).toBe("rest-api");
+  });
+
+  it("warns on a manifest plus an empty src/ via the real on-disk sampler (no source code)", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "project-forge-empty-scaffold-"));
+    tempDirs.push(tempDir);
+
+    await fs.mkdir(path.join(tempDir, "tasks"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "src"), { recursive: true }); // empty dir, no code
+    await fs.writeFile(path.join(tempDir, "pyproject.toml"), '[project]\nname = "demo"\n');
+    await fs.writeFile(
+      path.join(tempDir, "scaffoldkit-input.json"),
+      JSON.stringify(
+        {
+          projectName: "demo",
+          blueprint: "rest-api",
+          blueprintConfidence: "strong",
+          agentMustCreateStructure: false,
+        },
+        null,
+        2
+      )
+    );
+
+    const review = await runPostScaffoldReview(tempDir);
+
+    // Even with a strong blueprint, an empty scaffold (manifest + empty src/,
+    // no source file) must not be green-lit as runtime-present.
+    const runtime = review.checks.find((check) => check.id === "runtime-structure-present");
+    expect(runtime?.status).toBe("warn");
+    expect(review.verdict.status).not.toBe("ok");
   });
 });
 
@@ -262,8 +321,10 @@ Lock scope, assumptions, and engineering baseline.
     const tasksBefore = await fs.readFile(path.join(tempDir, ".ai", "TASKS.md"), "utf-8");
     const agentsBefore = await fs.readFile(path.join(tempDir, "AGENTS.md"), "utf-8");
 
-    // Strong blueprint + a runtime signal file => all checks pass => ok => no gate.
+    // Strong blueprint + real source code => all checks pass => ok => no gate.
     await fs.writeFile(path.join(tempDir, "pyproject.toml"), '[project]\nname = "demo"\n');
+    await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "src", "main.py"), "def main():\n    return 0\n");
     await fs.writeFile(
       path.join(tempDir, "scaffoldkit-input.json"),
       JSON.stringify(

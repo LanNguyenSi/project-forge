@@ -127,20 +127,18 @@ const PLANFORGE_TOP_LEVEL_PATHS = new Set([
   "project-input.json",
 ]);
 
-const RUNTIME_SIGNAL_FILES = [
-  "package.json",
-  "requirements.txt",
-  "pyproject.toml",
-  "Cargo.toml",
-  "go.mod",
-  "composer.json",
-  "Gemfile",
-  "pom.xml",
-  "build.gradle",
-  "Dockerfile",
-  "src",
-  "app",
-];
+// "Runtime structure present" means actual source code was generated, not just
+// a manifest (pyproject.toml / package.json) or a bare src/ directory. An empty
+// scaffold (e.g. a non-TypeScript selection of a TS-only blueprint) leaves a
+// manifest plus empty dirs; treating those as runtime structure is exactly the
+// "full scaffold" overclaim this check exists to catch, so require a real
+// source file instead.
+const SOURCE_FILE_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+  ".py", ".go", ".rs", ".rb", ".php", ".java", ".kt",
+  ".cs", ".swift", ".c", ".cc", ".cpp", ".h", ".hpp",
+  ".scala", ".ex", ".exs", ".clj", ".sql",
+]);
 
 const REVIEW_SYSTEM_PROMPT = `You review whether a scaffold blueprint is a good fit for a project after scaffolding.
 
@@ -213,12 +211,12 @@ async function collectRuntimePaths(rootDir: string, maxPaths = 60): Promise<{ to
 }
 
 function hasRuntimeSignals(runtimeIndicators: { topLevelPaths: string[]; samplePaths: string[] }): boolean {
-  const candidates = new Set<string>([
-    ...runtimeIndicators.topLevelPaths,
-    ...runtimeIndicators.samplePaths.map((filePath) => filePath.split(path.sep)[0] || filePath),
-  ]);
-
-  return RUNTIME_SIGNAL_FILES.some((signal) => candidates.has(signal));
+  // A generated source file (top-level or in any sampled directory, at any
+  // depth) is the honest signal that runtime structure exists. A bare src/ dir
+  // or a lone manifest does not count.
+  return [...runtimeIndicators.topLevelPaths, ...runtimeIndicators.samplePaths].some(
+    (filePath) => SOURCE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+  );
 }
 
 function buildDeterministicChecks(
