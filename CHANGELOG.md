@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-01
+
 ### Added
 
-- **Per-provider character budget for the intake-enrichment call.** A new `maxContextChars` capability (local 20000, hosted 50000) drives proportional truncation of large uploaded attachment bodies so the enrichment prompt no longer risks a silent context-window overflow on small-context local models; truncation keeps the injection sentinels intact and is surfaced non-silently via `orchestration.attachmentsTruncated`/`notice` and a warning.
+- **Per-provider character budget for the intake-enrichment call.** A new `maxContextChars` capability (local 20000, hosted 50000) drives proportional truncation of large uploaded attachment bodies so the enrichment prompt no longer risks a silent context-window overflow on small-context local models; truncation keeps the injection sentinels intact and is surfaced non-silently via `orchestration.attachmentsTruncated`/`notice` and a warning (#75).
+
+### Changed
+
+- **Attachments are authoritative without overriding explicit intake choices.** The enrichment flow now treats attachment content as authoritative evidence, but stops it from silently overriding intake fields the user set explicitly (#74).
+- Honor the `.planforge/docs` relocation in the output-layout review denylist so relocated docs are excluded from review as intended (#73).
+
+### Security
+
+- **Close IDOR, add auth, and stop a PAT leak on the legacy routes (HIGH audit).** Tightens authorization on the legacy routes, adds missing auth checks, and stops a personal access token from leaking in responses (#71).
+- **Guard the legacy publish route against `sessionId` path traversal**, rejecting crafted identifiers before they reach the filesystem (#70).
+- Bump `axios` to 1.16.1 to patch CVE-2026-44489 (#72).
 
 ## [0.3.0] - 2026-05-28
 
