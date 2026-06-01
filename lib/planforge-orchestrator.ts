@@ -24,7 +24,19 @@ export interface PlanforgeOrchestrationMetadata {
   aiUsed: boolean;
   provider: AiProviderName | null;
   model: string | null;
+  /**
+   * Set when one or more uploaded attachments were proportionally truncated
+   * to fit the provider's character budget before the enrichment call. Lets
+   * callers surface a non-silent notice instead of the user getting a quietly
+   * shortened (or, pre-budget, silently overflowed) prompt.
+   */
+  attachmentsTruncated?: boolean;
+  /** User-readable explanation, present only when attachmentsTruncated is true. */
+  notice?: string;
 }
+
+const ATTACHMENT_TRUNCATION_NOTICE =
+  "An uploaded attachment exceeded your AI provider context budget and was truncated.";
 
 interface IntakeEnrichment {
   nonFunctionalRequirements?: string[];
@@ -62,6 +74,10 @@ Rules:
 
 const ATTACHMENT_SENTINEL_OPEN = "--- BEGIN USER-UPLOADED DOCUMENT (UNTRUSTED) ---";
 const ATTACHMENT_SENTINEL_CLOSE = "--- END USER-UPLOADED DOCUMENT ---";
+// Appended on its own line inside a truncated block (between the sentinels)
+// so the model, and any human inspecting the prompt, can see the body was
+// cut to fit the provider budget rather than ending naturally.
+const ATTACHMENT_TRUNCATION_MARKER = "[truncated to fit the provider context budget]";
 
 function uniqueStrings(values: string[] | undefined): string[] | undefined {
   if (!values || values.length === 0) {
@@ -148,12 +164,143 @@ function attachmentsForPrompt(
   return out;
 }
 
+// Small reserve subtracted from the attachment budget so that the bytes the
+// truncation markers and the model's own response add do not nudge the prompt
+// back over the provider ceiling.
+const ATTACHMENT_BUDGET_SAFETY_MARGIN = 1000;
+
+/**
+ * Replace the body BETWEEN the sentinels of a wrapped attachment with a new
+ * body, keeping the sentinels themselves intact (the prompt-injection guard
+ * relies on them). Returns the original string unchanged if the sentinels are
+ * not both present, so a malformed entry can never strip its own guard.
+ */
+function rewrapAttachmentBody(wrapped: string, newBody: string): string {
+  const openIdx = wrapped.indexOf(ATTACHMENT_SENTINEL_OPEN);
+  const closeIdx = wrapped.lastIndexOf(ATTACHMENT_SENTINEL_CLOSE);
+  if (openIdx === -1 || closeIdx === -1 || closeIdx <= openIdx) {
+    return wrapped;
+  }
+  return `${ATTACHMENT_SENTINEL_OPEN}\n${newBody}\n${ATTACHMENT_SENTINEL_CLOSE}`;
+}
+
+/** Extract the inner body (between the sentinels) of a wrapped attachment. */
+function attachmentInnerBody(wrapped: string): string {
+  const openIdx = wrapped.indexOf(ATTACHMENT_SENTINEL_OPEN);
+  const closeIdx = wrapped.lastIndexOf(ATTACHMENT_SENTINEL_CLOSE);
+  if (openIdx === -1 || closeIdx === -1 || closeIdx <= openIdx) {
+    return wrapped;
+  }
+  return wrapped.slice(openIdx + ATTACHMENT_SENTINEL_OPEN.length, closeIdx).replace(/^\n|\n$/g, "");
+}
+
+/**
+ * Proportionally truncate attachment bodies so the whole additionalContext
+ * payload fits the provider character budget. The sentinels and the per-block
+ * truncation marker are preserved; only the user-uploaded inner body is cut.
+ *
+ * Returns the (possibly truncated) attachments and whether any truncation
+ * happened, so the caller can surface a non-silent notice instead of risking
+ * a quiet context-window overflow on a small-context model.
+ */
+function fitAttachmentsToBudget(
+  additionalContext: Array<{ name: string; inlineText: string }>,
+  maxContextChars: number,
+  restPromptChars: number
+): { attachments: Array<{ name: string; inlineText: string }>; truncated: boolean } {
+  if (additionalContext.length === 0) {
+    return { attachments: additionalContext, truncated: false };
+  }
+
+  // A non-finite or non-positive budget means we have no usable ceiling to
+  // enforce against (a misconfigured capability). Treat it as "no limit"
+  // rather than truncating everything to nothing: silently dropping all
+  // bodies would be the same zero-AI-benefit failure this feature exists to
+  // prevent.
+  if (!Number.isFinite(maxContextChars) || maxContextChars <= 0) {
+    return { attachments: additionalContext, truncated: false };
+  }
+
+  const totalAttachmentChars = additionalContext.reduce(
+    (sum, entry) => sum + entry.inlineText.length,
+    0
+  );
+  const attachmentBudget = maxContextChars - restPromptChars - ATTACHMENT_BUDGET_SAFETY_MARGIN;
+
+  // Already fits: leave the payload byte-identical to the untruncated path.
+  if (totalAttachmentChars <= attachmentBudget) {
+    return { attachments: additionalContext, truncated: false };
+  }
+
+  // Degenerate case: the base prompt alone is at or over budget, so there is
+  // no room for attachment bodies. Drop each body to a minimal stub (keeping
+  // sentinels + marker) rather than crashing or dividing by zero.
+  if (attachmentBudget <= 0) {
+    return {
+      attachments: additionalContext.map((entry) => ({
+        name: entry.name,
+        inlineText: rewrapAttachmentBody(entry.inlineText, ATTACHMENT_TRUNCATION_MARKER),
+      })),
+      truncated: true,
+    };
+  }
+
+  // Scale every body by the same factor so larger uploads cede more room. Each
+  // truncated block re-adds fixed overhead that the body budget must exclude:
+  // the BEGIN/END sentinels (re-added by rewrapAttachmentBody) and the marker
+  // line. Reserve both per attachment up front so the post-truncation total,
+  // which carries that overhead, stays inside attachmentBudget rather than
+  // overshooting by the sentinel width times the attachment count.
+  const markerOverheadPerAttachment = ATTACHMENT_TRUNCATION_MARKER.length + 1; // marker + its newline
+  const wrapperOverheadPerAttachment =
+    ATTACHMENT_SENTINEL_OPEN.length + ATTACHMENT_SENTINEL_CLOSE.length + 2; // both sentinels + their newlines
+  const bodyBudget = Math.max(
+    0,
+    attachmentBudget -
+      (markerOverheadPerAttachment + wrapperOverheadPerAttachment) * additionalContext.length
+  );
+  const totalBodyChars = additionalContext.reduce(
+    (sum, entry) => sum + attachmentInnerBody(entry.inlineText).length,
+    0
+  );
+  const scale = totalBodyChars > 0 ? bodyBudget / totalBodyChars : 0;
+
+  const attachments = additionalContext.map((entry) => {
+    const body = attachmentInnerBody(entry.inlineText);
+    const keep = Math.max(0, Math.floor(body.length * scale));
+    const truncatedBody = `${body.slice(0, keep)}\n${ATTACHMENT_TRUNCATION_MARKER}`;
+    return {
+      name: entry.name,
+      inlineText: rewrapAttachmentBody(entry.inlineText, truncatedBody),
+    };
+  });
+
+  return { attachments, truncated: true };
+}
+
 async function enrichIntake(
   input: ProjectInput,
   base: PlanforgePlanningInput,
   attachments?: Attachment[]
-): Promise<{ enrichment: IntakeEnrichment; provider: AiProviderName; model: string }> {
-  const additionalContext = attachmentsForPrompt(attachments);
+): Promise<{
+  enrichment: IntakeEnrichment;
+  provider: AiProviderName;
+  model: string;
+  attachmentsTruncated: boolean;
+}> {
+  const rawAdditionalContext = attachmentsForPrompt(attachments);
+
+  // Measure the rest of the prompt (everything except additionalContext) so
+  // the attachment budget is what is LEFT after the fixed scaffolding. Include
+  // the system prompt because it shares the same provider context window.
+  const restPromptChars =
+    ENRICHMENT_SYSTEM_PROMPT.length +
+    JSON.stringify({ projectInput: input, currentPlanforgeInput: base }, null, 2).length;
+
+  const { maxContextChars } = getAiCapabilities();
+  const { attachments: additionalContext, truncated: attachmentsTruncated } =
+    fitAttachmentsToBudget(rawAdditionalContext, maxContextChars, restPromptChars);
+
   // Sentinel safety relies on JSON-string encoding here: each attachment's
   // wrapped inlineText is serialized as a single quoted JSON value, so a
   // forged END sentinel inside an uploaded body cannot visually close the
@@ -182,6 +329,7 @@ async function enrichIntake(
     enrichment: result.data,
     provider: result.provider,
     model: result.model,
+    attachmentsTruncated,
   };
 }
 
@@ -208,7 +356,17 @@ export async function buildPlanforgeInput(
   }
 
   try {
-    const { enrichment, provider, model } = await enrichIntake(input, base, attachments);
+    const { enrichment, provider, model, attachmentsTruncated } = await enrichIntake(
+      input,
+      base,
+      attachments
+    );
+    if (attachmentsTruncated) {
+      console.warn(
+        "AI intake enrichment: uploaded attachment(s) exceeded the provider context budget" +
+          ` (${provider ?? "unknown"}) and were proportionally truncated to fit. ${ATTACHMENT_TRUNCATION_NOTICE}`
+      );
+    }
     return {
       planforgeInput: mergePlanforgeInput(base, enrichment),
       orchestration: {
@@ -216,6 +374,9 @@ export async function buildPlanforgeInput(
         aiUsed: true,
         provider,
         model,
+        ...(attachmentsTruncated
+          ? { attachmentsTruncated: true, notice: ATTACHMENT_TRUNCATION_NOTICE }
+          : {}),
       },
     };
   } catch (error) {
