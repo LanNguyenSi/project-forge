@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted (implemented; see `lib/planforge-client.ts` and the `planforge` service in `docker-compose.yml`)
 
 ## Context
 

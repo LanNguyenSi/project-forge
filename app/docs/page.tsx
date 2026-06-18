@@ -56,7 +56,7 @@ function DocsContent() {
       </Card>
 
       <Alert variant="warning">
-        <strong>Rate Limits:</strong> Each API token is limited to <strong>10 projects per day</strong>. This limit resets every 24 hours from your first request.
+        <strong>Rate Limits:</strong> The REST API allows <strong>10 project publishes per user per day</strong>, shared across all of your API tokens. The generate, preview, and list/delete endpoints are unmetered, and the limit is a rolling 24-hour window.
       </Alert>
     </div>
   );

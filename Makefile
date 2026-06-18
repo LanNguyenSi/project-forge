@@ -43,9 +43,7 @@ dev-env:
 		echo "  NEXTAUTH_URL     http://localhost:3000"; \
 		echo "  DATABASE_URL     file:./db/project-forge.db"; \
 		echo ""; \
-		echo "  Optional — fill in to enable all features:"; \
-		echo "    GITHUB_TOKEN   (repo creation)"; \
-		echo "    GITHUB_OWNER   (repo owner)"; \
+		echo "  Optional - fill in to enable all features:"; \
 		echo "    GITHUB_ID      (OAuth login)"; \
 		echo "    GITHUB_SECRET  (OAuth login)"; \
 		echo "    LOCAL_AI_BASE_URL + LOCAL_AI_MODEL  (optional local AI)"; \

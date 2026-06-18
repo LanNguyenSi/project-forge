@@ -7,8 +7,6 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
-      GITHUB_OWNER: ${GITHUB_OWNER:-LanNguyenSi}
       FORGE_TEMP_DIR: /tmp/project-forge
       # Planforge HTTP boundary (ADR-0002). The planforge service runs both
       # the planforge CLI and scaffoldkit in-container; this app just POSTs
