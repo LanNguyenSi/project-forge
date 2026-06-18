@@ -20,7 +20,7 @@ Thanks for your interest. project-forge is a web UI for creating AI-toolchain pr
    npm test
    ```
 
-4. For Prisma schema changes, generate a migration and check it in alongside the schema edit.
+4. For Prisma schema changes, run `npx prisma db push` to sync the local SQLite database. This project uses `db push`, not migration files; there is no `prisma/migrations` directory to check in.
 5. Open the PR with a clear summary, motivation, and test plan.
 
 ## Dev Setup
@@ -29,10 +29,12 @@ Thanks for your interest. project-forge is a web UI for creating AI-toolchain pr
 git clone https://github.com/LanNguyenSi/project-forge.git
 cd project-forge
 npm install
-docker compose up -d   # Postgres
-npx prisma migrate dev
+npx prisma generate
+npx prisma db push   # creates the local SQLite database
 npm run dev
 ```
+
+The database is local SQLite (file path from `DATABASE_URL`); no separate database server is needed. Or run `make dev` to install deps, generate the Prisma client, create the SQLite DB, scaffold `.env`, and start the dev server in one step.
 
 ## Style
 

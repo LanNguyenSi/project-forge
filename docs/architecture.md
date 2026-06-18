@@ -2,151 +2,157 @@
 
 ## Overview
 
-project-forge is a CLI tool implemented in **python** using the **typer** framework.
-It follows a command-based architecture where each subcommand is an isolated unit with its own
-argument parsing, validation, and execution logic.
+project-forge is a full-stack web application built with **Next.js 15** (App
+Router) and **TypeScript**. Users describe a project in a form, the server asks
+the **agent-planforge HTTP service** to plan and scaffold it (planforge runs
+both the planforge CLI and scaffoldkit in its own container, see
+[ADR-0002](adrs/0002-tool-decoupling-service-boundary.md)), the result is
+extracted into a temporary directory, previewed, and on confirmation pushed to a
+new GitHub repository.
+
+The same capabilities are exposed as a token-authenticated REST API under
+`app/api/v1/` so agents can drive generation programmatically.
 
 ## Principles
 
-1. **Single responsibility per command**: Each command file owns one subcommand and nothing else.
-2. **Fail fast with clear messages**: Validate inputs at parse time; emit actionable error messages to stderr.
-3. **Exit codes are part of the interface**: Always exit with a meaningful code (see Exit Codes below).
-4. **Stdout for data, stderr for diagnostics**: Program output goes to stdout; logs, warnings, and errors go to stderr.
-5. **Composable with other tools**: Support `--output json` on commands that produce structured data.
-6. **Config is optional**: The tool must work with no config file present; config only overrides defaults.
+1. **Code is the source of truth**: behaviour lives in the route handlers and
+   `lib/` modules; docs track the code, not the other way round.
+2. **Thin UI, server-side orchestration**: pages collect input and render
+   previews; planning, scaffolding, and GitHub push happen in server route
+   handlers.
+3. **One external boundary**: project-forge talks to a single dependency, the
+   planforge HTTP service. scaffoldkit is an implementation detail behind it and
+   is never invoked from this app.
+4. **No secrets in responses or logs**: internal error detail (file paths,
+   stderr, PATs) is sanitized before it reaches clients or logs.
+5. **Dark-only UI**: Tailwind, dark-first, no light mode.
 
 ## System Structure
 
 ```
 project-forge/
-├── src/
-│   ├── commands/         # One module per subcommand
-│   │   ├── run.py
-│   │   └── config.py
-│   ├── config/           # Config file loading, validation, env var merging
-│   │   └── loader.py
-│   └── main.py
-│       # Entrypoint: registers commands, sets global flags
-├── tests/
-│   ├── commands/         # Tests mirroring src/commands
-│   └── config/
-└── docs/
+├── app/                          # Next.js App Router
+│   ├── (dashboard)/              # Auth-protected pages
+│   │   ├── create/page.tsx       # Project creation form
+│   │   ├── dashboard/page.tsx    # User dashboard
+│   │   ├── login/page.tsx        # Login
+│   │   └── settings/page.tsx     # User settings / API tokens
+│   ├── api/                      # Route handlers
+│   │   ├── v1/                   # Public REST API (X-API-Key auth)
+│   │   │   ├── generate/route.ts # Plan + scaffold, return a sessionId
+│   │   │   ├── preview/route.ts  # Read a previously generated session
+│   │   │   ├── publish/route.ts  # Create GitHub repo from a session
+│   │   │   └── projects/route.ts # GET list / DELETE / POST one-shot create
+│   │   ├── auth/                 # NextAuth + project-pilot registration broker
+│   │   ├── generate/route.ts     # Web UI generation (session auth)
+│   │   ├── publish/route.ts      # Web UI publish (session auth)
+│   │   ├── ai-assist/route.ts    # AI form enrichment ("magic fill")
+│   │   └── dashboard/route.ts    # User/token management
+│   ├── docs/page.tsx             # Swagger UI over public/openapi.json
+│   ├── layout.tsx                # Root layout
+│   └── globals.css               # Global styles + Swagger dark overrides
+│
+├── components/                   # React components (ProjectForm, PreviewPanel, modals, AppShell)
+├── lib/                          # Server-side business logic (see below)
+├── prisma/schema.prisma          # SQLite schema (users, API tokens, usage log)
+├── middleware.ts                 # Auth + API-key gating
+├── public/openapi.json           # OpenAPI spec served at /docs
+└── tests/                        # Vitest integration + unit tests
 ```
 
 ## Key Subsystems
 
-### 1. Command Parsing (typer)
+### 1. Routing and API surface
 
-Commands are defined as Python functions decorated with `@app.command()`. Typer derives
-argument names, types, and help text from function signatures and type annotations.
+Route handlers under `app/api/` export HTTP-method functions (`GET`, `POST`,
+`DELETE`) and return `NextResponse.json()` with explicit status codes.
 
-```python
-# src/commands/run.py
-import typer
+- **Public REST API** lives under `app/api/v1/` and authenticates with an
+  `X-API-Key` header carrying a dashboard-issued `pf_*` token
+  (`validateApiToken` in `lib/db.ts`).
+- **Web UI routes** (`app/api/generate`, `app/api/publish`, `app/api/dashboard`,
+  `app/api/ai-assist`) use NextAuth session auth.
+- `middleware.ts` gates the protected surfaces.
 
-def run(
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without changes"),
-    output: str = typer.Option("text", "--output", "-o", help="Output format"),
-) -> None:
-    """Execute the primary action."""
-    ...
-```
+Error responses follow the shape `{ ok: false, error: string, details?: string }`.
 
-The root app is created in `src/main.py` and subcommand apps are added with `app.add_typer()`.
+### 2. Generate / preview / publish flow
 
-### 2. Config Loading
+The v1 API is session-oriented and the steps share a single `sessionId` (a
+UUID):
 
-Config is loaded in layers, with later layers overriding earlier ones:
+1. `POST /api/v1/generate` builds a planforge input
+   (`lib/planforge-orchestrator.ts`), calls the planforge service over HTTP
+   (`lib/planforge-client.ts`), extracts the returned tarball into
+   `${FORGE_TEMP_DIR}/<sessionId>`, runs a post-scaffold review
+   (`lib/post-scaffold-review.ts`), and returns `{ ok, sessionId, preview }`.
+2. `GET /api/v1/preview?sessionId=<uuid>` re-reads the same temp dir and returns
+   the preview (`lib/v1-shared.ts`).
+3. `POST /api/v1/publish` (body `{ sessionId }`) creates a GitHub repo via the
+   user's own PAT and pushes the scaffold.
 
-```
-1. Compiled-in defaults
-2. Config file (~/.config/project-forge/config.yaml)
-3. Environment variables (PROJECT_FORGE_*)
-4. CLI flags passed at runtime
-```
+Sessions expire one hour after generation (`SESSION_TTL_MS` in
+`lib/v1-shared.ts`); the temp dir is the only state. `POST /api/v1/projects` is a
+one-shot variant that does generate plus publish in a single call without a
+preview step.
 
-The config loader lives in `src/config/`. It is responsible for:
+### 3. The planforge boundary
 
-- Locating the config file (respects `--config` flag and `XDG_CONFIG_HOME`)
-- Parsing the YAML file into a typed struct/dataclass
-- Merging environment variable overrides
-- Returning a validated config object to each command
+`lib/planforge-client.ts` is the only outbound integration. It POSTs to
+`${PLANFORGE_URL}/api/generate` with a `Bearer ${PLANFORGE_SERVICE_TOKEN}`
+header, consumes an SSE stream, and untars the base64 gzipped result into the
+request temp dir. The planforge container runs scaffoldkit internally; this app
+ships no Python and no scaffoldkit venv (see the Dockerfile and ADR-0002).
 
-Commands receive config as a parameter; they do not read it directly. This keeps commands
-testable without touching the filesystem.
+### 4. Config loading
 
-Config file path resolution order:
-1. Value of `--config` flag
-2. `$PROJECT_FORGE_CONFIG` environment variable
-3. `$XDG_CONFIG_HOME/project-forge/config.yaml`
-4. `~/.config/project-forge/config.yaml`
+Configuration is environment-variable based (no config file). Values are read
+directly from `process.env` at the point of use, for example `PLANFORGE_URL`,
+`PLANFORGE_SERVICE_TOKEN`, `FORGE_TEMP_DIR`, `DATABASE_URL`, `NEXTAUTH_SECRET`,
+the optional AI-provider keys, and the optional `ALLOWED_GITHUB_LOGINS`
+allowlist. See the README "Environment Variables" tables for the full list and
+which are required.
 
-### 3. Output Formatting
+### 5. Persistence
 
-Commands should never write directly to stdout with unstructured print statements.
-Instead, they call a shared output layer:
+Prisma over **SQLite** (`prisma/schema.prisma`, `provider = "sqlite"`). The
+client is a cached singleton in `lib/db.ts`. The schema syncs via
+`npx prisma db push` (there is no `prisma/migrations` directory). Core models:
+`User`, `ApiToken`, and `UsageLog` (one row per published project, also the
+basis for rate limiting).
 
-- **`output text`**: Human-readable, with optional color (disabled if `NO_COLOR` is set or `--no-color` is passed, or if stdout is not a TTY)
-- **`output json`**: Machine-readable JSON, always without color
-- **`output yaml`**: Machine-readable YAML, always without color
+### 6. Rate limiting
 
-The output module respects:
+`checkRateLimit(userId)` in `lib/db.ts` counts `UsageLog` rows for the user in
+the trailing 24 hours against `RATE_LIMIT_PER_DAY` (10). It is consumed only by
+the publish path (`app/api/v1/publish`) and the one-shot
+`POST /api/v1/projects`; `generate`, `preview`, and the list/delete endpoints
+are unmetered.
 
-- `NO_COLOR` environment variable (per [no-color.org](https://no-color.org))
-- `--no-color` flag
-- TTY detection: disable color when stdout is piped
+### 7. Secret handling
 
-### 4. Error Handling and Exit Codes
-
-All errors are caught at the top-level command runner and translated to appropriate exit codes.
-Commands signal failure by raising/returning an error - they never call `os.exit()` directly.
-
-#### Exit Code Reference
-
-| Code | Meaning |
-|------|---------|
-| `0` | Success |
-| `1` | General / unspecified error |
-| `2` | Invalid arguments or usage error |
-| `3` | Configuration error (bad config file, missing required setting) |
-| `4` | Runtime error (external service unavailable, permission denied) |
-| `5` | Not found (resource the command expected does not exist) |
-
-Error messages follow the pattern: `error: <what went wrong>. <how to fix it>.`
-
-Good: `error: config file not found at ~/.config/project-forge/config.yaml. Run 'project-forge config init' to create it.`
-Bad: `FileNotFoundError: [Errno 2] No such file or directory`
-
-### 5. Logging and Verbosity
-
-Diagnostic output is gated by a verbosity level:
-
-- **Default**: warnings and errors only
-- **`--verbose`**: informational messages, command timing
-- **`--debug`**: debug-level traces (when applicable)
-
-Structured log lines go to stderr and never to stdout.
+The publish path sanitizes any embedded GitHub PAT (`x-access-token:...@` remote
+URLs and bare `gho_/ghp_/ghu_/ghs_/github_pat_` token shapes) before the message
+reaches logs or responses. AI provider keys and the planforge service token are
+read from env only.
 
 ## CI/CD Architecture
 
-The pipeline runs on GitHub Actions (`.github/workflows/ci.yml`):
+The pipeline runs on GitHub Actions (`.github/workflows/ci.yml`) on Node 20:
 
-1. **lint** - ruff, mypy
-2. **test** - pytest with coverage
-3. **build** - `pip build` to verify package is installable
-4. **publish** - twine upload on tagged releases
+1. `npm ci --legacy-peer-deps`
+2. `npx prisma generate`
+3. `npx tsc --noEmit --skipLibCheck` (typecheck)
+4. `npm run lint` (ESLint)
+5. `npm run build` (`next build`)
+6. `npx vitest run` (tests)
 
 ## Testing Strategy
 
-Approach: **unit-tests**
-
-Each command module has a corresponding test file. Tests invoke command functions directly
-with controlled inputs - they do not spawn subprocess invocations.
-
-- Commands are tested with mocked config and mocked I/O
-- Config loader is tested with temporary files
-- Output formatter is tested for both text and JSON modes
+Test runner: **Vitest** with `happy-dom`. Integration and unit tests live under
+`tests/` (`tests/integration/`, `tests/unit/`) and exercise the route handlers
+and `lib/` modules directly. Run with `npm test` or `npm run test:watch`.
 
 ## Decisions
 
-See [ADR log](adrs/) for architectural decisions and their rationale.
+See the [ADR log](adrs/) for architectural decisions and their rationale.

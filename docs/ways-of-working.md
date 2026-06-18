@@ -1,136 +1,97 @@
 # Ways of Working: project-forge
 
+project-forge is a Next.js 15 web application plus a token-authenticated REST
+API. These conventions are written for that surface (routes, React components,
+Prisma) and not for a command-line tool.
+
 ## Definition of Done
 
-A command, feature, or bug fix is done when:
+A feature or bug fix is done when:
 
-- [ ] Code compiles / passes linting with no new warnings
-- [ ] Tests are written and passing (unit-tests strategy - see below)
-- [ ] Exit codes are correct for success and failure paths
-- [ ] Help text is accurate and complete (`--help` for the affected command)
-- [ ] Error messages follow the project's message format (see Error Messages)
-- [ ] Documentation is updated if a public interface changed
-- [ ] Code has been reviewed by at least one other contributor
-- [ ] Change has been manually tested against a real terminal (not just unit tests)
-- [ ] Config changes are backward compatible, or migration is documented
+- [ ] Typecheck passes (`npm run typecheck` / `npx tsc --noEmit`)
+- [ ] Lint passes with no new warnings (`npm run lint`)
+- [ ] The app builds (`npm run build`)
+- [ ] Tests are written and passing (`npm test`, Vitest)
+- [ ] API responses keep the documented shape (`{ ok, error, details? }` for
+      errors); breaking shape changes are called out
+- [ ] No secrets (PATs, tokens, file paths, stderr) leak into responses or logs
+- [ ] Docs are updated if a public interface changed (README API section,
+      `public/openapi.json`, `docs/architecture.md`, `AI_CONTEXT.md`)
+- [ ] Change has been reviewed by at least one other contributor
 
-## CLI UX Conventions
+## API Conventions
 
-These rules govern how the tool behaves from a user perspective. All contributors must follow them.
+These rules govern the HTTP surface. All contributors must follow them.
 
-### Exit Codes
+### Responses and status codes
 
-Always use the canonical exit codes from [docs/architecture.md](architecture.md#exit-codes).
+- Always return `NextResponse.json()` with an explicit status code.
+- Success: `{ ok: true, ... }`. Failure: `{ ok: false, error: string, details?: string }`.
+- Use the right status: `400` invalid input, `401` missing/invalid auth, `404`
+  not found / expired session, `409` conflict (already published / deleted),
+  `429` rate limit, `500` unexpected.
 
-- Exit `0` on success, even if there is nothing to do
-- Exit `2` for usage errors (wrong argument types, mutually exclusive flags)
-- Exit `1` for all other failures if no more specific code applies
-- Never call `sys.exit()` / `os.Exit()` inside command logic - propagate errors to the top-level handler
+### Authentication
 
-### stdout vs stderr
+- Public API (`app/api/v1/*`) authenticates with the `X-API-Key` header carrying
+  a dashboard-issued `pf_*` token; validate via `validateApiToken`.
+- Web UI routes use NextAuth session auth.
 
-| Stream | What goes here |
-|--------|----------------|
-| `stdout` | All program output meant for the user or downstream tools |
-| `stderr` | Warnings, progress messages, debug logs, error messages |
+### Never leak secrets
 
-This makes the tool composable:
+- Do not put file paths, raw stderr, or GitHub PATs in responses or logs.
+- Sanitize PAT-shaped strings before logging (see `app/api/v1/publish/route.ts`).
 
-```bash
-project-forge run --output json | jq '.items[]'
-```
+### Rate limiting
 
-### Error Messages
+- The publish path and `POST /api/v1/projects` consume the per-user daily quota
+  (`checkRateLimit`); `generate`, `preview`, and list/delete do not. Keep that
+  split intact when adding endpoints.
 
-Errors written to stderr must follow this format:
+## Components and Styling
 
-```
-error: <what went wrong>. <how to fix it>.
-```
+- Page-level layout uses `<AppShell>` (sidebar) and `<PageShell>` (title /
+  subtitle).
+- Pages that need session or interactivity are client components (`"use client"`).
+- Tailwind, dark-first (`bg-gray-950`, `text-gray-100`, ...). No light mode.
 
-Examples:
+## Database
 
-```
-error: required argument TARGET was not provided. Run 'project-forge run --help' to see usage.
-error: config key 'output_format' has invalid value 'xml'. Allowed values: text, json, yaml.
-error: could not read file at path '/tmp/data.csv': no such file or directory.
-```
-
-Never expose raw exception traces to the user by default. Use `--debug` to show stack traces.
-
-### Color Output
-
-- Use color to aid readability, not to convey meaning alone (accessibility)
-- Always respect `NO_COLOR=1` (see [no-color.org](https://no-color.org))
-- Always respect `--no-color` flag
-- Disable color automatically when stdout/stderr is not a TTY (i.e., when piped)
-- Suggested palette: red for errors, yellow for warnings, green for success, cyan for labels
-
-### Progress Indicators
-
-For operations that may take more than one second:
-
-- Show a spinner or progress bar on stderr
-- Clear the progress indicator before printing final output to stdout
-- Disable progress indicators when `--quiet` is passed or when not a TTY
-- Never mix progress output into stdout
-
-### Output Formats
-
-Commands that produce structured data must support `--output` / `-o`:
-
-| Value | Description |
-|-------|-------------|
-| `text` | Human-readable, may include color and formatting |
-| `json` | Newline-terminated JSON object or array, no color |
-| `yaml` | YAML document, no color |
-
-Default is `text`. When `--output json` is used, the schema must remain stable across releases.
-
-### --dry-run
-
-Commands that mutate state must support `--dry-run`:
-
-- Print what would happen, prefixed with `[dry-run]` on stderr
-- Exit `0` without making any changes
-- Output must be human-readable; not required to be machine-parseable in dry-run mode
-
-### Interactive vs Non-interactive
-
-- The tool must function fully in non-interactive mode (no TTY, no stdin)
-- Never prompt for input unless stdin is a TTY and no flag was provided
-- Prompts must have a `--yes` / `--no` flag equivalent for scripting
+- Prisma over SQLite (`prisma/schema.prisma`, `provider = "sqlite"`).
+- After a schema change: `npx prisma generate`, then `npx prisma db push` to
+  sync the local SQLite database. This project uses `db push`, not migration
+  files; there is no `prisma/migrations` directory.
 
 ## Versioning
 
-This project follows [Semantic Versioning](https://semver.org/):
+This project follows [Semantic Versioning](https://semver.org/) for the app and
+its REST API:
 
-- **MAJOR**: breaking change to CLI interface (removed flag, changed exit code, changed output schema)
-- **MINOR**: new subcommand, new option, new output field (backward compatible)
-- **PATCH**: bug fix, documentation fix, internal refactor with no interface change
+- **MAJOR**: breaking change to the API (removed/renamed endpoint or field,
+  changed auth, changed response shape in a removing way)
+- **MINOR**: new endpoint, new optional field, new optional env var (backward
+  compatible)
+- **PATCH**: bug fix, documentation fix, internal refactor with no interface
+  change
 
 ### What Counts as a Breaking Change
 
-- Removing or renaming a command or flag
-- Changing the meaning of an exit code
-- Changing the JSON output schema in a way that removes or renames fields
-- Changing a flag from optional to required
+- Removing or renaming an endpoint, request field, or response field
+- Changing the meaning of a status code
+- Making a previously optional request field required
 
 ### What Does NOT Count as a Breaking Change
 
-- Adding a new optional flag
-- Adding new fields to JSON output
-- Changing help text wording
+- Adding a new endpoint or optional request field
+- Adding new fields to a response
 - Improving error messages
 
 ## Release Process
 
-1. Bump version in `pyproject.toml`
+1. Bump `version` in `package.json`
 2. Update `CHANGELOG.md`
-3. Commit: `chore(release): v1.2.3`
-4. Tag: `git tag v1.2.3`
-5. Push tag: `git push origin v1.2.3`
-6. CI publishes to PyPI automatically
+3. Commit: `chore(release): vX.Y.Z`
+4. Tag and push the tag; CI runs the build/test pipeline
 
 ## Branching Strategy
 
@@ -139,8 +100,8 @@ Trunk-based development with short-lived feature branches.
 ### Branch Naming
 
 ```
-feature/<ticket>-<short-description>
-fix/<ticket>-<short-description>
+feat/<short-description>
+fix/<short-description>
 chore/<description>
 docs/<description>
 ```
@@ -150,7 +111,7 @@ docs/<description>
 1. Branch from `main`
 2. Make small, focused commits
 3. Open a Pull Request (draft if in progress)
-4. Pass CI checks
+4. Pass CI checks (typecheck, lint, build, tests)
 5. Get at least one review approval
 6. Squash-merge into `main`
 7. Delete the branch
@@ -162,10 +123,10 @@ docs/<description>
 Use conventional commit format:
 
 ```
-feat(run): add --format flag for structured output
-fix(config): handle missing config dir gracefully
-docs(architecture): document exit code table
-chore(deps): update typer to latest
+feat(api): add POST /api/v1/projects one-shot create
+fix(publish): sanitize PAT before logging
+docs(architecture): document the planforge boundary
+chore(deps): bump next to latest patch
 ```
 
 ### PR Description
@@ -174,45 +135,29 @@ Include:
 
 - **What**: what changed
 - **Why**: motivation or ticket reference
-- **Testing**: how you verified it (command invocations, test names)
-- **UX impact**: any change to output, flags, or exit codes
+- **Testing**: how you verified it (test names, manual steps)
+- **API impact**: any change to endpoints, request/response shape, or env vars
 
 ## Testing Expectations
 
-Strategy: **unit-tests**
+Runner: **Vitest** with `happy-dom`.
 
-### Unit Test Rules
-
-- Every command module has a corresponding test file in `tests/commands/`
-- Config loader is tested in `tests/config/`
-- Test function naming: `test_<command>_<scenario>_<expected_outcome>`
-- Tests must not touch the filesystem except through temp directories (`tmp_path` in pytest, `t.TempDir()` in Go)
-- Tests must not make network calls
-- Tests must not depend on environment variables unless explicitly set in the test
-- Aim for >80% branch coverage on `src/commands/` and `src/config/`
-
-### Test Naming
-
-```
-test_<command>_<scenario>_<expected_result>
-```
-
-Examples:
-
-```
-test_run_missing_required_arg_exits_2
-test_config_set_invalid_key_prints_error
-test_version_outputs_json_when_requested
-```
+- Integration and unit tests live under `tests/` (`tests/integration/`,
+  `tests/unit/`).
+- Tests exercise route handlers and `lib/` modules directly; mock the network
+  (the planforge service, GitHub API) rather than calling out.
+- Tests must not depend on ambient environment variables unless they set them
+  explicitly.
+- Cover both the success path and the auth/validation/error paths for new
+  endpoints.
 
 ## Architecture Decision Records (ADRs)
 
 Write an ADR in `docs/adrs/` when:
 
 - Choosing a library or external dependency
-- Changing the output schema of any command
+- Changing the shape of the public API or the planforge boundary
 - Establishing a new pattern not covered by existing docs
-- Deprecating or removing a command or flag
 
 ### ADR Format
 
@@ -234,32 +179,33 @@ What are the trade-offs? What becomes easier or harder?
 
 ## Documentation Expectations
 
-- **README**: always reflects actual install and usage instructions
-- **`--help` text**: updated whenever flags or commands change; treat it as part of the public API
-- **architecture.md**: updated when subsystem structure or data flow changes
+- **README**: always reflects actual setup, env vars, and the API surface
+- **`public/openapi.json`**: updated whenever an endpoint or its shape changes
+- **`docs/architecture.md`**: updated when subsystem structure or data flow changes
 - **ADRs**: written before merging significant decisions, not after
-- **AI_CONTEXT.md**: updated when adding new commands or changing patterns
+- **AI_CONTEXT.md**: updated when adding new patterns
 
 ## AI Collaboration Guidelines
 
-This project is configured for AI-assisted development. Read `AI_CONTEXT.md` before working on the codebase.
+This project is configured for AI-assisted development. Read `AI_CONTEXT.md`
+before working on the codebase.
 
 ### For AI Agents
 
 - Read `AI_CONTEXT.md` before starting any task
-- Follow the command module pattern exactly - do not invent new file layouts
-- Use the exit code table from architecture.md for all error paths
-- Write `--help` text for every new flag and command
-- Match the test naming convention
-- Do not add dependencies without creating an ADR
+- Follow the route-handler and `lib/` module patterns already in the repo
+- Do not leak secrets in responses or logs
+- Do not introduce light-mode styles (the app is dark-only)
+- Do not add dependencies without checking for an existing one; record
+  significant choices in an ADR
 
 ### For Developers Working with AI
 
-- Point the agent to the specific command file and test file to modify
-- Provide the expected `--help` output as part of the specification
-- Review exit code handling and stderr vs stdout routing carefully
-- Run the full test suite after AI-generated changes
-- Update `AI_CONTEXT.md` if new patterns are introduced
+- Point the agent to the specific route handler / `lib` module and test file
+- Provide the expected request/response shape as part of the specification
+- Review auth, status codes, and secret handling carefully
+- Run `npm run typecheck`, `npm run lint`, `npm run build`, and `npm test` after
+  AI-generated changes
 
 ## Communication
 

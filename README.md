@@ -35,13 +35,16 @@ make deploy
 
 | Variable | Description |
 |---|---|
-| `GITHUB_TOKEN` | GitHub PAT with `repo` scope (for the platform itself) |
-| `GITHUB_OWNER` | GitHub username for repo creation |
 | `NEXTAUTH_SECRET` | Random secret (`openssl rand -hex 32`) |
 | `NEXTAUTH_URL` | Public URL (e.g. `https://project-forge.example.com`) |
 | `DATABASE_URL` | SQLite path (e.g. `file:/data/project-forge.db`) |
 | `PLANFORGE_URL` | URL of the planforge HTTP service (defaults to `http://planforge:8223` in compose). |
 | `PLANFORGE_SERVICE_TOKEN` | Shared bearer token for the planforge HTTP service. Generate with `openssl rand -hex 32`. Same value in both `app` and `planforge` containers. |
+
+> Publishing a repo uses each **user's own** GitHub Personal Access Token (PAT),
+> added in the dashboard, not a platform-wide token. There is no server-level
+> `GITHUB_TOKEN` or `GITHUB_OWNER` env var. For OAuth sign-in, set the optional
+> `GITHUB_ID` / `GITHUB_SECRET` below.
 
 ### Optional
 
@@ -54,7 +57,8 @@ make deploy
 | `LOCAL_AI_API_KEY` | Optional API key for the local AI endpoint |
 | `GITHUB_ID` | GitHub OAuth app Client ID |
 | `GITHUB_SECRET` | GitHub OAuth app Client Secret |
-| `FORGE_TEMP_DIR` | Directory for temporary build artifacts (defaults to OS temp dir) |
+| `ALLOWED_GITHUB_LOGINS` | Comma-separated allowlist of GitHub logins permitted to register via the project-pilot broker. Unset/empty = accept any. |
+| `FORGE_TEMP_DIR` | Directory for temporary build artifacts (defaults to `/tmp/project-forge`) |
 
 ### Docker Compose
 
@@ -80,7 +84,7 @@ A token store + in-place rotation is a follow-up (see ADR-0002).
 
 All endpoints require an API token generated in the dashboard, passed via the `X-API-Key` header.
 
-Rate limit: 10 requests/day per API token.
+Rate limit: 10 project publishes per user per day. Only `publish` and the one-shot `POST /api/v1/projects` count against it; `generate`, `preview`, and the project list/delete endpoints are unmetered. The quota is counted per user, across all of that user's tokens.
 
 ### `GET /api/v1/projects`
 
@@ -93,18 +97,16 @@ curl https://project-forge.opentriologue.ai/api/v1/projects \
 
 ### `DELETE /api/v1/projects`
 
-Delete a project by ID.
+Soft-delete a project by its `id` (the `id` field returned by `GET /api/v1/projects`), passed as a query parameter.
 
 ```bash
-curl -X DELETE https://project-forge.opentriologue.ai/api/v1/projects \
-  -H "X-API-Key: pf_your_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{ "projectId": "clx..." }'
+curl -X DELETE "https://project-forge.opentriologue.ai/api/v1/projects?id=clx..." \
+  -H "X-API-Key: pf_your_token_here"
 ```
 
 ### `POST /api/v1/generate`
 
-Generate a project scaffold without publishing it. Returns a preview ID for inspection.
+Generate a project scaffold without publishing it. Returns a `sessionId` (a UUID) used by `preview` and `publish`. A session expires one hour after it is generated.
 
 ```bash
 curl -X POST https://project-forge.opentriologue.ai/api/v1/generate \
@@ -119,24 +121,33 @@ curl -X POST https://project-forge.opentriologue.ai/api/v1/generate \
   }'
 ```
 
+**Response:**
+```json
+{
+  "ok": true,
+  "sessionId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "preview": { "...": "file tree, tasks, architecture overview" }
+}
+```
+
 ### `GET /api/v1/preview`
 
-Fetch the generated preview (file tree, tasks, architecture) for a given preview ID.
+Fetch the generated preview (file tree, tasks, architecture) for a given `sessionId` (the value returned by `generate`).
 
 ```bash
-curl "https://project-forge.opentriologue.ai/api/v1/preview?previewId=prev_abc123" \
+curl "https://project-forge.opentriologue.ai/api/v1/preview?sessionId=f47ac10b-58cc-4372-a567-0e02b2c3d479" \
   -H "X-API-Key: pf_your_token_here"
 ```
 
 ### `POST /api/v1/publish`
 
-Finalize a previewed project and create the GitHub repository.
+Finalize a previewed project and create the GitHub repository. Requires a GitHub PAT configured in your dashboard, and counts against your daily publish quota.
 
 ```bash
 curl -X POST https://project-forge.opentriologue.ai/api/v1/publish \
   -H "X-API-Key: pf_your_token_here" \
   -H "Content-Type: application/json" \
-  -d '{ "previewId": "prev_abc123" }'
+  -d '{ "sessionId": "f47ac10b-58cc-4372-a567-0e02b2c3d479" }'
 ```
 
 **Response:**
@@ -150,6 +161,23 @@ curl -X POST https://project-forge.opentriologue.ai/api/v1/publish \
   }
 }
 ```
+
+### `POST /api/v1/projects`
+
+One-shot create: generate, scaffold, create the GitHub repository, and push in a single call, skipping the separate preview step. Requires a GitHub PAT configured in your dashboard, and counts against your daily publish quota. The request body is the same shape as `generate`.
+
+```bash
+curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \
+  -H "X-API-Key: pf_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectName": "my-cli-tool",
+    "summary": "A CLI that syncs agent memory via Git",
+    "features": ["push memory files", "pull and merge"]
+  }'
+```
+
+Returns the same `{ ok, result: { repoUrl, cloneUrl, projectName } }` shape as `publish`.
 
 Full API documentation: [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs)
 

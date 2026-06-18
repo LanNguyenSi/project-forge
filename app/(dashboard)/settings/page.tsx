@@ -221,7 +221,7 @@ export default function SettingsPage() {
           <Card>
             <CardHeader
               title="API Tokens"
-              subtitle="Create tokens for your agents to use the REST API. Rate limit: 10 projects/day per token."
+              subtitle="Create tokens for your agents to use the REST API. Rate limit: 10 project publishes per user per day."
             />
 
             <div className="flex gap-3 mb-6">
