@@ -60,12 +60,12 @@
 
 /* ── Swagger UI dark-mode overrides ── */
 .swagger-ui {
-  --bg: #0a0a0f;
-  --bg-secondary: #111118;
-  --border: #1e1e2e;
-  --text: #e2e2e8;
-  --text-muted: #9393a8;
-  --accent: #3b82f6;
+  --bg: #0B0D10;
+  --bg-secondary: #14181D;
+  --border: #222A32;
+  --text: #E7ECF2;
+  --text-muted: #8A93A0;
+  --accent: #F5641E;
 }
 
 .swagger-ui,
