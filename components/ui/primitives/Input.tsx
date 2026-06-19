@@ -1,7 +1,7 @@
 import { InputHTMLAttributes, TextareaHTMLAttributes, forwardRef } from "react";
 
 const baseStyles =
-  "w-full rounded-md border-0 bg-gray-800 px-3.5 py-2 text-gray-100 placeholder-gray-500 ring-1 ring-inset ring-gray-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none";
+  "w-full rounded-btn border-0 bg-forge-steel px-3.5 py-2 text-forge-mist placeholder-forge-ash ring-1 ring-inset ring-forge-steel/80 transition-colors focus:ring-2 focus:ring-ember focus:outline-none";
 
 type InputProps = InputHTMLAttributes<HTMLInputElement>;
 
@@ -38,10 +38,10 @@ interface LabelProps {
 
 export function Label({ children, required, hint, className = "" }: LabelProps) {
   return (
-    <label className={`block text-sm font-medium text-gray-400 mb-1.5 ${className}`}>
+    <label className={`block text-sm font-medium text-forge-ash mb-1.5 ${className}`}>
       {children}
-      {required && <span className="text-red-400 ml-0.5">*</span>}
-      {hint && <span className="text-gray-600 text-xs ml-2">{hint}</span>}
+      {required && <span className="text-danger ml-0.5">*</span>}
+      {hint && <span className="text-forge-ash text-xs ml-2">{hint}</span>}
     </label>
   );
 }

@@ -6,12 +6,12 @@ interface CardProps {
 }
 
 const toneStyles: Record<NonNullable<CardProps["tone"]>, string> = {
-  default: "bg-gray-900/80",
-  muted: "bg-gray-900/40",
-  accent: "bg-blue-950/30",
-  success: "bg-green-950/25",
-  warning: "bg-yellow-950/25",
-  danger: "bg-red-950/25",
+  default: "bg-forge-iron",
+  muted:   "bg-forge-iron/60",
+  accent:  "bg-ember/10 border border-ember/20",
+  success: "bg-success/10 border border-success/20",
+  warning: "bg-warning/10 border border-warning/20",
+  danger:  "bg-danger/10 border border-danger/20",
 };
 
 const paddingStyles: Record<NonNullable<CardProps["padding"]>, string> = {
@@ -29,7 +29,7 @@ export function Card({
 }: CardProps) {
   return (
     <div
-      className={`rounded-md ${toneStyles[tone]} ${paddingStyles[padding]} ${className}`}
+      className={`rounded-card ${toneStyles[tone]} ${paddingStyles[padding]} ${className}`}
     >
       {children}
     </div>
@@ -46,9 +46,9 @@ export function CardHeader({ title, subtitle, action }: CardHeaderProps) {
   return (
     <div className="flex items-center justify-between mb-5">
       <div>
-        <h2 className="text-base font-semibold text-gray-100 tracking-tight">{title}</h2>
+        <h2 className="text-base font-semibold text-forge-mist tracking-tight">{title}</h2>
         {subtitle && (
-          <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>
+          <p className="text-sm text-forge-ash mt-0.5">{subtitle}</p>
         )}
       </div>
       {action}
