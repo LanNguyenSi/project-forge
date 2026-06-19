@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { PublicNav } from "@/components/layout/PublicNav";
+import { ForgeMark } from "@/components/layout/ForgeMark";
+import { Card } from "@/components/ui/primitives/Card";
 
 const features = [
   {
@@ -63,48 +65,58 @@ export default function LandingPage() {
   if (status === "loading" || status === "authenticated") return null;
 
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100">
+    <main className="min-h-screen bg-forge-void text-forge-mist">
       <PublicNav />
 
-      {/* Hero */}
+      {/* ── Hero ─────────────────────────────────────────────────────────────── */}
       <section className="max-w-4xl mx-auto px-6 py-24 text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-blue-800/60 bg-blue-950/30 px-4 py-1.5 text-sm text-blue-300 mb-8">
-          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
+        {/* Status pill */}
+        <div className="inline-flex items-center gap-2 rounded-full border border-forge-steel bg-forge-iron/60 px-4 py-1.5 text-sm text-forge-ash mb-8">
+          <span className="h-1.5 w-1.5 rounded-full bg-ember animate-pulse" />
           AI-powered project scaffolding
         </div>
-        <h1 className="text-4xl sm:text-5xl font-bold mb-6 leading-tight tracking-tight">
-          From idea to{" "}
-          <span className="text-blue-400">GitHub repo</span>
-          <br />in seconds
+
+        {/* Headline */}
+        <h1 className="font-display text-4xl sm:text-6xl font-bold mb-6 leading-tight tracking-tight text-forge-mist">
+          Cold idea.{" "}
+          <br className="hidden sm:block" />
+          Hot forge.{" "}
+          <br />
+          Shippable repo.
         </h1>
-        <p className="text-gray-400 text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed">
+
+        {/* Sub-headline */}
+        <p className="text-forge-ash text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed">
           project-forge uses planforge + scaffoldkit to turn your project description into a
           fully planned, scaffolded, and committed repository, ready for your agent to build.
         </p>
+
+        {/* CTAs — heat gradient reserved for primary action only */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             href="/login"
-            className="rounded-md bg-blue-600 px-8 py-3.5 font-medium text-white hover:bg-blue-500 transition text-lg"
+            className="rounded-btn bg-heat px-8 py-3.5 font-display font-medium text-forge-void hover:opacity-90 transition-opacity text-base"
           >
-            Create a project -&gt;
+            Create a project &rarr;
           </Link>
           <Link
             href="/docs"
-            className="rounded-md bg-gray-800 px-8 py-3.5 font-medium text-gray-300 hover:bg-gray-700 transition text-lg"
+            className="rounded-btn bg-forge-steel px-8 py-3.5 font-medium text-forge-mist hover:bg-forge-steel/70 transition-colors text-base"
           >
             API Docs
           </Link>
         </div>
 
-        {/* Code snippet */}
-        <div className="mt-14 rounded-md bg-gray-900 p-6 text-left max-w-2xl mx-auto">
+        {/* Terminal block — heat-seam touch, verbatim snippet */}
+        <div className="mt-14 heat-seam rounded-card bg-forge-iron border border-forge-steel p-6 text-left max-w-2xl mx-auto">
           <div className="flex items-center gap-2 mb-4">
-            <div className="h-3 w-3 rounded-full bg-red-500/80" />
-            <div className="h-3 w-3 rounded-full bg-yellow-500/80" />
-            <div className="h-3 w-3 rounded-full bg-green-500/80" />
-            <span className="text-gray-500 text-xs ml-2 font-mono">agent.sh</span>
+            {/* Forge-toned terminal dots: ember / gold / steel */}
+            <div className="h-3 w-3 rounded-full bg-ember/70" />
+            <div className="h-3 w-3 rounded-full bg-gold/70" />
+            <div className="h-3 w-3 rounded-full bg-forge-steel border border-forge-steel" />
+            <span className="text-forge-ash text-xs ml-2 font-mono">agent.sh</span>
           </div>
-          <pre className="text-sm font-mono text-gray-300 leading-relaxed overflow-x-auto">{`curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \\
+          <pre className="text-sm font-mono text-forge-mist leading-relaxed overflow-x-auto">{`curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \\
   -H "X-API-Key: $PROJECTFORGE_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -117,62 +129,113 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Features */}
-      <section className="max-w-5xl mx-auto px-6 py-16">
-        <h2 className="text-2xl font-bold text-center mb-12">Everything your agent needs</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          {features.map((f) => (
-            <div key={f.title} className="rounded-md bg-gray-900/80 p-6 hover:bg-gray-900 transition">
-              <div className="h-10 w-10 rounded-md bg-blue-600/10 flex items-center justify-center text-blue-400 mb-4">
-                {f.icon}
-              </div>
-              <h3 className="font-semibold text-lg mb-2">{f.title}</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section className="max-w-4xl mx-auto px-6 py-16">
-        <h2 className="text-2xl font-bold text-center mb-12">How it works</h2>
-        <div className="relative">
-          <div className="absolute left-5 top-0 bottom-0 w-px bg-gray-800 hidden sm:block" />
-          <div className="space-y-8">
-            {steps.map((step, i) => (
-              <div key={i} className="flex gap-6">
-                <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-white shrink-0 z-10 text-sm">
-                  {i + 1}
+      {/* ── Features ─────────────────────────────────────────────────────────── */}
+      <section className="bg-forge-iron/20 py-20">
+        <div className="max-w-5xl mx-auto px-6">
+          <h2 className="font-display text-2xl font-bold text-center text-forge-mist mb-12">
+            Everything your agent needs
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {features.map((f) => (
+              <Card
+                key={f.title}
+                tone="default"
+                className="border border-forge-steel/40 hover:border-forge-steel transition-colors group"
+              >
+                <div className="h-10 w-10 rounded-card bg-ember/10 border border-ember/20 flex items-center justify-center text-ember mb-4 group-hover:bg-ember/15 transition-colors">
+                  {f.icon}
                 </div>
-                <div className="pt-1.5">
-                  <h3 className="font-semibold mb-1">{step.title}</h3>
-                  <p className="text-gray-400 text-sm">{step.desc}</p>
-                </div>
-              </div>
+                <h3 className="font-display font-semibold text-lg text-forge-mist mb-2">{f.title}</h3>
+                <p className="text-forge-ash text-sm leading-relaxed">{f.desc}</p>
+              </Card>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="max-w-2xl mx-auto px-6 py-20 text-center">
-        <h2 className="text-3xl font-bold mb-4">Ready to forge your first project?</h2>
-        <p className="text-gray-400 mb-8">Register, connect GitHub, create an API token, and start building.</p>
-        <Link
-          href="/login"
-          className="inline-block rounded-md bg-blue-600 px-10 py-4 font-medium text-white hover:bg-blue-500 transition text-lg"
-        >
-          Get started for free -&gt;
-        </Link>
+      {/* ── How it works ─────────────────────────────────────────────────────── */}
+      <section className="py-20">
+        <div className="max-w-3xl mx-auto px-6">
+          <h2 className="font-display text-2xl font-bold text-center text-forge-mist mb-12">
+            How it works
+          </h2>
+          <div className="relative">
+            {/* Vertical connector behind step markers */}
+            <div className="absolute left-5 top-5 bottom-5 w-px bg-forge-steel hidden sm:block" />
+            <div className="space-y-8">
+              {steps.map((step, i) => (
+                <div key={i} className="flex gap-6">
+                  {/* Step marker */}
+                  <div className="h-10 w-10 rounded-card bg-forge-iron border border-forge-steel flex items-center justify-center shrink-0 z-10">
+                    <span className="font-mono text-xs text-forge-ash font-medium">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                  </div>
+                  <div className="pt-1.5">
+                    <h3 className="font-display font-semibold text-forge-mist mb-1">{step.title}</h3>
+                    <p className="text-forge-ash text-sm">{step.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-800/50 px-6 py-8 text-center text-gray-600 text-sm">
-        <div className="flex items-center justify-center gap-2">
-          <div className="h-5 w-5 rounded bg-blue-600/50 flex items-center justify-center text-white font-bold text-[10px]">
-            PF
+      {/* ── CTA ──────────────────────────────────────────────────────────────── */}
+      <section className="max-w-2xl mx-auto px-6 py-20">
+        <div className="heat-seam rounded-card bg-forge-iron border border-forge-steel p-10 text-center">
+          <h2 className="font-display text-3xl font-bold text-forge-mist mb-4">
+            Ready to forge your first project?
+          </h2>
+          <p className="text-forge-ash mb-8">
+            Register, connect GitHub, create an API token, and start building.
+          </p>
+          <Link
+            href="/login"
+            className="inline-block rounded-btn bg-heat px-10 py-4 font-display font-medium text-forge-void hover:opacity-90 transition-opacity text-base"
+          >
+            Get started for free &rarr;
+          </Link>
+        </div>
+      </section>
+
+      {/* ── Footer ───────────────────────────────────────────────────────────── */}
+      <footer className="border-t border-forge-steel/50 px-6 py-8">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <ForgeMark className="h-5 w-5" />
+            <span className="font-display text-sm font-medium text-forge-mist">project-forge</span>
           </div>
-          <a href="https://github.com/LanNguyenSi/project-forge" target="_blank" rel="noreferrer" className="hover:text-gray-400 transition">project-forge</a> &middot; Built with <a href="https://github.com/LanNguyenSi/agent-planforge" target="_blank" rel="noreferrer" className="hover:text-gray-400 transition">planforge</a> + <a href="https://github.com/LanNguyenSi/scaffoldkit" target="_blank" rel="noreferrer" className="hover:text-gray-400 transition">scaffoldkit</a>
+          <div className="flex items-center gap-6 text-sm text-forge-ash">
+            <a
+              href="https://github.com/LanNguyenSi/project-forge"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-forge-mist transition-colors"
+            >
+              GitHub
+            </a>
+            <span className="text-forge-steel" aria-hidden>&#183;</span>
+            <span className="text-forge-ash">Built with</span>
+            <a
+              href="https://github.com/LanNguyenSi/agent-planforge"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-forge-mist transition-colors"
+            >
+              planforge
+            </a>
+            <span className="text-forge-steel" aria-hidden>+</span>
+            <a
+              href="https://github.com/LanNguyenSi/scaffoldkit"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-forge-mist transition-colors"
+            >
+              scaffoldkit
+            </a>
+          </div>
         </div>
       </footer>
     </main>
