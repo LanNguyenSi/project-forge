@@ -133,7 +133,7 @@ export default function SettingsPage() {
     return (
       <AppShell>
         <div className="flex min-h-[60vh] items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-ember border-t-transparent" />
         </div>
       </AppShell>
     );
@@ -163,14 +163,14 @@ export default function SettingsPage() {
 
             {githubConnectedViaOAuth ? (
               <div className="space-y-4">
-                <div className="rounded-md bg-green-950/20 p-4">
-                  <div className="flex items-center gap-2 text-green-300 mb-1">
+                <div className="rounded-card bg-success/10 border border-success/20 p-4">
+                  <div className="flex items-center gap-2 text-success mb-1">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                     <span className="font-medium text-sm">GitHub Account Connected</span>
                   </div>
-                  <p className="text-sm text-gray-400">
+                  <p className="text-sm text-forge-ash">
                     Repositories will be created in your connected GitHub account.
                   </p>
                 </div>
@@ -180,13 +180,13 @@ export default function SettingsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-forge-ash">
                   project-forge needs access to your GitHub account to create repositories.
                 </p>
 
                 <Card tone="accent" padding="sm">
-                  <h3 className="font-semibold text-blue-300 text-sm">Option 1: GitHub OAuth (Recommended)</h3>
-                  <p className="text-xs text-gray-400 mt-1 mb-3">Secure, automatic, no manual setup</p>
+                  <h3 className="font-semibold text-ember text-sm">Option 1: GitHub OAuth (Recommended)</h3>
+                  <p className="text-xs text-forge-ash mt-1 mb-3">Secure, automatic, no manual setup</p>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -200,8 +200,8 @@ export default function SettingsPage() {
                 </Card>
 
                 <Card tone="muted" padding="sm">
-                  <h3 className="font-semibold text-gray-300 text-sm">Option 2: Personal Access Token</h3>
-                  <p className="text-xs text-gray-400 mt-1 mb-3">For advanced users, CI/CD, or corporate restrictions</p>
+                  <h3 className="font-semibold text-forge-mist text-sm">Option 2: Personal Access Token</h3>
+                  <p className="text-xs text-forge-ash mt-1 mb-3">For advanced users, CI/CD, or corporate restrictions</p>
                   <Input
                     type="password"
                     value={githubPat}
@@ -240,22 +240,22 @@ export default function SettingsPage() {
             {newlyCreatedToken && (
               <Alert variant="success" onClose={() => setNewlyCreatedToken(null)} className="mb-4">
                 <p className="font-medium mb-1">Token created! Copy it now, it won&apos;t be shown again.</p>
-                <code className="block bg-gray-800 rounded px-3 py-2 font-mono text-sm text-green-400 mt-2 break-all">
+                <code className="block bg-forge-steel rounded-btn px-3 py-2 font-mono text-sm text-success mt-2 break-all">
                   {newlyCreatedToken}
                 </code>
               </Alert>
             )}
 
             {tokens.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4 text-center">No tokens yet. Create one above.</p>
+              <p className="text-sm text-forge-ash py-4 text-center">No tokens yet. Create one above.</p>
             ) : (
               <div className="space-y-3">
                 {tokens.map((token) => (
-                  <div key={token.id} className="flex items-center justify-between rounded-md bg-gray-800/40 p-4">
+                  <div key={token.id} className="flex items-center justify-between rounded-card bg-forge-steel/50 p-4">
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-gray-200">{token.name}</div>
-                      <div className="text-sm font-mono text-gray-400 mt-1 truncate">{token.token}</div>
-                      <div className="text-xs text-gray-500 mt-1">
+                      <div className="font-medium text-forge-mist">{token.name}</div>
+                      <div className="text-sm font-mono text-forge-ash mt-1 truncate">{token.token}</div>
+                      <div className="text-xs text-forge-ash/70 mt-1">
                         Created: {new Date(token.createdAt).toLocaleDateString()} &middot;{" "}
                         Last used: {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleDateString() : "Never"}
                       </div>
@@ -283,20 +283,20 @@ export default function SettingsPage() {
             } />
             <div className="space-y-4 text-sm">
               <div>
-                <div className="font-semibold text-gray-200 mb-2">Endpoint</div>
-                <code className="block rounded-md bg-gray-800 px-4 py-2.5 font-mono text-green-400">
+                <div className="font-semibold text-forge-mist mb-2">Endpoint</div>
+                <code className="block rounded-btn bg-forge-steel px-4 py-2.5 font-mono text-ember">
                   POST https://project-forge.opentriologue.ai/api/v1/projects
                 </code>
               </div>
               <div>
-                <div className="font-semibold text-gray-200 mb-2">Headers</div>
-                <code className="block rounded-md bg-gray-800 px-4 py-2.5 font-mono text-blue-400">
+                <div className="font-semibold text-forge-mist mb-2">Headers</div>
+                <code className="block rounded-btn bg-forge-steel px-4 py-2.5 font-mono text-gold">
                   X-API-Key: pf_your_token_here
                 </code>
               </div>
               <div>
-                <div className="font-semibold text-gray-200 mb-2">Request Body</div>
-                <pre className="rounded-md bg-gray-800 px-4 py-2.5 font-mono text-gray-300 overflow-x-auto">
+                <div className="font-semibold text-forge-mist mb-2">Request Body</div>
+                <pre className="rounded-btn bg-forge-steel px-4 py-2.5 font-mono text-forge-mist overflow-x-auto">
 {`{
   "projectName": "my-project",
   "summary": "Project description",
@@ -313,8 +313,8 @@ export default function SettingsPage() {
             <CardHeader title="Account" />
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-300">{session.user?.email}</p>
-                <p className="text-xs text-gray-500 mt-0.5">Signed in via {githubConnectedViaOAuth ? "GitHub OAuth" : "email"}</p>
+                <p className="text-sm text-forge-mist">{session.user?.email}</p>
+                <p className="text-xs text-forge-ash mt-0.5">Signed in via {githubConnectedViaOAuth ? "GitHub OAuth" : "email"}</p>
               </div>
               <Button variant="danger" size="sm" onClick={() => signOut({ callbackUrl: "/" })}>
                 Sign Out
@@ -360,14 +360,14 @@ function RevokeTokenModal({
       initialFocusRef={cancelButtonRef}
     >
       <div className="text-center mb-6">
-        <div className="h-12 w-12 rounded-md bg-red-600/20 flex items-center justify-center mx-auto mb-4">
-          <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <div className="h-12 w-12 rounded-card bg-danger/10 border border-danger/20 flex items-center justify-center mx-auto mb-4">
+          <svg className="w-6 h-6 text-danger" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636L5.636 18.364M5.636 5.636l12.728 12.728" />
           </svg>
         </div>
-        <h2 className="text-xl font-semibold text-white">Revoke API token?</h2>
-        <p className="text-gray-400 text-sm mt-2">
-          <span className="text-gray-200 font-medium">{tokenName}</span> will stop working immediately.
+        <h2 className="text-xl font-semibold text-forge-mist">Revoke API token?</h2>
+        <p className="text-forge-ash text-sm mt-2">
+          <span className="text-forge-mist font-medium">{tokenName}</span> will stop working immediately.
         </p>
       </div>
 
