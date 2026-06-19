@@ -2,6 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Forge design-system tokens ── */
+:root {
+  /* surface scale */
+  --forge-void:  #0B0D10;
+  --forge-iron:  #14181D;
+  --forge-steel: #222A32;
+  --forge-ash:   #8A93A0;
+  --forge-mist:  #E7ECF2;
+
+  /* accent palette */
+  --ember:      #F5641E;
+  --ember-soft: #FB7A33;
+  --gold:       #FFB02E;
+
+  /* semantic */
+  --success: #34D399;
+  --warning: #FBBF24;
+  --danger:  #FB7185;
+
+  /* --font-display, --font-sans, --font-mono are injected by next/font
+     via className on the <html> element (see app/layout.tsx) */
+}
+
+@layer base {
+  html {
+    background-color: var(--forge-void);
+    color: var(--forge-mist);
+  }
+  body {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+/* ── Heat utilities ── */
+
+/* Full heat gradient — apply as background */
+.heat-gradient {
+  background: linear-gradient(95deg, var(--ember), var(--gold));
+}
+
+/* Heat seam — thin ember→gold top edge line, works on rounded surfaces */
+.heat-seam {
+  position: relative;
+  overflow: hidden;
+}
+.heat-seam::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--ember), var(--gold));
+  pointer-events: none;
+}
+
 /* ── Swagger UI dark-mode overrides ── */
 .swagger-ui {
   --bg: #0a0a0f;

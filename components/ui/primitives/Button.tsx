@@ -10,17 +10,18 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
+// WCAG AA note: ember primary uses text-forge-void (#0B0D10 on #F5641E = 6.14:1 contrast)
 const variantStyles: Record<Variant, string> = {
   primary:
-    "bg-blue-600 text-white hover:bg-blue-500 focus-visible:ring-blue-500",
+    "bg-ember text-forge-void hover:bg-ember-soft focus-visible:ring-ember",
   secondary:
-    "bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-gray-100 focus-visible:ring-gray-500",
+    "bg-forge-steel text-forge-mist hover:bg-forge-steel/70 hover:text-forge-mist focus-visible:ring-forge-steel",
   danger:
-    "bg-red-950/60 text-red-300 hover:bg-red-950/80 focus-visible:ring-red-500",
+    "bg-danger/15 text-danger hover:bg-danger/25 focus-visible:ring-danger",
   ghost:
-    "text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 focus-visible:ring-gray-500",
+    "text-forge-ash hover:text-forge-mist hover:bg-forge-steel/60 focus-visible:ring-forge-ash",
   success:
-    "bg-green-600 text-white hover:bg-green-500 focus-visible:ring-green-500",
+    "bg-success/15 text-success hover:bg-success/25 focus-visible:ring-success",
 };
 
 const sizeStyles: Record<Size, string> = {
@@ -48,9 +49,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || loading}
         className={`
-          inline-flex items-center justify-center gap-2 rounded-md font-medium
+          inline-flex items-center justify-center gap-2 rounded-btn font-medium
           transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
-          focus-visible:ring-offset-gray-950
+          focus-visible:ring-offset-forge-void
           disabled:cursor-not-allowed disabled:opacity-50
           ${variantStyles[variant]}
           ${sizeStyles[size]}

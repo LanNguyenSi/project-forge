@@ -8,3 +8,6 @@ out/
 tsconfig.tsbuildinfo
 prisma/db/
 db/
+
+# orchestrator-workflow run state (local only)
+.ai/
