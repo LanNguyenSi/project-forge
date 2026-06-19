@@ -41,7 +41,7 @@ export function Label({ children, required, hint, className = "" }: LabelProps) 
     <label className={`block text-sm font-medium text-forge-ash mb-1.5 ${className}`}>
       {children}
       {required && <span className="text-danger ml-0.5">*</span>}
-      {hint && <span className="text-forge-ash/60 text-xs ml-2">{hint}</span>}
+      {hint && <span className="text-forge-ash text-xs ml-2">{hint}</span>}
     </label>
   );
 }

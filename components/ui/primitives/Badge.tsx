@@ -9,7 +9,7 @@ const variantStyles: Record<NonNullable<BadgeProps["variant"]>, string> = {
   success: "bg-success/15 text-success",
   warning: "bg-warning/15 text-warning",
   danger:  "bg-danger/15 text-danger",
-  info:    "bg-gold/15 text-gold",
+  info:    "bg-forge-steel text-forge-mist",
 };
 
 export function Badge({ children, variant = "default", className = "" }: BadgeProps) {

@@ -15,7 +15,7 @@ const variantStyles: Record<Variant, string> = {
   primary:
     "bg-ember text-forge-void hover:bg-ember-soft focus-visible:ring-ember",
   secondary:
-    "bg-forge-steel text-forge-mist hover:bg-forge-steel/70 hover:text-forge-mist focus-visible:ring-forge-steel",
+    "bg-forge-steel text-forge-mist hover:bg-forge-steel/70 hover:text-forge-mist focus-visible:ring-forge-ash",
   danger:
     "bg-danger/15 text-danger hover:bg-danger/25 focus-visible:ring-danger",
   ghost:
