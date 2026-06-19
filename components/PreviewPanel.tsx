@@ -45,10 +45,10 @@ export function PreviewPanel({
     <div className="space-y-4">
       <Card padding="none">
         {/* Header */}
-        <div className="border-b border-gray-800 p-6">
+        <div className="border-b border-forge-steel p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <h2 className="text-xl font-semibold">{preview.projectName}</h2>
+              <h2 className="text-xl font-semibold text-forge-mist">{preview.projectName}</h2>
               {preview.scaffold && (
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <Badge
@@ -56,11 +56,11 @@ export function PreviewPanel({
                   >
                     {preview.scaffold.label}
                   </Badge>
-                  <p className="text-sm text-gray-400">{preview.scaffold.summary}</p>
+                  <p className="text-sm text-forge-ash">{preview.scaffold.summary}</p>
                 </div>
               )}
               {preview.scaffoldFit && (
-                <div className="mt-4 rounded-md border border-gray-800 bg-gray-950/60 p-4">
+                <div className="mt-4 rounded-card border border-forge-steel bg-forge-iron/60 p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={scaffoldFitVariant}>{scaffoldFitLabel}</Badge>
                     {preview.scaffoldFit.blueprint && (
@@ -76,14 +76,14 @@ export function PreviewPanel({
                       <Badge variant="warning">Resolve before wave 1</Badge>
                     )}
                   </div>
-                  <p className="mt-3 text-sm text-gray-400">{preview.scaffoldFit.summary}</p>
+                  <p className="mt-3 text-sm text-forge-ash">{preview.scaffoldFit.summary}</p>
                   {preview.scaffoldFit.followUpTaskPath && (
-                    <p className="mt-2 text-xs text-gray-500">
-                      Follow-up task added: <code>{preview.scaffoldFit.followUpTaskPath}</code>
+                    <p className="mt-2 text-xs text-forge-ash">
+                      Follow-up task added: <code className="font-mono">{preview.scaffoldFit.followUpTaskPath}</code>
                     </p>
                   )}
                   {preview.scaffoldFit.mustReviewBeforeImplementation && (
-                    <p className="mt-2 text-xs text-amber-300/80">
+                    <p className="mt-2 text-xs text-warning/80">
                       Complete the blueprint-fit review in wave-0 before starting wave-1 implementation.
                     </p>
                   )}
@@ -98,7 +98,7 @@ export function PreviewPanel({
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-800" role="tablist">
+        <div className="flex border-b border-forge-steel" role="tablist">
           {(["tasks", "architecture", "files"] as const).map((tab) => (
             <button
               key={tab}
@@ -109,8 +109,8 @@ export function PreviewPanel({
               onClick={() => setActiveTab(tab)}
               className={`px-6 py-3 text-sm font-medium capitalize transition-colors ${
                 activeTab === tab
-                  ? "border-b-2 border-blue-500 text-blue-400"
-                  : "text-gray-400 hover:text-gray-200"
+                  ? "border-b-2 border-ember text-ember"
+                  : "text-forge-ash hover:text-forge-mist"
               }`}
             >
               {tab}
@@ -129,25 +129,28 @@ export function PreviewPanel({
             <div className="space-y-4">
               {Object.entries(waveGroups).sort().map(([wave, tasks]) => (
                 <div key={wave}>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                    {wave.replace("-", " ")}
+                  <h3 className="flex items-center gap-3 mb-3">
+                    <span className="font-mono text-xs font-medium text-ember uppercase tracking-widest shrink-0">
+                      {wave.replace("-", " ")}
+                    </span>
+                    <span className="flex-1 h-px bg-forge-steel" aria-hidden="true" />
                   </h3>
                   <div className="space-y-1">
                     {tasks.map((task) => (
                       <div
                         key={task.id}
-                        className="flex items-start gap-3 rounded px-3 py-2 hover:bg-gray-800/50 transition"
+                        className="flex items-start gap-3 rounded-btn px-3 py-2 hover:bg-forge-steel/40 transition"
                       >
-                        <span className="font-mono text-xs text-gray-500 w-8 mt-0.5 shrink-0">
+                        <span className="font-mono text-xs text-forge-ash w-8 mt-0.5 shrink-0">
                           {task.id}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-200">{task.title}</p>
+                          <p className="text-sm text-forge-mist">{task.title}</p>
                           {task.summary && (
-                            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{task.summary}</p>
+                            <p className="text-xs text-forge-ash mt-0.5 line-clamp-2">{task.summary}</p>
                           )}
                         </div>
-                        <span className="ml-auto text-xs text-gray-600 shrink-0">{task.category}</span>
+                        <span className="ml-auto text-xs text-forge-ash/60 shrink-0">{task.category}</span>
                       </div>
                     ))}
                   </div>
@@ -157,7 +160,7 @@ export function PreviewPanel({
           )}
 
           {activeTab === "architecture" && (
-            <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">
+            <pre className="text-sm text-forge-mist whitespace-pre-wrap font-mono leading-relaxed">
               {preview.architectureOverview || "(No architecture overview generated)"}
             </pre>
           )}
@@ -182,18 +185,18 @@ export function PreviewPanel({
 
 function FileTree({ nodes, depth = 0 }: { nodes: FileTreeNode[]; depth?: number }) {
   return (
-    <div className={depth > 0 ? "ml-4 border-l border-gray-800 pl-3" : ""}>
+    <div className={depth > 0 ? "ml-4 border-l border-forge-steel pl-3" : ""}>
       {nodes.map((node) => (
         <div key={node.path}>
           <div className="flex items-center gap-2 py-0.5 text-sm">
-            <svg className={`w-4 h-4 shrink-0 ${node.type === "directory" ? "text-blue-400" : "text-gray-500"}`} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <svg className={`w-4 h-4 shrink-0 ${node.type === "directory" ? "text-ember" : "text-forge-ash"}`} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               {node.type === "directory" ? (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
               ) : (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
               )}
             </svg>
-            <span className={node.type === "directory" ? "text-blue-300 font-medium" : "text-gray-300"}>
+            <span className={node.type === "directory" ? "text-ember-soft font-medium font-mono" : "text-forge-mist font-mono"}>
               {node.name}
             </span>
           </div>
