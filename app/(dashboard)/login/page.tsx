@@ -59,17 +59,17 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100">
+    <main className="min-h-screen bg-forge-void text-forge-mist">
       <PublicNav />
 
       <div className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
         <div className="w-full max-w-md space-y-6">
           {/* Header */}
           <div className="text-center">
-            <h1 className="text-2xl font-bold">
+            <h1 className="font-display text-2xl font-bold text-forge-mist">
               {mode === "login" ? "Welcome back" : "Create your account"}
             </h1>
-            <p className="mt-2 text-gray-400 text-sm">
+            <p className="mt-2 text-forge-ash text-sm">
               {mode === "login"
                 ? "Sign in to start creating projects."
                 : "Get started with project-forge for free."}
@@ -89,7 +89,7 @@ export default function LoginPage() {
               </svg>
               Continue with GitHub
             </Button>
-            <p className="text-xs text-gray-500 text-center mt-2">
+            <p className="text-xs text-forge-ash text-center mt-2">
               Recommended. Automatically connects your GitHub for repo creation.
             </p>
           </div>
@@ -97,15 +97,15 @@ export default function LoginPage() {
           {/* Divider */}
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-800" />
+              <div className="w-full border-t border-forge-steel" />
             </div>
-            <div className="relative flex justify-center text-xs text-gray-500">
-              <span className="bg-gray-950 px-3">or with email</span>
+            <div className="relative flex justify-center text-xs text-forge-ash">
+              <span className="bg-forge-void px-3">or with email</span>
             </div>
           </div>
 
           {/* Email/Password Form */}
-          <form onSubmit={handleSubmit} className="space-y-4 rounded-md bg-gray-900/80 p-6">
+          <form onSubmit={handleSubmit} className="space-y-4 rounded-card bg-forge-iron border border-forge-steel p-6">
             {error && <Alert variant="error">{error}</Alert>}
 
             <div>
@@ -139,14 +139,14 @@ export default function LoginPage() {
           </form>
 
           {/* Toggle login/register */}
-          <p className="text-center text-sm text-gray-400">
+          <p className="text-center text-sm text-forge-ash">
             {mode === "login" ? (
               <>
                 Don&apos;t have an account?{" "}
                 <button
                   type="button"
                   onClick={() => { setMode("register"); setError(""); }}
-                  className="text-blue-400 hover:text-blue-300 transition font-medium"
+                  className="text-ember hover:text-ember-soft transition font-medium"
                 >
                   Register
                 </button>
@@ -157,7 +157,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => { setMode("login"); setError(""); }}
-                  className="text-blue-400 hover:text-blue-300 transition font-medium"
+                  className="text-ember hover:text-ember-soft transition font-medium"
                 >
                   Sign in
                 </button>
