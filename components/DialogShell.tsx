@@ -99,7 +99,7 @@ export function DialogShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-forge-void/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -108,7 +108,7 @@ export function DialogShell({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="w-full max-w-md rounded-md bg-gray-900 p-8 shadow-2xl focus:outline-none"
+        className="w-full max-w-md rounded-card bg-forge-iron border border-forge-steel p-8 shadow-2xl focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="sr-only">

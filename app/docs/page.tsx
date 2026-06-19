@@ -1,12 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useSession } from "next-auth/react";
 import "swagger-ui-react/swagger-ui.css";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageShell } from "@/components/ui/PageShell";
 import { Card, CardHeader, Alert } from "@/components/ui/primitives";
+import { PublicNav } from "@/components/layout/PublicNav";
 
 const SwaggerUI = dynamic(() => import("swagger-ui-react"), { ssr: false });
 
@@ -79,25 +79,7 @@ export default function ApiDocsPage() {
   // Public view — standalone layout without sidebar
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100">
-      <nav className="border-b border-gray-800/50 px-6 py-4">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-              PF
-            </div>
-            <span className="font-semibold text-lg tracking-tight">project-forge</span>
-          </Link>
-          <div className="flex items-center gap-4 text-sm">
-            <Link href="/login" className="text-gray-400 hover:text-gray-200 transition">Login</Link>
-            <Link
-              href="/login"
-              className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-500 transition font-medium"
-            >
-              Get Started
-            </Link>
-          </div>
-        </div>
-      </nav>
+      <PublicNav />
 
       <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <div className="mx-auto max-w-7xl">

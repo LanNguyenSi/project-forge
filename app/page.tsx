@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { PublicNav } from "@/components/layout/PublicNav";
 
 const features = [
   {
@@ -63,31 +64,7 @@ export default function LandingPage() {
 
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Nav */}
-      <nav className="border-b border-gray-800/50 px-6 py-4">
-        <div className="flex items-center justify-between max-w-6xl mx-auto">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-              PF
-            </div>
-            <span className="font-semibold text-lg tracking-tight">project-forge</span>
-          </div>
-          <div className="flex items-center gap-6 text-sm">
-            <Link href="/docs" className="text-gray-400 hover:text-gray-200 transition">
-              Docs
-            </Link>
-            <Link href="/login" className="text-gray-400 hover:text-gray-200 transition">
-              Login
-            </Link>
-            <Link
-              href="/login"
-              className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-500 transition font-medium"
-            >
-              Get Started
-            </Link>
-          </div>
-        </div>
-      </nav>
+      <PublicNav />
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-6 py-24 text-center">

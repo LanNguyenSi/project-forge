@@ -4,8 +4,8 @@ export const dynamic = "force-dynamic";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Button, Input, Label, Alert } from "@/components/ui/primitives";
+import { PublicNav } from "@/components/layout/PublicNav";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -60,20 +60,7 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Top nav */}
-      <nav className="border-b border-gray-800/50 px-6 py-4">
-        <div className="flex items-center justify-between max-w-md mx-auto">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-              PF
-            </div>
-            <span className="font-semibold tracking-tight">project-forge</span>
-          </Link>
-          <Link href="/docs" className="text-sm text-gray-400 hover:text-gray-200 transition">
-            API Docs
-          </Link>
-        </div>
-      </nav>
+      <PublicNav />
 
       <div className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
         <div className="w-full max-w-md space-y-6">
