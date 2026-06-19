@@ -195,24 +195,24 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Unified Magic-Fill Seed (Prompt | File) */}
       {magicEnabled && (
-        <div className="rounded-md bg-purple-950/20 p-4">
+        <div className="rounded-card bg-gold/15 p-4">
           <div className="flex items-center gap-2 mb-3">
-            <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <svg className="w-5 h-5 text-gold" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
             </svg>
-            <h3 className="font-semibold text-purple-300 text-sm">AI Magic Fill</h3>
+            <h3 className="font-semibold text-gold text-sm">AI Magic Fill</h3>
           </div>
-          <p className="text-xs text-gray-400 mb-3">
+          <p className="text-xs text-forge-ash mb-3">
             Seed the form with a one-line prompt, or upload a document (arc42, RFC, charter) to extract the intake.
           </p>
 
           {/* Tab switcher. Two equal-width buttons; the active one gets
-              the purple-accent border. Keyboard: ArrowLeft/Right cycles
+              the gold-accent border. Keyboard: ArrowLeft/Right cycles
               when focus is on the tablist. */}
           <div
             role="tablist"
             aria-label="Seed source"
-            className="flex gap-1 mb-3 rounded-md border border-purple-900/40 bg-purple-950/40 p-1 text-xs"
+            className="flex gap-1 mb-3 rounded-btn border border-gold/20 bg-forge-void/60 p-1 text-xs"
           >
             {(["prompt", "file"] as const).map((mode) => {
               const active = seedMode === mode;
@@ -232,10 +232,10 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                   }}
                   disabled={magicLoading || isLoading}
                   className={
-                    "flex-1 rounded px-3 py-1.5 font-medium transition " +
+                    "flex-1 rounded-btn px-3 py-1.5 font-medium transition " +
                     (active
-                      ? "bg-purple-600/30 text-purple-100 ring-1 ring-purple-500/60"
-                      : "text-purple-300 hover:bg-purple-900/40")
+                      ? "bg-gold/20 text-forge-mist ring-1 ring-gold/50"
+                      : "text-gold hover:bg-gold/10")
                   }
                 >
                   {mode === "prompt" ? "Prompt" : "File"}
@@ -257,7 +257,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 }}
                 placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
                 disabled={magicLoading || isLoading}
-                className="flex-1 text-sm focus:border-purple-500 focus:ring-purple-500"
+                className="flex-1 text-sm focus:border-gold focus:ring-gold"
               />
               <Button
                 type="button"
@@ -266,7 +266,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 onClick={handleMagicFill}
                 disabled={!magicPrompt.trim() || isLoading}
                 loading={magicLoading}
-                className="bg-purple-600 hover:bg-purple-500"
+                className="bg-gold hover:bg-gold/90 text-forge-void"
               >
                 Fill Form
               </Button>
@@ -274,10 +274,10 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           ) : (
             <div id="seed-panel-file" role="tabpanel" className="space-y-2">
               {attachment ? (
-                <div className="flex items-center justify-between rounded-md bg-gray-900/60 border border-gray-800 px-3 py-2 text-sm">
+                <div className="flex items-center justify-between rounded-btn bg-forge-iron/60 border border-forge-steel px-3 py-2 text-sm">
                   <div className="flex min-w-0 items-center gap-2">
                     <svg
-                      className="w-4 h-4 text-gray-400 shrink-0"
+                      className="w-4 h-4 text-forge-ash shrink-0"
                       fill="none"
                       viewBox="0 0 24 24"
                       strokeWidth={1.5}
@@ -289,10 +289,10 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                         d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
                       />
                     </svg>
-                    <span className="truncate font-mono text-gray-300" title={attachment.name}>
+                    <span className="truncate font-mono text-forge-mist" title={attachment.name}>
                       {attachment.name}
                     </span>
-                    <span className="text-xs text-gray-500 shrink-0">
+                    <span className="text-xs text-forge-ash shrink-0">
                       {(attachment.inlineText?.length ?? 0).toLocaleString()} chars
                     </span>
                   </div>
@@ -316,7 +316,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 />
               )}
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-forge-ash">
                   Accepted: {ACCEPTED_EXTENSIONS.join(", ")} — 50k char limit. The document rides along to the planner after form extraction.
                 </p>
                 <Button
@@ -326,7 +326,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                   onClick={handleMagicFill}
                   disabled={!attachment || isLoading}
                   loading={magicLoading}
-                  className="bg-purple-600 hover:bg-purple-500 shrink-0"
+                  className="bg-gold hover:bg-gold/90 text-forge-void shrink-0"
                 >
                   Fill Form
                 </Button>
@@ -347,10 +347,10 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           ride along on submit (v0.1d enrichment + v0.2a persist), so
           they don't think "I already filled the form, the doc is gone". */}
       {magicEnabled && attachment && seedMode === "prompt" && (
-        <div className="flex items-center justify-between rounded-md bg-gray-900/40 border border-gray-800 px-3 py-2 text-xs">
-          <span className="text-gray-400">
-            Attached for planner: <span className="font-mono text-gray-300">{attachment.name}</span>{" "}
-            <span className="text-gray-500">
+        <div className="flex items-center justify-between rounded-btn bg-forge-iron/40 border border-forge-steel px-3 py-2 text-xs">
+          <span className="text-forge-ash">
+            Attached for planner: <span className="font-mono text-forge-mist">{attachment.name}</span>{" "}
+            <span className="text-forge-ash">
               ({(attachment.inlineText?.length ?? 0).toLocaleString()} chars)
             </span>
           </span>
