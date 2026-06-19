@@ -1,6 +1,6 @@
 import { ButtonHTMLAttributes, forwardRef } from "react";
 
-type Variant = "primary" | "secondary" | "danger" | "ghost" | "success";
+type Variant = "primary" | "secondary" | "danger" | "ghost" | "success" | "gold";
 type Size = "sm" | "md" | "lg";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -10,7 +10,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
-// WCAG AA note: ember primary uses text-forge-void (#0B0D10 on #F5641E = 6.14:1 contrast)
+// WCAG AA note: ember primary = text-forge-void on #F5641E (6.14:1); gold = text-forge-void on #FFB02E (~10.7:1, AAA)
 const variantStyles: Record<Variant, string> = {
   primary:
     "bg-ember text-forge-void hover:bg-ember-soft focus-visible:ring-ember",
@@ -22,6 +22,9 @@ const variantStyles: Record<Variant, string> = {
     "text-forge-ash hover:text-forge-mist hover:bg-forge-steel/60 focus-visible:ring-forge-ash",
   success:
     "bg-success/15 text-success hover:bg-success/25 focus-visible:ring-success",
+  // gold = the "AI / creative spark" accent (forge heat-peak), distinct from the ember primary action
+  gold:
+    "bg-gold text-forge-void hover:bg-gold/90 focus-visible:ring-gold",
 };
 
 const sizeStyles: Record<Size, string> = {

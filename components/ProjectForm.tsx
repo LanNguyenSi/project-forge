@@ -261,12 +261,11 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
               />
               <Button
                 type="button"
-                variant="primary"
+                variant="gold"
                 size="sm"
                 onClick={handleMagicFill}
                 disabled={!magicPrompt.trim() || isLoading}
                 loading={magicLoading}
-                className="bg-gold hover:bg-gold/90 text-forge-void"
               >
                 Fill Form
               </Button>
@@ -321,18 +320,18 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 </p>
                 <Button
                   type="button"
-                  variant="primary"
+                  variant="gold"
                   size="sm"
                   onClick={handleMagicFill}
                   disabled={!attachment || isLoading}
                   loading={magicLoading}
-                  className="bg-gold hover:bg-gold/90 text-forge-void shrink-0"
+                  className="shrink-0"
                 >
                   Fill Form
                 </Button>
               </div>
               {attachmentError && (
-                <p className="text-xs text-red-400" role="alert">
+                <p className="text-xs text-danger" role="alert">
                   {attachmentError}
                 </p>
               )}
