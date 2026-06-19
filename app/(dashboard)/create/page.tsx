@@ -26,7 +26,7 @@ function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       aria-label="Copy to clipboard"
-      className="ml-2 text-gray-500 hover:text-gray-300 transition shrink-0"
+      className="ml-2 text-forge-ash hover:text-forge-mist transition shrink-0"
       onClick={() => {
         navigator.clipboard.writeText(text);
         setCopied(true);
@@ -34,7 +34,7 @@ function CopyButton({ text }: { text: string }) {
       }}
     >
       {copied ? (
-        <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <svg className="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
         </svg>
       ) : (
@@ -47,7 +47,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export default function CreatePage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const [state, setState] = useState<State>("form");
   const [preview, setPreview] = useState<GenerationPreview | null>(null);
@@ -133,14 +133,14 @@ export default function CreatePage() {
             {needsGithub && (
               <Card tone="warning" padding="md" className="mb-6">
                 <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-md bg-yellow-600/20 flex items-center justify-center text-yellow-400 shrink-0">
+                  <div className="h-10 w-10 rounded-btn bg-warning/20 flex items-center justify-center text-warning shrink-0">
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-yellow-200 mb-1">GitHub connection required</h3>
-                    <p className="text-sm text-gray-400 mb-4">
+                    <h3 className="font-semibold text-gold mb-1">GitHub connection required</h3>
+                    <p className="text-sm text-forge-ash mb-4">
                       Connect your GitHub account to create repositories. Choose OAuth for the fastest setup.
                     </p>
                     <div className="flex flex-col sm:flex-row gap-2">
@@ -196,23 +196,23 @@ export default function CreatePage() {
         {state === "publishing" && (
           <Card padding="lg" className="text-center">
             <div className="py-8">
-              <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-500 border-t-transparent mx-auto mb-4" />
-              <p className="text-gray-300 font-medium">Creating repository...</p>
-              <p className="text-gray-500 text-sm mt-1">This may take a moment.</p>
+              <div className="h-10 w-10 animate-spin rounded-full border-2 border-ember border-t-transparent mx-auto mb-4" />
+              <p className="text-forge-mist font-medium">Creating repository...</p>
+              <p className="text-forge-ash text-sm mt-1">This may take a moment.</p>
             </div>
           </Card>
         )}
 
         {state === "done" && repoUrl && (
           <Card tone="success" padding="lg" className="text-center">
-            <div className="h-12 w-12 rounded-full bg-green-600/20 flex items-center justify-center mx-auto mb-4">
-              <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <div className="h-12 w-12 rounded-full bg-success/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-success" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
               </svg>
             </div>
-            <h2 className="text-2xl font-semibold mb-2">Project Created!</h2>
-            <div className="flex items-center rounded-md bg-gray-900 px-4 py-3 mb-6">
-              <code className="text-sm text-green-400 font-mono flex-1 overflow-x-auto">
+            <h2 className="font-display text-2xl font-semibold text-forge-mist mb-2">Project Created!</h2>
+            <div className="flex items-center rounded-card bg-forge-iron px-4 py-3 mb-6">
+              <code className="text-sm text-forge-mist font-mono flex-1 overflow-x-auto">
                 git clone {repoUrl}
               </code>
               <CopyButton text={`git clone ${repoUrl}`} />
