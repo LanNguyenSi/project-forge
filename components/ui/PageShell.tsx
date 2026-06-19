@@ -28,9 +28,9 @@ export function PageShell({
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-100">{title}</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-forge-mist">{title}</h1>
             {subtitle && (
-              <p className="text-gray-400 mt-1 text-sm sm:text-base">{subtitle}</p>
+              <p className="text-forge-ash mt-1 text-sm sm:text-base">{subtitle}</p>
             )}
           </div>
           {actions && <div className="flex items-center gap-3">{actions}</div>}
