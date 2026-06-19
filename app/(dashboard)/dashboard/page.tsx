@@ -36,7 +36,7 @@ export default function DashboardPage() {
     return (
       <AppShell>
         <div className="flex min-h-[60vh] items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-ember border-t-transparent" />
         </div>
       </AppShell>
     );
@@ -53,14 +53,14 @@ export default function DashboardPage() {
           {!githubConnected ? (
             /* State: GitHub NOT connected → guide to connect */
             <Card tone="accent" padding="lg">
-              <div className="flex items-center gap-2 text-xs text-blue-400 font-medium mb-4">
-                <span className="flex items-center gap-1.5 rounded-full bg-blue-600/20 px-2.5 py-1">Step 1 of 2</span>
+              <div className="flex items-center gap-2 text-xs text-ember font-medium mb-4">
+                <span className="flex items-center gap-1.5 rounded-full bg-ember/20 px-2.5 py-1">Step 1 of 2</span>
                 Connect GitHub
               </div>
-              <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-forge-mist mb-2">
                 Connect GitHub to get started
               </h2>
-              <p className="text-gray-400 text-sm mb-6 max-w-lg">
+              <p className="text-forge-ash text-sm mb-6 max-w-lg">
                 project-forge needs access to your GitHub account to create repositories.
                 Connect via OAuth for the fastest setup, or add a Personal Access Token in Settings.
               </p>
@@ -85,10 +85,10 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2 mb-4">
                 <Badge variant="success">GitHub connected</Badge>
               </div>
-              <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-forge-mist mb-2">
                 Create your first project
               </h2>
-              <p className="text-gray-400 text-sm mb-6 max-w-lg">
+              <p className="text-forge-ash text-sm mb-6 max-w-lg">
                 Describe your project, review the AI-generated plan, and publish to GitHub. All in under a minute.
               </p>
               <Button size="lg" onClick={() => router.push("/create")}>
@@ -102,7 +102,7 @@ export default function DashboardPage() {
 
           {/* ── How it works ─────────────────────────── */}
           <div>
-            <h3 className="text-lg font-semibold mb-4">How it works</h3>
+            <h3 className="font-display text-lg font-semibold text-forge-mist mb-4">How it works</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {[
                 {
@@ -138,15 +138,15 @@ export default function DashboardPage() {
               ].map((s) => (
                 <Card key={s.step} tone="muted" padding="sm">
                   <div className="flex items-start gap-3">
-                    <div className="h-10 w-10 rounded-md bg-blue-600/10 flex items-center justify-center text-blue-400 shrink-0">
+                    <div className="h-10 w-10 rounded-card bg-ember/10 flex items-center justify-center text-ember shrink-0">
                       {s.icon}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-bold text-blue-400">Step {s.step}</span>
-                        <span className="text-sm font-semibold text-gray-200">{s.title}</span>
+                        <span className="text-xs font-bold text-ember">Step {s.step}</span>
+                        <span className="text-sm font-semibold text-forge-mist">{s.title}</span>
                       </div>
-                      <p className="text-xs text-gray-400 leading-relaxed">{s.desc}</p>
+                      <p className="text-xs text-forge-ash leading-relaxed">{s.desc}</p>
                     </div>
                   </div>
                 </Card>
@@ -154,13 +154,13 @@ export default function DashboardPage() {
             </div>
 
             {/* Agent alternative */}
-            <div className="mt-4 rounded-md bg-gray-900/40 px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+            <div className="mt-4 rounded-card bg-forge-steel/40 border border-forge-steel px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <svg className="w-5 h-5 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <svg className="w-5 h-5 text-forge-ash shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
                 </svg>
-                <p className="text-sm text-gray-400">
-                  Or generate an <Link href="/settings" className="text-blue-400 hover:text-blue-300 transition">API token</Link> and let your local agent create projects via the <Link href="/docs" className="text-blue-400 hover:text-blue-300 transition">REST API</Link>.
+                <p className="text-sm text-forge-ash">
+                  Or generate an <Link href="/settings" className="text-ember hover:text-ember-soft transition">API token</Link> and let your local agent create projects via the <Link href="/docs" className="text-ember hover:text-ember-soft transition">REST API</Link>.
                 </p>
               </div>
             </div>
