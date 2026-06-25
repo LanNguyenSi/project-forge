@@ -6,6 +6,8 @@ A web platform for creating AI-toolchain projects. Describe your project — [ag
 
 `project-forge` resolves generated planforge artifacts via `planforge-index.json` when available and falls back to legacy root paths for older planforge installations.
 
+![project-forge New Project view: a generated plan with a scaffold-fit review, task and wave counts, and a file-tree preview before pushing to GitHub.](docs/img/new-project.png)
+
 ## What It Does
 
 1. **Describe** — Fill in a form (or use the ✨ AI magic fill)
