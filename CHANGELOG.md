@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-25
+
+Forge gains a first-class web UI: a complete Next.js front-end — a landing page, authentication, dashboard, a guided project-create wizard with live preview, settings, and themed API docs — built on a new gold-accented design system. A transitive dompurify advisory and the 2026-06-16 CVE sweep are also cleared.
+
+### Added
+
+- **Forge design foundation and app chrome** (PRs #88, #89; tasks T-001/T-002): a new gold-accented design system and the shared application chrome (navigation, layout shell) that the rest of the UI builds on.
+- **Forge web pages** (PRs #90, #91, #92, #96, #97; tasks T-003/T-004/T-005/T-007/T-008): a landing page, login, dashboard, settings, and a docs page with a themed SwaggerUI.
+- **Guided project-create wizard** (PRs #93, #94, #95; tasks T-006a/b/c): a `ProjectForm` with a Magic-Fill gold accent, a live `PreviewPanel`, and a multi-step create wizard with Confirm/Error modals.
+- **UI polish** (PR #98; task T-009): a gold `Button` variant and `prefers-reduced-motion` accessibility support.
+
+### Security
+
+- **dompurify bumped to ≥3.4.11** (PR #99): a transitive advisory in the dependency tree was cleared.
+- **CVE sweep 2026-06-16** (PR #86): vite and js-yaml advisories cleared across the lockfile.
+
+### Docs
+
+- **README/docs reconciled with code** (PR #87): drift between the documentation and the implementation was fixed.
+
 ## [0.5.0] - 2026-06-01
 
 ### Added
