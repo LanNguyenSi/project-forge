@@ -293,7 +293,7 @@ export default function StyleguidePage() {
                 <span aria-hidden>★</span> Beta
               </Badge>
               <Badge variant="default">
-                v0.5.0
+                v0.6.0
               </Badge>
             </div>
           </SubSection>
@@ -407,7 +407,7 @@ export default function StyleguidePage() {
 
         {/* Footer */}
         <footer className="mt-8 pt-6 border-t border-forge-steel text-xs text-forge-ash text-center">
-          Forge design system — project-forge v0.5.0 — dark-only
+          Forge design system — project-forge v0.6.0 — dark-only
         </footer>
       </div>
     </div>
