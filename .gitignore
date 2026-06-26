@@ -11,3 +11,9 @@ db/
 
 # orchestrator-workflow run state (local only)
 .ai/
+
+# VPS-side deployment override: prod secrets + named volumes. Must stay
+# untracked on the host (never committed); gitignored so deploy-panel's
+# git_clean preflight passes without --force.
+docker-compose.override.yml
+docker-compose.override.yml.bak-*
