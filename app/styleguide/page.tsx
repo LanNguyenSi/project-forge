@@ -50,6 +50,9 @@ function Swatch({ name, hex, bg, textColor = "text-forge-mist" }: SwatchProps) {
 export default function StyleguidePage() {
   const [alertOpen, setAlertOpen] = useState(true);
   const [alertSuccessOpen, setAlertSuccessOpen] = useState(true);
+  // Sourced from package.json at build time via next.config.mjs (single
+  // source of truth); falls back to "dev" if the env var is ever unset.
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
 
   return (
     <div className="min-h-screen bg-forge-void px-6 py-12">
@@ -65,6 +68,8 @@ export default function StyleguidePage() {
               Visual language reference for project-forge — dark-only, ember-accented.
             </p>
             <div className="mt-4 flex gap-2">
+              {/* Design-system version, intentionally a literal — distinct from
+                  the app version (appVersion) shown in the footer/sample badge. */}
               <Badge variant="info">v1.0</Badge>
               <Badge variant="default">dark-only</Badge>
             </div>
@@ -293,7 +298,7 @@ export default function StyleguidePage() {
                 <span aria-hidden>★</span> Beta
               </Badge>
               <Badge variant="default">
-                v0.6.0
+                v{appVersion}
               </Badge>
             </div>
           </SubSection>
@@ -407,7 +412,7 @@ export default function StyleguidePage() {
 
         {/* Footer */}
         <footer className="mt-8 pt-6 border-t border-forge-steel text-xs text-forge-ash text-center">
-          Forge design system — project-forge v0.6.0 — dark-only
+          Forge design system — project-forge v{appVersion} — dark-only
         </footer>
       </div>
     </div>
