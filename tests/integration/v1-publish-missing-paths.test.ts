@@ -311,4 +311,40 @@ describe("POST /api/v1/publish — missing-path coverage", () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it("500 response body must not contain a raw github_pat_ fine-grained token from a simulated error", async () => {
+    const secretPat = "github_pat_11ABCDEFG0123456789_abcdefGHIJKLmnopqrstuv";
+    const record = tokenRecord({
+      user: {
+        id: "user-1",
+        email: "u@test.com",
+        passwordHash: null,
+        githubId: null,
+        githubLogin: null,
+        githubPat: secretPat,
+        githubOwner: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    mValidateToken.mockResolvedValue(record as never);
+    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+
+    const sessionId = "aaaaaaaa-0000-0000-0000-000000000099";
+    await session(sessionId);
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error(`authentication failed for ${secretPat} at github.com`)
+    );
+
+    try {
+      const res = await POST(makeReq("pf_test", { sessionId }));
+      expect(res.status).toBe(500);
+      const text = await res.text();
+      expect(text).not.toContain(secretPat);
+      expect(text).not.toContain("github_pat_11ABCDEFG");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
