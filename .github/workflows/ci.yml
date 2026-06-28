@@ -24,4 +24,4 @@ jobs:
         env:
           GITHUB_TOKEN: "mock"
           GITHUB_OWNER: "mock"
-      - run: npx vitest run
+      - run: npm run test:coverage
