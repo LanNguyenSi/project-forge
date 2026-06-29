@@ -28,6 +28,19 @@ export default defineConfig({
         // [id] directory — use wildcard to avoid bracket glob issues
         'app/api/dashboard/tokens/*/route.ts': { lines: 85, statements: 85 },
         'app/api/v1/publish/route.ts': { lines: 48, statements: 48 },
+        // Per-file floors for files covered by this PR (set a few points
+        // below measured values — see test coverage report for measurements).
+        // Measured: stmts 100, branches 90, funcs 100, lines 100
+        'middleware.ts': { statements: 95, branches: 85, functions: 95, lines: 95 },
+        // Measured: stmts 100, branches 95, lines 100; funcs 50 due to .catch(()=>{}) defensive cb
+        'app/api/v1/generate/route.ts': { statements: 95, branches: 90, lines: 95 },
+        // Measured: stmts 85, branches 54, funcs 60, lines 88
+        'app/api/generate/route.ts': { statements: 80, branches: 50, functions: 55, lines: 83 },
+        // Measured: stmts 75, branches 50, funcs 83, lines 83
+        'lib/subprocess.ts': { statements: 70, branches: 45, functions: 78, lines: 78 },
+        // Measured: stmts 39, branches 40, funcs 50, lines 39
+        // Low because generateStructuredJson is deferred (needs OpenAI SDK mock)
+        'lib/ai-provider.ts': { statements: 36, branches: 37, functions: 47, lines: 36 },
       },
     },
   },
