@@ -176,8 +176,13 @@ describe('generateStructuredJson', () => {
     });
 
     it('parses JSON wrapped in a ```json fenced code block', async () => {
+      // The trailing '{oops}' is deliberate and makes this test DISCRIMINATE the
+      // fenced branch: with it present, the brace-substring fallback would slice
+      // from the first '{' to this last '}' (across the fence markers), yielding
+      // invalid JSON that throws. So the test only passes when the fenced-block
+      // branch actually parses the fence — removing that branch fails this test.
       mockCreate.mockResolvedValue(
-        completionWith('Here you go:\n```json\n{"foo":"fenced"}\n```\nHope that helps!')
+        completionWith('Here you go:\n```json\n{"foo":"fenced"}\n```\nAlso note: {oops}')
       );
 
       const result = await generateStructuredJson<Parsed>('sys', 'user');
