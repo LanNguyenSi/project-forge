@@ -38,9 +38,17 @@ export default defineConfig({
         'app/api/generate/route.ts': { statements: 80, branches: 50, functions: 55, lines: 83 },
         // Measured: stmts 75, branches 50, funcs 83, lines 83
         'lib/subprocess.ts': { statements: 70, branches: 45, functions: 78, lines: 78 },
-        // Measured: stmts 39, branches 40, funcs 50, lines 39
-        // Low because generateStructuredJson is deferred (needs OpenAI SDK mock)
-        'lib/ai-provider.ts': { statements: 36, branches: 37, functions: 47, lines: 36 },
+        // Measured: stmts 100, branches 100, funcs 100, lines 100 — now fully
+        // covered via a mocked OpenAI SDK (generateStructuredJson success,
+        // malformed-response, and API-error branches; parseJsonObject's
+        // fenced/prose/empty branches exercised through it).
+        'lib/ai-provider.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+        // Measured: stmts 100, branches 100, funcs 100, lines 100
+        'app/api/dashboard/route.ts': { statements: 95, branches: 90, functions: 95, lines: 95 },
+        // Measured: stmts 100, branches 100, funcs 100, lines 100
+        'lib/github.ts': { statements: 95, branches: 90, functions: 95, lines: 95 },
+        // Measured: stmts 98, branches 96.29, funcs 100, lines 100
+        'lib/v1-shared.ts': { statements: 93, branches: 91, functions: 95, lines: 95 },
       },
     },
   },

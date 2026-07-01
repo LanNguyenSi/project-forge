@@ -1,5 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { validateProjectName, SESSION_UUID_RE, SESSION_TTL_MS, isSessionExpired } from "@/lib/v1-shared";
+import { describe, expect, it, afterEach } from "vitest";
+import * as fs from "fs/promises";
+import * as os from "os";
+import * as path from "path";
+import {
+  validateProjectName,
+  SESSION_UUID_RE,
+  SESSION_TTL_MS,
+  isSessionExpired,
+  readForgeMeta,
+  parseTasks,
+  buildFileTree,
+  readPreviewData,
+} from "@/lib/v1-shared";
 import type { ForgeMeta } from "@/lib/v1-shared";
 
 describe("validateProjectName", () => {
@@ -118,5 +130,267 @@ describe("isSessionExpired", () => {
   it("returns false for a session created at TTL - 1ms (just under boundary)", () => {
     const meta = metaWithAge(SESSION_TTL_MS - 1);
     expect(isSessionExpired(meta)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readForgeMeta / parseTasks / buildFileTree / readPreviewData
+//
+// These operate on real filesystem temp dirs (fs.mkdtemp) rather than mocks,
+// since resolvePlanforgeOutputPaths already degrades gracefully to
+// tempDir-relative default paths when no planforge-index.json is present —
+// no need to mock it for these direct-artifact-layout tests.
+// ---------------------------------------------------------------------------
+
+const tempDirs: string[] = [];
+
+async function makeTempDir(): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "v1-shared-test-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+});
+
+describe("readForgeMeta", () => {
+  it("parses a valid .forge-meta.json from the temp dir", async () => {
+    const dir = await makeTempDir();
+    const meta: ForgeMeta = {
+      tokenId: "tok-1",
+      userId: "user-1",
+      projectName: "my-project",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    await fs.writeFile(path.join(dir, ".forge-meta.json"), JSON.stringify(meta));
+
+    const result = await readForgeMeta(dir);
+
+    expect(result).toEqual(meta);
+  });
+
+  it("parses meta without the optional tokenId field", async () => {
+    const dir = await makeTempDir();
+    const meta = { userId: "user-2", projectName: "legacy-project", createdAt: "2026-02-01T00:00:00.000Z" };
+    await fs.writeFile(path.join(dir, ".forge-meta.json"), JSON.stringify(meta));
+
+    const result = await readForgeMeta(dir);
+
+    expect(result).toEqual(meta);
+    expect(result.tokenId).toBeUndefined();
+  });
+
+  it("rejects when .forge-meta.json does not exist", async () => {
+    const dir = await makeTempDir();
+
+    await expect(readForgeMeta(dir)).rejects.toThrow();
+  });
+});
+
+describe("parseTasks", () => {
+  it("returns [] when the tasks dir does not exist", async () => {
+    const dir = await makeTempDir();
+
+    const tasks = await parseTasks(dir);
+
+    expect(tasks).toEqual([]);
+  });
+
+  it("parses id/title/wave/category/priority/summary from a fully-formed task file", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(
+      path.join(tasksDir, "01-setup.md"),
+      [
+        "# Task 1: Setup the project",
+        "",
+        "## Wave",
+        "",
+        "wave-1",
+        "",
+        "## Category",
+        "",
+        "feature",
+        "",
+        "## Priority",
+        "",
+        "P1",
+        "",
+        "## Summary",
+        "",
+        "Bootstrap the repo scaffolding.",
+        "",
+      ].join("\n")
+    );
+
+    const tasks = await parseTasks(dir);
+
+    expect(tasks).toEqual([
+      {
+        id: "01",
+        title: "Setup the project",
+        wave: "wave-1",
+        category: "feature",
+        priority: "P1",
+        summary: "Bootstrap the repo scaffolding.",
+      },
+    ]);
+  });
+
+  it("falls back to filename-derived id/title and default wave/category/priority when fields are missing, and leaves summary undefined", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "no-frontmatter.md"), "Just some unstructured content.");
+
+    const tasks = await parseTasks(dir);
+
+    expect(tasks).toEqual([
+      {
+        id: "no-frontmatter",
+        title: "no-frontmatter.md",
+        wave: "wave-1",
+        category: "feature",
+        priority: "P1",
+        summary: undefined,
+      },
+    ]);
+  });
+
+  it("ignores non-.md files in the tasks dir", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "01-real.md"), "# Task 1: Real task\n");
+    await fs.writeFile(path.join(tasksDir, "notes.txt"), "not a task");
+
+    const tasks = await parseTasks(dir);
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].id).toBe("01");
+  });
+
+  it("parses multiple task files", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "01-a.md"), "# Task 1: First\n\n## Wave\n\nwave-1\n");
+    await fs.writeFile(path.join(tasksDir, "02-b.md"), "# Task 2: Second\n\n## Wave\n\nwave-2\n");
+
+    const tasks = await parseTasks(dir);
+
+    expect(tasks.map((t) => t.id).sort()).toEqual(["01", "02"]);
+    expect(tasks.map((t) => t.wave).sort()).toEqual(["wave-1", "wave-2"]);
+  });
+});
+
+describe("buildFileTree", () => {
+  it("sorts directories before files, and alphabetically within each group", async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(path.join(dir, "zdir"), { recursive: true });
+    await fs.writeFile(path.join(dir, "zdir", "inner.txt"), "inner");
+    await fs.writeFile(path.join(dir, "afile.txt"), "content");
+
+    const tree = await buildFileTree(dir);
+
+    expect(tree).toEqual([
+      {
+        name: "zdir",
+        path: "zdir",
+        type: "directory",
+        children: [{ name: "inner.txt", path: "zdir/inner.txt", type: "file" }],
+      },
+      { name: "afile.txt", path: "afile.txt", type: "file" },
+    ]);
+  });
+
+  it("skips node_modules, .git, venv, and __pycache__ directories", async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(path.join(dir, "node_modules"), { recursive: true });
+    await fs.writeFile(path.join(dir, "node_modules", "pkg.json"), "{}");
+    await fs.mkdir(path.join(dir, ".git"), { recursive: true });
+    await fs.writeFile(path.join(dir, ".git", "HEAD"), "ref: refs/heads/main");
+    await fs.mkdir(path.join(dir, "venv"), { recursive: true });
+    await fs.writeFile(path.join(dir, "venv", "pyvenv.cfg"), "");
+    await fs.mkdir(path.join(dir, "__pycache__"), { recursive: true });
+    await fs.writeFile(path.join(dir, "__pycache__", "cache.pyc"), "");
+    await fs.writeFile(path.join(dir, "keep.txt"), "kept");
+
+    const tree = await buildFileTree(dir);
+
+    expect(tree).toEqual([{ name: "keep.txt", path: "keep.txt", type: "file" }]);
+  });
+
+  it("skips .forge-meta.json and .forge-published files", async () => {
+    const dir = await makeTempDir();
+    await fs.writeFile(path.join(dir, ".forge-meta.json"), "{}");
+    await fs.writeFile(path.join(dir, ".forge-published"), "");
+    await fs.writeFile(path.join(dir, "README.md"), "# hi");
+
+    const tree = await buildFileTree(dir);
+
+    expect(tree).toEqual([{ name: "README.md", path: "README.md", type: "file" }]);
+  });
+
+  it("recurses into nested subdirectories, tracking relative paths", async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(path.join(dir, "a", "b"), { recursive: true });
+    await fs.writeFile(path.join(dir, "a", "b", "deep.txt"), "deep");
+
+    const tree = await buildFileTree(dir);
+
+    expect(tree).toEqual([
+      {
+        name: "a",
+        path: "a",
+        type: "directory",
+        children: [
+          {
+            name: "b",
+            path: "a/b",
+            type: "directory",
+            children: [{ name: "deep.txt", path: "a/b/deep.txt", type: "file" }],
+          },
+        ],
+      },
+    ]);
+  });
+});
+
+describe("readPreviewData", () => {
+  it("returns safe defaults for a completely empty temp dir (no tasks, no artifacts)", async () => {
+    const dir = await makeTempDir();
+
+    const preview = await readPreviewData(dir, "empty-project");
+
+    expect(preview.projectName).toBe("empty-project");
+    expect(preview.tasks).toEqual([]);
+    expect(preview.taskCount).toBe(0);
+    expect(preview.waveCount).toBe(0);
+    expect(preview.architectureOverview).toBe("(not generated)");
+    // No scaffoldkit-input.json present -> readScaffoldPreview falls back to
+    // the planning-baseline status.
+    expect(preview.scaffold.status).toBe("planning-baseline");
+    // No post-scaffold-review.json present -> toScaffoldFitPreview(null) is undefined.
+    expect(preview.scaffoldFit).toBeUndefined();
+  });
+
+  it("aggregates tasks, architecture overview content, taskCount, and waveCount when artifacts are present", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "01-a.md"), "# Task 1: First\n\n## Wave\n\nwave-1\n");
+    await fs.writeFile(path.join(tasksDir, "02-b.md"), "# Task 2: Second\n\n## Wave\n\nwave-2\n");
+    await fs.writeFile(path.join(dir, "architecture-overview.md"), "# Architecture\n\nSome overview text.");
+
+    const preview = await readPreviewData(dir, "real-project");
+
+    expect(preview.projectName).toBe("real-project");
+    expect(preview.taskCount).toBe(2);
+    expect(preview.waveCount).toBe(2);
+    expect(preview.architectureOverview).toBe("# Architecture\n\nSome overview text.");
+    expect(preview.tasks.map((t) => t.id).sort()).toEqual(["01", "02"]);
   });
 });
