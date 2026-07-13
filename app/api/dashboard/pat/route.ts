@@ -23,7 +23,11 @@ export async function GET() {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ ok: true, githubPat: user.githubPat });
+  // Secret-bearing response: forbid any intermediary/browser caching.
+  return NextResponse.json(
+    { ok: true, githubPat: user.githubPat },
+    { headers: { "Cache-Control": "no-store, max-age=0" } }
+  );
 }
 
 export async function POST(req: NextRequest) {
