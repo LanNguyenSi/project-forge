@@ -63,7 +63,7 @@ export default function CreatePage() {
         .then((r) => r.json())
         .then((data) => {
           if (data.ok) {
-            setGithubConnected(!!(data.user.githubPat || data.user.githubOwner));
+            setGithubConnected(!!(data.user.githubPatConnected || data.user.githubOwner));
           } else {
             setGithubConnected(false);
           }

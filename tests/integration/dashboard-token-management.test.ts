@@ -26,6 +26,7 @@ vi.mock("@/lib/db", async () => {
       },
       user: {
         update: vi.fn(),
+        findUnique: vi.fn(),
       },
     },
     // Keep the real generateApiToken so we can assert pf_ prefix
@@ -36,7 +37,7 @@ import { getServerSession } from "next-auth";
 import { prisma } from "@/lib/db";
 import { POST as createToken } from "@/app/api/dashboard/tokens/route";
 import { DELETE as revokeToken } from "@/app/api/dashboard/tokens/[id]/route";
-import { POST as savePat } from "@/app/api/dashboard/pat/route";
+import { GET as getPat, POST as savePat } from "@/app/api/dashboard/pat/route";
 
 const mGetSession = vi.mocked(getServerSession);
 
@@ -48,6 +49,7 @@ const apiToken = prisma.apiToken as unknown as {
 
 const user = prisma.user as unknown as {
   update: ReturnType<typeof vi.fn>;
+  findUnique: ReturnType<typeof vi.fn>;
 };
 
 function jsonReq(url: string, body: unknown, method = "POST"): NextRequest {
@@ -201,6 +203,72 @@ describe("DELETE /api/dashboard/tokens/[id]", () => {
     expect(apiToken.update).toHaveBeenCalledTimes(1);
     const updateArg = apiToken.update.mock.calls[0][0];
     expect(updateArg.data.revokedAt).toBeInstanceOf(Date);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/dashboard/pat  (settings-only: read the caller's own raw PAT)
+// ---------------------------------------------------------------------------
+describe("GET /api/dashboard/pat", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("401 when there is no session", async () => {
+    mGetSession.mockResolvedValue(null);
+
+    const res = await getPat();
+
+    expect(res.status).toBe(401);
+    expect(user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("404 when the session user is not found in the DB", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    user.findUnique.mockResolvedValue(null);
+
+    const res = await getPat();
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe("User not found");
+  });
+
+  it("scopes the lookup to the session's own user id", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    user.findUnique.mockResolvedValue({ githubPat: "ghp_mine" });
+
+    await getPat();
+
+    expect(user.findUnique).toHaveBeenCalledTimes(1);
+    expect(user.findUnique).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      select: { githubPat: true },
+    });
+  });
+
+  it("200 returns the caller's own raw githubPat", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    user.findUnique.mockResolvedValue({ githubPat: "ghp_ownRawToken" });
+
+    const res = await getPat();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.githubPat).toBe("ghp_ownRawToken");
+  });
+
+  it("200 returns null githubPat when the user has none set", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    user.findUnique.mockResolvedValue({ githubPat: null });
+
+    const res = await getPat();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.githubPat).toBeNull();
   });
 });
 

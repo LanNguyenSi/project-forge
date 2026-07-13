@@ -3,10 +3,12 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 /**
  * Integration tests for GET /api/dashboard.
  *
- * SECURITY NOTE (resolved, do not re-litigate): the route intentionally
- * returns the caller's own `githubPat` in the response body — this is the
- * owner viewing their own PAT, and the settings page relies on it. These
- * tests assert that value is present, not scrub it.
+ * SECURITY NOTE: the route no longer returns the caller's raw `githubPat`.
+ * Only two of its three consumers (dashboard/page.tsx, create/page.tsx) need
+ * existence, so the route now returns a `githubPatConnected` boolean instead.
+ * The settings page, which pre-fills/edits the raw token, reads it from the
+ * dedicated GET /api/dashboard/pat endpoint (see dashboard-token-management.test.ts).
+ * These tests assert the raw PAT is absent and the boolean is present.
  */
 
 vi.mock("next-auth", () => ({
@@ -100,7 +102,7 @@ describe("GET /api/dashboard", () => {
     });
   });
 
-  it("200 happy path returns the user (including raw githubPat, per the resolved decision) and their active tokens", async () => {
+  it("200 happy path returns githubPatConnected: true (never the raw PAT) plus active tokens, when a PAT is set", async () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
     const createdAt = new Date("2026-01-01T00:00:00.000Z");
     const lastUsedAt = new Date("2026-01-02T00:00:00.000Z");
@@ -127,10 +129,11 @@ describe("GET /api/dashboard", () => {
     expect(body.user).toEqual({
       id: "user-1",
       email: "u@test.com",
-      githubPat: "ghp_mockedTokenValue",
+      githubPatConnected: true,
     });
-    // Resolved decision: raw PAT IS present in the owner's own dashboard response.
-    expect(body.user.githubPat).toBe("ghp_mockedTokenValue");
+    // The raw PAT must never appear anywhere in the response body.
+    expect(body.user.githubPat).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("ghp_mockedTokenValue");
     expect(body.tokens).toEqual([
       {
         id: "tok-1",
@@ -140,5 +143,25 @@ describe("GET /api/dashboard", () => {
         createdAt: createdAt.toISOString(),
       },
     ]);
+  });
+
+  it("200 happy path returns githubPatConnected: false when the user has no PAT set", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    user.findUnique.mockResolvedValue({
+      id: "user-1",
+      email: "u@test.com",
+      githubPat: null,
+      apiTokens: [],
+    });
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.user).toEqual({
+      id: "user-1",
+      email: "u@test.com",
+      githubPatConnected: false,
+    });
   });
 });
