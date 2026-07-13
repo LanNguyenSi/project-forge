@@ -29,7 +29,7 @@ export async function GET() {
     user: {
       id: user.id,
       email: user.email,
-      githubPat: user.githubPat,
+      githubPatConnected: !!user.githubPat,
     },
     tokens: user.apiTokens.map((t) => ({
       id: t.id,

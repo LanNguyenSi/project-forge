@@ -43,14 +43,20 @@ export default function SettingsPage() {
 
   const loadData = async () => {
     try {
-      const res = await fetch("/api/dashboard");
+      const [res, patRes] = await Promise.all([
+        fetch("/api/dashboard"),
+        fetch("/api/dashboard/pat"),
+      ]);
       const data = await res.json();
+      const patData = await patRes.json();
       if (data.ok) {
-        setGithubPat(data.user.githubPat || "");
-        setGithubConnectedViaOAuth(
-          !!(data.user.githubPat?.startsWith("gho_") || data.user.githubOwner),
-        );
         setTokens(data.tokens || []);
+      }
+      if (patData.ok) {
+        setGithubPat(patData.githubPat || "");
+        setGithubConnectedViaOAuth(
+          !!(patData.githubPat?.startsWith("gho_") || data.user?.githubOwner),
+        );
       }
     } catch (err) {
       console.error("Failed to load settings:", err);

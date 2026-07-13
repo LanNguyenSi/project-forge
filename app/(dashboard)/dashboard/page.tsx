@@ -23,7 +23,7 @@ export default function DashboardPage() {
         .then((data) => {
           if (data.ok) {
             setGithubConnected(
-              !!(data.user.githubPat || data.user.githubOwner),
+              !!(data.user.githubPatConnected || data.user.githubOwner),
             );
           }
           setLoaded(true);
