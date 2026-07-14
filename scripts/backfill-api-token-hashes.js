@@ -28,21 +28,31 @@
  * code is live would break every token-authenticated request) and starting
  * the NEW one (whose own `db push` needs `token` already gone to succeed).
  * Splitting into expand (additive, safe for days/weeks alongside the OLD
- * code — do this well ahead of time, no downtime) and contract (destructive,
- * only safe in that cutover window) makes that one required ordering
- * explicit instead of leaving it implicit in a single script.
+ * code — do this well ahead of time) and contract (destructive, only safe
+ * in that cutover window) makes that one required ordering explicit
+ * instead of leaving it implicit in a single script.
  *
  * Runbook for a real deploy:
  *   1. node scripts/backfill-api-token-hashes.js            (expand; run
- *      anytime before the deploy, no downtime — purely additive, the OLD
- *      code keeps working against `token` untouched)
+ *      well ahead of the deploy — purely additive, the OLD code keeps
+ *      working against `token` untouched. NOTE: the OLD code is still
+ *      live and keeps minting/serving plaintext-only rows the whole time,
+ *      so this early run does NOT cover every row that will exist by
+ *      cutover — step 3 below does.)
  *   2. Stop the OLD container (brief downtime — the same restart window
  *      `docker compose up -d --build` already causes for this project;
  *      not a new downtime requirement).
- *   3. node scripts/backfill-api-token-hashes.js --contract  (contract;
- *      run now, with the OLD code stopped and the NEW code not yet
- *      started — drops `token` and its legacy unique index for good)
- *   4. Start the NEW container. Its own `npx prisma db push` now sees
+ *   3. node scripts/backfill-api-token-hashes.js            (expand AGAIN,
+ *      now that the OLD code is stopped — REQUIRED, not optional: this is
+ *      what actually hashes any tokens created/rotated between step 1 and
+ *      step 2. Cheap and idempotent — a no-op if nothing changed. Confirm
+ *      its output before proceeding: it must NOT hit the fail-loud "N
+ *      row(s) still have no tokenHash" error. If it does, contract will
+ *      refuse too — resolve those rows first.)
+ *   4. node scripts/backfill-api-token-hashes.js --contract  (contract;
+ *      safe now that step 3 has confirmed 0 rows remain unhashed — drops
+ *      `token` and its legacy unique index for good)
+ *   5. Start the NEW container. Its own `npx prisma db push` now sees
  *      `token` already gone and is a clean no-op.
  * Both phases are idempotent — safe to re-run, and each is a no-op once its
  * work is already done (including out of order: contract before expand

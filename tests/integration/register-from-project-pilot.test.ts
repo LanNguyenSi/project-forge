@@ -222,7 +222,7 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       });
       user.findUnique.mockResolvedValue(null);
       user.create.mockResolvedValue({ id: "user-ok", githubLogin: "ok-user" });
-  
+
       const res = await POST(makeReq({ githubAccessToken: "valid" }));
 
       expect(res.status).toBe(200);

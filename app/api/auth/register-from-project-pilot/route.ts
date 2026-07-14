@@ -24,12 +24,14 @@
  * being idempotent BY VALUE. The broker is documented to cache whatever's
  * returned and only re-register on 401, so this remains a rare path.
  *
- * Confirmed against the actual caller (project-pilot, backend/src/routes/oauth.ts:190):
- * this endpoint's only caller is project-pilot's OAuth-completion handler,
- * which persists the returned token encrypted via upsertCredential and has
- * no automatic 401-triggered re-register loop — so the revoke-and-reissue
- * behavior above cannot spuriously invalidate a token another concurrent
- * "legitimate" flow is mid-use with.
+ * Point-in-time cross-repo observation (as of 2026-07-14, per project-pilot
+ * backend/src/routes/oauth.ts:190): this endpoint's only caller is
+ * project-pilot's OAuth-completion handler, which persists the returned
+ * token encrypted via upsertCredential and has no automatic 401-triggered
+ * re-register loop — so the revoke-and-reissue behavior above cannot
+ * spuriously invalidate a token another concurrent "legitimate" flow is
+ * mid-use with. Re-check this against project-pilot if that call site
+ * changes.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, createApiToken } from "@/lib/db";
@@ -197,6 +199,14 @@ export async function POST(req: NextRequest) {
   // at-rest means an existing token's raw value can no longer be recovered,
   // so a repeat call issues a fresh one instead of returning the same value
   // again (see file-level comment above).
+  //
+  // CAVEAT: the "no two active tokens" invariant above relies on this
+  // project's datasource being SQLite, which serializes writers (one
+  // writer transaction at a time) — there is no genuine cross-transaction
+  // race to close here. Porting this to a true MVCC datastore (Postgres,
+  // etc.) would need an explicit guard (a partial unique index on
+  // (userId, name) WHERE revokedAt IS NULL, or a row lock) for the same
+  // guarantee to hold under real concurrent writers.
   const { raw: apiToken } = await prisma.$transaction(async (tx) => {
     await tx.apiToken.updateMany({
       where: { userId: user.id, name: "project-pilot", revokedAt: null },
