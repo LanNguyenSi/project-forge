@@ -3,12 +3,21 @@ import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest";
 // Mock the Prisma client before importing the route.
 vi.mock("@/lib/db", async () => {
   const actual = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+  const mockPrisma: {
+    user: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> };
+    apiToken: { create: ReturnType<typeof vi.fn>; updateMany: ReturnType<typeof vi.fn> };
+    $transaction: ReturnType<typeof vi.fn>;
+  } = {
+    user: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
+    apiToken: { create: vi.fn(), updateMany: vi.fn() },
+    // Interactive-transaction mock: just runs the callback against the same
+    // mocked client, mirroring Prisma's real $transaction(async (tx) => ...)
+    // shape closely enough for these unit-style tests.
+    $transaction: vi.fn((fn: (tx: typeof mockPrisma) => unknown) => fn(mockPrisma)),
+  };
   return {
     ...actual,
-    prisma: {
-      user: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
-      apiToken: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
-    },
+    prisma: mockPrisma,
   };
 });
 
@@ -32,9 +41,8 @@ const user = prisma.user as unknown as {
   create: ReturnType<typeof vi.fn>;
 };
 const apiToken = prisma.apiToken as unknown as {
-  findFirst: ReturnType<typeof vi.fn>;
   create: ReturnType<typeof vi.fn>;
-  update: ReturnType<typeof vi.fn>;
+  updateMany: ReturnType<typeof vi.fn>;
 };
 
 function makeReq(body: unknown): NextRequest {
@@ -101,7 +109,6 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     });
     user.findUnique.mockResolvedValue(null);
     user.create.mockResolvedValue({ id: "user-1" });
-    apiToken.findFirst.mockResolvedValue(null);
     apiToken.create.mockResolvedValue({});
 
     const res = await POST(makeReq({ githubAccessToken: "valid", githubLogin: "newbie" }));
@@ -157,13 +164,7 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       email: null,
     });
     user.update.mockResolvedValue({ id: "user-existing" });
-    apiToken.findFirst.mockResolvedValue({
-      id: "tok-existing",
-      tokenHash: "hash-of-a-token-we-no-longer-have-the-raw-value-for",
-      userId: "user-existing",
-      revokedAt: null,
-    });
-    apiToken.update.mockResolvedValue({ id: "tok-existing", revokedAt: new Date() });
+    apiToken.updateMany.mockResolvedValue({ count: 1 });
     apiToken.create.mockResolvedValue({});
 
     const res = await POST(makeReq({ githubAccessToken: "valid" }));
@@ -173,10 +174,17 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     // A fresh token is minted — the old raw value is gone for good.
     expect(body.apiToken).toMatch(/^pf_/);
     expect(apiToken.create).toHaveBeenCalledTimes(1);
-    // The old row is revoked, not left dangling as a second active token.
-    expect(apiToken.update).toHaveBeenCalledTimes(1);
-    expect(apiToken.update.mock.calls[0][0].where.id).toBe("tok-existing");
-    expect(apiToken.update.mock.calls[0][0].data.revokedAt).toBeInstanceOf(Date);
+    // Any currently-active project-pilot token(s) for this user are revoked
+    // in bulk (not read-then-update-by-id), so a concurrent racing call
+    // can't leave two tokens active — see the route's inline comment.
+    expect(apiToken.updateMany).toHaveBeenCalledTimes(1);
+    const revokeArg = apiToken.updateMany.mock.calls[0][0];
+    expect(revokeArg.where).toEqual({
+      userId: "user-existing",
+      name: "project-pilot",
+      revokedAt: null,
+    });
+    expect(revokeArg.data.revokedAt).toBeInstanceOf(Date);
   });
 
   it("403 when ALLOWED_GITHUB_LOGINS is set and login is not in list", async () => {
@@ -214,8 +222,7 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       });
       user.findUnique.mockResolvedValue(null);
       user.create.mockResolvedValue({ id: "user-ok", githubLogin: "ok-user" });
-      apiToken.findFirst.mockResolvedValue(null);
-
+  
       const res = await POST(makeReq({ githubAccessToken: "valid" }));
 
       expect(res.status).toBe(200);
@@ -234,7 +241,6 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     });
     user.findUnique.mockResolvedValue(null);
     user.create.mockResolvedValue({ id: "user-1" });
-    apiToken.findFirst.mockResolvedValue(null);
     apiToken.create.mockResolvedValue({});
 
     await POST(makeReq({ githubAccessToken: "gho_oauth_token", githubLogin: "newbie" }));
@@ -258,7 +264,6 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       githubPat: null,
     });
     user.update.mockResolvedValue({ id: "user-existing" });
-    apiToken.findFirst.mockResolvedValue({ id: "tok-existing", tokenHash: "irrelevant-hash", revokedAt: null });
 
     await POST(makeReq({ githubAccessToken: "gho_fresh_token" }));
 
@@ -281,7 +286,6 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       githubPat: "",
     });
     user.update.mockResolvedValue({ id: "user-existing" });
-    apiToken.findFirst.mockResolvedValue({ id: "tok-existing", tokenHash: "irrelevant-hash", revokedAt: null });
 
     await POST(makeReq({ githubAccessToken: "gho_backfilled" }));
 
@@ -304,7 +308,6 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       githubPat: "gho_old_narrow_scope_token",
     });
     user.update.mockResolvedValue({ id: "user-existing" });
-    apiToken.findFirst.mockResolvedValue({ id: "tok-existing", tokenHash: "irrelevant-hash", revokedAt: null });
 
     await POST(makeReq({ githubAccessToken: "gho_new_token_with_workflow" }));
 
@@ -326,7 +329,6 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       githubPat: "github_pat_manual_finegrained",
     });
     user.update.mockResolvedValue({ id: "user-existing" });
-    apiToken.findFirst.mockResolvedValue({ id: "tok-existing", tokenHash: "irrelevant-hash", revokedAt: null });
 
     await POST(makeReq({ githubAccessToken: "gho_should_be_ignored" }));
 
@@ -348,7 +350,6 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       githubPat: "ghp_manual_classic_pat",
     });
     user.update.mockResolvedValue({ id: "user-existing" });
-    apiToken.findFirst.mockResolvedValue({ id: "tok-existing", tokenHash: "irrelevant-hash", revokedAt: null });
 
     await POST(makeReq({ githubAccessToken: "gho_should_be_ignored" }));
 

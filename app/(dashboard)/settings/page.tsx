@@ -12,7 +12,7 @@ import { Button, Input, Card, CardHeader, Badge, Alert } from "@/components/ui/p
 interface ApiToken {
   id: string;
   name: string;
-  // Non-secret display hint only ("pf_ab12cd34"); the raw token is shown
+  // Non-secret display hint only ("pf_ab12cd3"); the raw token is shown
   // exactly once at creation (see newlyCreatedToken) and never again.
   tokenPrefix: string;
   lastUsedAt: string | null;

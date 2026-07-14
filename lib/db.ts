@@ -46,8 +46,10 @@ export function hashApiToken(rawToken: string): string {
 }
 
 // Non-secret display hint for the dashboard's masked token list, e.g.
-// "pf_ab12cd34". Long enough to tell tokens apart, short enough to leave the
-// ~26 remaining random bytes of the secret unguessable.
+// "pf_ab12cd3" (10 chars: the "pf_" prefix + 7 of the 32 base64url chars
+// generateApiToken() produces from its 24 random bytes). Long enough to
+// tell tokens apart, short enough to leave the ~25 remaining base64url
+// characters of the secret (~150 bits) unguessable.
 export function tokenPrefixOf(rawToken: string): string {
   return rawToken.slice(0, 10);
 }

@@ -120,6 +120,13 @@ describe("GET /api/dashboard", () => {
           name: "ci",
           tokenHash: "deadbeef_hash_value_never_returned",
           tokenPrefix: "pf_abc123",
+          // Sentinel raw value: if the route regressed to spreading the row
+          // (or re-added `token: t.token`), this is what would leak. Kept
+          // on the fixture so the "never leaks" assertions below actually
+          // have something to catch — a fixture with no raw value at all
+          // would let `t.token` silently resolve to `undefined` and pass
+          // regardless of whether the route re-introduces the field.
+          token: "pf_RAW_SHOULD_NEVER_LEAK",
           lastUsedAt,
           createdAt,
         },
@@ -149,10 +156,14 @@ describe("GET /api/dashboard", () => {
       },
     ]);
     // Only a non-secret prefix ever leaves this route — no tokenHash, no
-    // full/raw token value anywhere in the response.
+    // full/raw token value anywhere in the response. These assertions
+    // would fail if the route regressed to `token: t.token` or a bare
+    // spread of the DB row, because the fixture carries a real sentinel
+    // value for both fields (not `undefined`).
     expect(body.tokens[0].token).toBeUndefined();
     expect(body.tokens[0].tokenHash).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("deadbeef_hash_value_never_returned");
+    expect(JSON.stringify(body)).not.toContain("pf_RAW_SHOULD_NEVER_LEAK");
   });
 
   it("200 happy path returns githubPatConnected: false when the user has no PAT set", async () => {

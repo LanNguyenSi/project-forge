@@ -23,6 +23,13 @@
  * invariant the old reuse branch cared about, at the cost of no longer
  * being idempotent BY VALUE. The broker is documented to cache whatever's
  * returned and only re-register on 401, so this remains a rare path.
+ *
+ * Confirmed against the actual caller (project-pilot, backend/src/routes/oauth.ts:190):
+ * this endpoint's only caller is project-pilot's OAuth-completion handler,
+ * which persists the returned token encrypted via upsertCredential and has
+ * no automatic 401-triggered re-register loop — so the revoke-and-reissue
+ * behavior above cannot spuriously invalidate a token another concurrent
+ * "legitimate" flow is mid-use with.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, createApiToken } from "@/lib/db";
@@ -180,22 +187,23 @@ export async function POST(req: NextRequest) {
         },
       });
 
-  // At most one active "project-pilot" token per user. Hash-at-rest means
-  // the raw value of an existing token can no longer be recovered, so a
-  // repeat call revokes it and issues a fresh one instead of returning the
-  // same value again (see file-level comment above).
-  const activeToken = await prisma.apiToken.findFirst({
-    where: { userId: user.id, revokedAt: null, name: "project-pilot" },
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (activeToken) {
-    await prisma.apiToken.update({
-      where: { id: activeToken.id },
+  // At most one active "project-pilot" token per user, even under
+  // concurrent calls. Revoke via updateMany (a single atomic
+  // UPDATE ... WHERE revokedAt IS NULL) rather than findFirst-then-update-
+  // by-id, and run both statements in one transaction: two racing calls
+  // can't each read the same now-stale "active" row and then both revoke +
+  // create, which would leave two tokens active at once. The second call's
+  // updateMany also sweeps up the first call's freshly created row. Hash-
+  // at-rest means an existing token's raw value can no longer be recovered,
+  // so a repeat call issues a fresh one instead of returning the same value
+  // again (see file-level comment above).
+  const { raw: apiToken } = await prisma.$transaction(async (tx) => {
+    await tx.apiToken.updateMany({
+      where: { userId: user.id, name: "project-pilot", revokedAt: null },
       data: { revokedAt: new Date() },
     });
-  }
-  const { raw: apiToken } = await createApiToken(prisma, user.id, "project-pilot");
+    return createApiToken(tx, user.id, "project-pilot");
+  });
 
   return NextResponse.json({
     apiToken,

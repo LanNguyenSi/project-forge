@@ -20,10 +20,30 @@ const eslintConfig = [
       "build/**",
       "coverage/**",
       "next-env.d.ts",
-      // Standalone CJS ops script (no ts-node/tsx dependency by design —
-      // see its header comment), not part of the Next app's lint target.
-      "scripts/**",
     ],
+  },
+  {
+    // Standalone CJS ops scripts (no ts-node/tsx dependency by design — see
+    // scripts/backfill-api-token-hashes.js's header comment), run directly
+    // via `node`, not part of the Next app's browser/TS bundle. Scoped
+    // override rather than a blanket ignore, so they still get linted —
+    // just with Node globals and CommonJS `require` allowed.
+    files: ["scripts/**/*.js"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: {
+        require: "readonly",
+        module: "writable",
+        exports: "writable",
+        process: "readonly",
+        console: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
   },
 ];
 
