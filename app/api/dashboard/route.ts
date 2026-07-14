@@ -34,7 +34,7 @@ export async function GET() {
     tokens: user.apiTokens.map((t) => ({
       id: t.id,
       name: t.name,
-      token: t.token,
+      tokenPrefix: t.tokenPrefix,
       lastUsedAt: t.lastUsedAt,
       createdAt: t.createdAt,
     })),

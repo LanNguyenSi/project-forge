@@ -12,7 +12,9 @@ import { Button, Input, Card, CardHeader, Badge, Alert } from "@/components/ui/p
 interface ApiToken {
   id: string;
   name: string;
-  token: string;
+  // Non-secret display hint only ("pf_ab12cd3"); the raw token is shown
+  // exactly once at creation (see newlyCreatedToken) and never again.
+  tokenPrefix: string;
   lastUsedAt: string | null;
   createdAt: string;
 }
@@ -20,6 +22,32 @@ interface ApiToken {
 interface TokenToRevoke {
   id: string;
   name: string;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label="Copy to clipboard"
+      className="ml-2 text-forge-ash hover:text-forge-mist transition shrink-0"
+      onClick={() => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+    >
+      {copied ? (
+        <svg className="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+        </svg>
+      ) : (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+        </svg>
+      )}
+    </button>
+  );
 }
 
 export default function SettingsPage() {
@@ -246,9 +274,12 @@ export default function SettingsPage() {
             {newlyCreatedToken && (
               <Alert variant="success" onClose={() => setNewlyCreatedToken(null)} className="mb-4">
                 <p className="font-medium mb-1">Token created! Copy it now, it won&apos;t be shown again.</p>
-                <code className="block bg-forge-steel rounded-btn px-3 py-2 font-mono text-sm text-success mt-2 break-all">
-                  {newlyCreatedToken}
-                </code>
+                <div className="flex items-center bg-forge-steel rounded-btn px-3 py-2 mt-2">
+                  <code className="font-mono text-sm text-success break-all flex-1">
+                    {newlyCreatedToken}
+                  </code>
+                  <CopyButton text={newlyCreatedToken} />
+                </div>
               </Alert>
             )}
 
@@ -260,7 +291,9 @@ export default function SettingsPage() {
                   <div key={token.id} className="flex items-center justify-between rounded-card bg-forge-steel/50 p-4">
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-forge-mist">{token.name}</div>
-                      <div className="text-sm font-mono text-forge-ash mt-1 truncate">{token.token}</div>
+                      <div className="text-sm font-mono text-forge-ash mt-1 truncate">
+                        {token.tokenPrefix}&hellip;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;
+                      </div>
                       <div className="text-xs text-forge-ash/70 mt-1">
                         Created: {new Date(token.createdAt).toLocaleDateString()} &middot;{" "}
                         Last used: {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleDateString() : "Never"}

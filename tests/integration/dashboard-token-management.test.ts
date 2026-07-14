@@ -1,9 +1,15 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest";
 import { NextRequest } from "next/server";
 
 /**
  * Integration tests for the three dashboard API routes that manage tokens and
  * the GitHub PAT. No live DB or session required — all dependencies are mocked.
+ *
+ * NOTE on mocking: `@/lib/db` is mocked module-wide with `prisma` swapped for
+ * a fake, while other exports (hashApiToken, generateApiToken, createApiToken)
+ * stay real via vi.importActual. createApiToken() takes the Prisma client as
+ * an explicit parameter (rather than closing over lib/db's own singleton)
+ * specifically so it picks up this test's fake `prisma`, not a real one.
  */
 
 vi.mock("next-auth", () => ({
@@ -66,6 +72,10 @@ const AUTHED_SESSION = { user: { id: "user-1", email: "u@test.com" } };
 // POST /api/dashboard/tokens  (create token)
 // ---------------------------------------------------------------------------
 describe("POST /api/dashboard/tokens", () => {
+  beforeAll(() => {
+    process.env.NEXTAUTH_SECRET = "test-hash-secret";
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -95,14 +105,16 @@ describe("POST /api/dashboard/tokens", () => {
 
   it("200 on success and returned token starts with pf_", async () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
-    apiToken.create.mockImplementation(({ data }: { data: { token: string; name: string; userId: string } }) =>
-      Promise.resolve({
-        id: "tok-new",
-        token: data.token,
-        name: data.name,
-        userId: data.userId,
-        createdAt: new Date(),
-      })
+    apiToken.create.mockImplementation(
+      ({ data }: { data: { tokenHash: string; tokenPrefix: string; name: string; userId: string } }) =>
+        Promise.resolve({
+          id: "tok-new",
+          tokenHash: data.tokenHash,
+          tokenPrefix: data.tokenPrefix,
+          name: data.name,
+          userId: data.userId,
+          createdAt: new Date(),
+        })
     );
 
     const res = await createToken(jsonReq("http://test/api/dashboard/tokens", { name: "ci-token" }));
@@ -111,23 +123,34 @@ describe("POST /api/dashboard/tokens", () => {
     expect(body.ok).toBe(true);
     expect(body.token.token).toMatch(/^pf_/);
     expect(body.token.name).toBe("ci-token");
+    // The response must carry the raw token, never a hash or the field name
+    // the DB stores it under.
+    expect(body.token.tokenHash).toBeUndefined();
   });
 
-  it("creates the token with userId === session.user.id", async () => {
+  it("persists only the hash + prefix in prisma.apiToken.create, never the raw token", async () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
     apiToken.create.mockResolvedValue({
       id: "tok-x",
-      token: "pf_test",
+      tokenHash: "irrelevant-in-this-assertion",
+      tokenPrefix: "pf_test123",
       name: "my-token",
       userId: "user-1",
       createdAt: new Date(),
     });
 
-    await createToken(jsonReq("http://test/api/dashboard/tokens", { name: "my-token" }));
+    const res = await createToken(jsonReq("http://test/api/dashboard/tokens", { name: "my-token" }));
+    const body = await res.json();
 
     expect(apiToken.create).toHaveBeenCalledTimes(1);
     const createArg = apiToken.create.mock.calls[0][0];
     expect(createArg.data.userId).toBe("user-1");
+    expect(createArg.data).not.toHaveProperty("token");
+    expect(createArg.data.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(createArg.data.tokenPrefix).toBe(body.token.token.slice(0, 10));
+    // The exact raw value returned to the caller must never itself appear
+    // in what got sent to prisma.apiToken.create.
+    expect(JSON.stringify(createArg)).not.toContain(body.token.token);
   });
 });
 
@@ -186,7 +209,8 @@ describe("DELETE /api/dashboard/tokens/[id]", () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
     apiToken.findFirst.mockResolvedValue({
       id: "tok-mine",
-      token: "pf_mine",
+      tokenHash: "mocked-hash-value",
+      tokenPrefix: "pf_mine123",
       userId: "user-1",
       revokedAt: null,
     });

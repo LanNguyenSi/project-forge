@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma, generateApiToken } from "@/lib/db";
+import { prisma, createApiToken } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -17,23 +17,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Token name is required" }, { status: 400 });
     }
 
-    const token = generateApiToken();
-
-    const apiToken = await prisma.apiToken.create({
-      data: {
-        token,
-        name: name.trim(),
-        userId: session.user.id,
-      },
-    });
+    // The raw token is returned here and ONLY here: it is never persisted
+    // (only its hash is), so this response body is the one and only time
+    // the caller can see it.
+    const { raw, record } = await createApiToken(prisma, session.user.id, name.trim());
 
     return NextResponse.json({
       ok: true,
       token: {
-        id: apiToken.id,
-        name: apiToken.name,
-        token: apiToken.token,
-        createdAt: apiToken.createdAt,
+        id: record.id,
+        name: record.name,
+        token: raw,
+        createdAt: record.createdAt,
       },
     });
   } catch (error: unknown) {
