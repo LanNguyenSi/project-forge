@@ -29,7 +29,14 @@ model User {
 
 model ApiToken {
   id          String     @id @default(cuid())
-  token       String     @unique
+  // Keyed-SHA256 (HMAC) digest of the raw token, hex-encoded. The raw value
+  // is shown to the user exactly once at creation and never persisted; auth
+  // re-hashes the presented token and looks it up by this unique index. See
+  // hashApiToken() in lib/db.ts.
+  tokenHash   String     @unique
+  // Non-secret display hint (first chars of the raw token, e.g. "pf_ab12cd")
+  // so the dashboard can show a masked identifier without the full secret.
+  tokenPrefix String
   name        String
   userId      String
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)

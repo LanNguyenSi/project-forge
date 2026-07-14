@@ -20,6 +20,9 @@ const eslintConfig = [
       "build/**",
       "coverage/**",
       "next-env.d.ts",
+      // Standalone CJS ops script (no ts-node/tsx dependency by design —
+      // see its header comment), not part of the Next app's lint target.
+      "scripts/**",
     ],
   },
 ];

@@ -9,6 +9,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  * The settings page, which pre-fills/edits the raw token, reads it from the
  * dedicated GET /api/dashboard/pat endpoint (see dashboard-token-management.test.ts).
  * These tests assert the raw PAT is absent and the boolean is present.
+ *
+ * Same treatment for API tokens: apiTokens.token is hashed at rest (never
+ * queried/selected here in the first place), and this route only ever
+ * returns the non-secret `tokenPrefix` display hint, never a raw token.
  */
 
 vi.mock("next-auth", () => ({
@@ -114,7 +118,8 @@ describe("GET /api/dashboard", () => {
         {
           id: "tok-1",
           name: "ci",
-          token: "pf_abc123",
+          tokenHash: "deadbeef_hash_value_never_returned",
+          tokenPrefix: "pf_abc123",
           lastUsedAt,
           createdAt,
         },
@@ -138,11 +143,16 @@ describe("GET /api/dashboard", () => {
       {
         id: "tok-1",
         name: "ci",
-        token: "pf_abc123",
+        tokenPrefix: "pf_abc123",
         lastUsedAt: lastUsedAt.toISOString(),
         createdAt: createdAt.toISOString(),
       },
     ]);
+    // Only a non-secret prefix ever leaves this route — no tokenHash, no
+    // full/raw token value anywhere in the response.
+    expect(body.tokens[0].token).toBeUndefined();
+    expect(body.tokens[0].tokenHash).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("deadbeef_hash_value_never_returned");
   });
 
   it("200 happy path returns githubPatConnected: false when the user has no PAT set", async () => {

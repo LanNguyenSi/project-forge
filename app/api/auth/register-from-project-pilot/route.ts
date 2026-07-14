@@ -14,12 +14,18 @@
  * broker cannot impersonate users because the token has to be valid.
  *
  * The returned apiToken is project-forge's own `pf_*` API token — the broker
- * stores it encrypted and forwards it on subsequent API calls. Idempotent:
- * a second call for the same GitHub identity returns the existing active
- * token rather than minting a new one.
+ * stores it encrypted and forwards it on subsequent API calls. API tokens
+ * are hashed at rest (see lib/db.ts hashApiToken()), so the raw value is
+ * never persisted and cannot be recovered on a later call: a second call
+ * for the same GitHub identity revokes the existing active token and mints
+ * a fresh one (invalidate + re-issue) rather than returning the same value
+ * again. This keeps the "at most one active project-pilot token per user"
+ * invariant the old reuse branch cared about, at the cost of no longer
+ * being idempotent BY VALUE. The broker is documented to cache whatever's
+ * returned and only re-register on 401, so this remains a rare path.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, generateApiToken } from "@/lib/db";
+import { prisma, createApiToken } from "@/lib/db";
 import {
   fetchGitHubUser,
   GitHubAuthError,
@@ -174,27 +180,22 @@ export async function POST(req: NextRequest) {
         },
       });
 
-  // Idempotency: reuse an existing unrevoked token for this user rather than
-  // minting a new one on every broker call. The broker is expected to cache
-  // the returned token and only re-register on 401.
+  // At most one active "project-pilot" token per user. Hash-at-rest means
+  // the raw value of an existing token can no longer be recovered, so a
+  // repeat call revokes it and issues a fresh one instead of returning the
+  // same value again (see file-level comment above).
   const activeToken = await prisma.apiToken.findFirst({
     where: { userId: user.id, revokedAt: null, name: "project-pilot" },
     orderBy: { createdAt: "desc" },
   });
 
-  let apiToken: string;
   if (activeToken) {
-    apiToken = activeToken.token;
-  } else {
-    apiToken = generateApiToken();
-    await prisma.apiToken.create({
-      data: {
-        token: apiToken,
-        name: "project-pilot",
-        userId: user.id,
-      },
+    await prisma.apiToken.update({
+      where: { id: activeToken.id },
+      data: { revokedAt: new Date() },
     });
   }
+  const { raw: apiToken } = await createApiToken(prisma, user.id, "project-pilot");
 
   return NextResponse.json({
     apiToken,
