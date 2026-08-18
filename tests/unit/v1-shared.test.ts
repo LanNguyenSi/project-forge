@@ -424,6 +424,66 @@ describe("readPreviewData", () => {
     expect(preview.architectureOverview).toBe("# Architecture\n\nSome overview text.");
     expect(preview.tasks.map((t) => t.id).sort()).toEqual(["01", "02"]);
   });
+
+  it("never surfaces content from a traversal architecture index entry, only the '(not generated)' fallback literal (end-to-end containment)", async () => {
+    const dir = await makeTempDir();
+    // A file outside the session temp dir -- a hostile index could point
+    // rootFiles.architecture straight at it (e.g. an SSH key, another
+    // session's output). The resolver's containment guard must stop
+    // readPreviewData from ever reading and mirroring it back in the API
+    // response.
+    const outsideDir = await makeTempDir();
+    const outsideFile = path.join(outsideDir, "secret-architecture.md");
+    await fs.writeFile(outsideFile, "TOP SECRET -- must never leak into the API response");
+
+    // path.relative gives the exact `../` count needed to reach outsideFile
+    // from dir, regardless of how deeply os.tmpdir() nests the two
+    // directories on this platform.
+    const traversalRelative = path.relative(dir, outsideFile);
+
+    await fs.writeFile(
+      path.join(dir, "planforge-index.json"),
+      JSON.stringify({
+        generatedBy: "agent-planforge",
+        rootFiles: { architecture: traversalRelative },
+        directories: { tasks: "tasks" },
+        planning: { planOutput: "planning/plan-output.json" },
+        exports: {},
+        ai: {},
+      })
+    );
+
+    const preview = await readPreviewData(dir, "leak-project");
+
+    expect(preview.architectureOverview).toBe("(not generated)");
+    expect(preview.architectureOverview).not.toContain("TOP SECRET");
+  });
+
+  it("positive control: resolves and reads a legitimate, in-bounds architecture index entry through readPreviewData", async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(path.join(dir, "docs"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "docs", "architecture-overview.md"),
+      "# Architecture\n\nLegitimate in-bounds content."
+    );
+    await fs.writeFile(
+      path.join(dir, "planforge-index.json"),
+      JSON.stringify({
+        generatedBy: "agent-planforge",
+        rootFiles: { architecture: "docs/architecture-overview.md" },
+        directories: { tasks: "tasks" },
+        planning: { planOutput: "planning/plan-output.json" },
+        exports: {},
+        ai: {},
+      })
+    );
+
+    const preview = await readPreviewData(dir, "legit-project");
+
+    // Proves the containment guard doesn't over-reject a legitimate,
+    // index-resolved, in-bounds entry when read end-to-end.
+    expect(preview.architectureOverview).toBe("# Architecture\n\nLegitimate in-bounds content.");
+  });
 });
 
 // ---------------------------------------------------------------------------
