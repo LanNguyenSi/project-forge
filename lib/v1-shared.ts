@@ -32,7 +32,39 @@ export function isSessionExpired(meta: ForgeMeta): boolean {
   return Date.now() - new Date(meta.createdAt).getTime() > SESSION_TTL_MS;
 }
 
-export async function parseTasks(tempDir: string): Promise<Task[]> {
+// Raw per-file parse result, kept internal to this module. `wave` is left
+// undefined when the file has no "## Wave" section at all -- parseTasks()
+// applies the "wave-1" default on top of this, while readPreviewData() uses
+// the undefined state itself as the signal for backfilling wave from
+// plan-output.json (a real "## Wave" section always wins over the backfill;
+// see readPreviewData below).
+interface ParsedTaskFile {
+  id: string;
+  title: string;
+  wave?: string;
+  category: string;
+  priority: string;
+  summary?: string;
+}
+
+function parseTaskFile(file: string, content: string): ParsedTaskFile {
+  const idMatch = file.match(/^(\d+)-/);
+  const titleMatch = content.match(/# Task \d+[:\s]+(.+)/);
+  const waveMatch = content.match(/## Wave\s*\n\s*\n\s*(.+)/);
+  const categoryMatch = content.match(/## Category\s*\n\s*\n\s*(.+)/);
+  const priorityMatch = content.match(/## Priority\s*\n\s*\n\s*(.+)/);
+  const summaryMatch = content.match(/## Summary\s*\n\s*\n\s*(.+)/);
+  return {
+    id: idMatch?.[1] ?? file.replace(".md", ""),
+    title: (titleMatch?.[1] ?? file).trim(),
+    wave: waveMatch?.[1]?.trim(),
+    category: (categoryMatch?.[1] ?? "feature").trim(),
+    priority: (priorityMatch?.[1] ?? "P1").trim(),
+    summary: summaryMatch?.[1]?.trim(),
+  };
+}
+
+async function parseTaskFiles(tempDir: string): Promise<ParsedTaskFile[]> {
   const artifacts = await resolvePlanforgeOutputPaths(tempDir);
   const tasksDir = artifacts.tasksDir;
   const taskFiles = (await fs.readdir(tasksDir).catch(() => [])).filter((f) => f.endsWith(".md"));
@@ -40,27 +72,112 @@ export async function parseTasks(tempDir: string): Promise<Task[]> {
   return Promise.all(
     taskFiles.map(async (file) => {
       const content = await fs.readFile(path.join(tasksDir, file), "utf-8");
-      const idMatch = file.match(/^(\d+)-/);
-      const titleMatch = content.match(/# Task \d+[:\s]+(.+)/);
-      const waveMatch = content.match(/## Wave\s*\n\s*\n\s*(.+)/);
-      const categoryMatch = content.match(/## Category\s*\n\s*\n\s*(.+)/);
-      const priorityMatch = content.match(/## Priority\s*\n\s*\n\s*(.+)/);
-      const summaryMatch = content.match(/## Summary\s*\n\s*\n\s*(.+)/);
-      return {
-        id: idMatch?.[1] ?? file.replace(".md", ""),
-        title: (titleMatch?.[1] ?? file).trim(),
-        wave: (waveMatch?.[1] ?? "wave-1").trim(),
-        category: (categoryMatch?.[1] ?? "feature").trim(),
-        priority: (priorityMatch?.[1] ?? "P1").trim(),
-        summary: summaryMatch?.[1]?.trim(),
-      };
+      return parseTaskFile(file, content);
     }),
   );
 }
 
+// Intentionally retained public surface: readPreviewData now consumes
+// parseTaskFiles directly, but parseTasks stays exported as the stable
+// "parsed tasks with defaults" helper for external callers and tests.
+export async function parseTasks(tempDir: string): Promise<Task[]> {
+  const parsed = await parseTaskFiles(tempDir);
+  return parsed.map((p) => ({
+    id: p.id,
+    title: p.title,
+    wave: p.wave ?? "wave-1",
+    category: p.category,
+    priority: p.priority,
+    summary: p.summary,
+  }));
+}
+
+// Subset of a plan-output.json tasks[] entry this module cares about.
+interface PlanOutputTaskEntry {
+  dependsOn?: string[];
+  wave?: string;
+}
+
+// Reads plan-output.json (path resolved via resolvePlanforgeOutputPaths, never
+// hardcoded, so index-driven layouts are honored) and indexes its tasks[] by
+// id. Missing file, corrupt JSON, or a malformed tasks[] entry all degrade to
+// an empty map -- i.e. today's behavior (no dependsOn, no wave backfill) --
+// mirroring the .catch(() => fallback) convention readPreviewData already
+// uses for architectureOverview: a broken plan-output.json must never turn a
+// generate/preview request into a 500.
+async function readPlanOutputTasksById(planOutputPath: string): Promise<Map<string, PlanOutputTaskEntry>> {
+  const byId = new Map<string, PlanOutputTaskEntry>();
+  try {
+    const raw = await fs.readFile(planOutputPath, "utf-8");
+    const parsed = JSON.parse(raw) as { tasks?: unknown };
+    const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+    for (const entry of tasks) {
+      if (!entry || typeof entry !== "object") continue;
+      const { id, dependsOn, wave } = entry as { id?: unknown; dependsOn?: unknown; wave?: unknown };
+      if (typeof id !== "string") continue;
+      byId.set(id, {
+        dependsOn: Array.isArray(dependsOn)
+          ? dependsOn.filter((depId): depId is string => typeof depId === "string")
+          : undefined,
+        wave: typeof wave === "string" ? wave : undefined,
+      });
+    }
+  } catch {
+    // Missing or corrupt plan-output.json: degrade to no dependsOn/wave data.
+  }
+  return byId;
+}
+
 export async function readPreviewData(tempDir: string, projectName: string) {
   const artifacts = await resolvePlanforgeOutputPaths(tempDir);
-  const tasks = await parseTasks(tempDir);
+  const parsedTaskFiles = await parseTaskFiles(tempDir);
+  const planOutputById = await readPlanOutputTasksById(artifacts.planOutputPath);
+
+  // The id space parsed from tasks/*.md matches plan-output.json's tasks[].id
+  // by construction: agent-planforge's bootstrap-plan.js writes each task file
+  // as `tasks/${task.id}-${slug}.md` using the zero-padded id straight from
+  // plan-output.json, and parseTaskFile's /^(\d+)-/ prefix match recovers that
+  // exact string back out of the filename. So a plain string-keyed Map join
+  // (no normalization) is correct, and `knownIds` below is the ids parsed
+  // from this response's task files (one id per file prefix; a duplicated
+  // prefix would collapse two files onto one id).
+  const knownIds = new Set(parsedTaskFiles.map((p) => p.id));
+
+  const tasks: Task[] = parsedTaskFiles.map((p) => {
+    const planEntry = planOutputById.get(p.id);
+    const task: Task = {
+      id: p.id,
+      title: p.title,
+      // Backfill only: an explicit "## Wave" section in the task file always
+      // wins. plan-output.json's wave fills in only when the file had none
+      // (p.wave undefined) -- it must never overwrite a file-declared wave.
+      // Defensive only today: agent-planforge's task-template.md always
+      // renders "## Wave" and its planning-output schema requires wave, so
+      // this branch is unreachable for genuine planforge output.
+      wave: p.wave ?? planEntry?.wave ?? "wave-1",
+      category: p.category,
+      priority: p.priority,
+      summary: p.summary,
+    };
+
+    // dependsOn ids live in the same id space as this response's own parsed
+    // task ids (see knownIds above). An id that does not resolve to another
+    // task in THIS response is dropped defensively -- mirrors project-pilot's
+    // topoSortForgeTasks dangling-id drop, guarding against a stale or
+    // foreign dependsOn edge (e.g. from a partially-regenerated plan) leaking
+    // into the API response. The Set also dedups a plan listing the same
+    // dependency twice. An empty result omits the field (undefined) rather
+    // than serializing []. Self-edges are deliberately NOT filtered here:
+    // buildTasks cannot emit one (approvalTaskId !== taskId guard), and
+    // pilot's topoSortForgeTasks fails such a graph with a clean CycleError.
+    const dependsOn = [...new Set(planEntry?.dependsOn ?? [])].filter((depId) => knownIds.has(depId));
+    if (dependsOn.length > 0) {
+      task.dependsOn = dependsOn;
+    }
+
+    return task;
+  });
+
   const architectureOverview = await fs.readFile(artifacts.architecturePath, "utf-8").catch(() => "(not generated)");
   const scaffold = await readScaffoldPreview(tempDir);
   const scaffoldFit = toScaffoldFitPreview(await readPostScaffoldReview(tempDir));

@@ -134,7 +134,7 @@ curl -X POST https://project-forge.opentriologue.ai/api/v1/generate \
 
 ### `GET /api/v1/preview`
 
-Fetch the generated preview (file tree, tasks, architecture) for a given `sessionId` (the value returned by `generate`).
+Fetch the generated preview (file tree, tasks, architecture) for a given `sessionId` (the value returned by `generate`). Each task carries `dependsOn` (ids of other tasks in the same response, sourced from the planforge plan) when the plan declares dependencies.
 
 ```bash
 curl "https://project-forge.opentriologue.ai/api/v1/preview?sessionId=f47ac10b-58cc-4372-a567-0e02b2c3d479" \

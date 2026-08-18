@@ -394,3 +394,183 @@ describe("readPreviewData", () => {
     expect(preview.tasks.map((t) => t.id).sort()).toEqual(["01", "02"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// readPreviewData: dependsOn/wave merge from plan-output.json
+//
+// agent-planforge's bootstrap-plan.js writes tasks/*.md as
+// `${task.id}-${slug}.md` using plan-output.json's zero-padded task ids
+// verbatim ("001", "002", ...), and parseTasks' /^(\d+)-/ prefix match
+// recovers that exact string. The id space is therefore pinned to that
+// 3-digit zero-padded form in these fixtures, matching what the real CLI
+// writes.
+// ---------------------------------------------------------------------------
+
+describe("readPreviewData: plan-output.json dependsOn/wave merge", () => {
+  it("merges dependsOn from planning/plan-output.json (index-resolved path, not hardcoded), ids in the CLI's zero-padded form", async () => {
+    const dir = await makeTempDir();
+    await fs.writeFile(
+      path.join(dir, "planforge-index.json"),
+      JSON.stringify({
+        generatedBy: "agent-planforge",
+        rootFiles: { architecture: "architecture-overview.md" },
+        directories: { tasks: "tasks" },
+        planning: { planOutput: "planning/plan-output.json" },
+        exports: {},
+        ai: {},
+      })
+    );
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "001-setup.md"), "# Task 1: Setup\n\n## Wave\n\nwave-1\n");
+    await fs.writeFile(path.join(tasksDir, "002-build.md"), "# Task 2: Build\n\n## Wave\n\nwave-2\n");
+    const planningDir = path.join(dir, "planning");
+    await fs.mkdir(planningDir, { recursive: true });
+    await fs.writeFile(
+      path.join(planningDir, "plan-output.json"),
+      JSON.stringify({
+        tasks: [
+          { id: "001", dependsOn: [] },
+          { id: "002", dependsOn: ["001"] },
+        ],
+      })
+    );
+
+    const preview = await readPreviewData(dir, "dep-project");
+
+    const byId = new Map(preview.tasks.map((t) => [t.id, t]));
+    expect(byId.get("001")?.dependsOn).toBeUndefined();
+    expect(byId.get("002")?.dependsOn).toEqual(["001"]);
+  });
+
+  it("degrades to no dependsOn, without error, when plan-output.json is missing", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "001-setup.md"), "# Task 1: Setup\n");
+
+    const preview = await readPreviewData(dir, "no-plan-output");
+
+    expect(preview.tasks).toHaveLength(1);
+    expect(preview.tasks[0].dependsOn).toBeUndefined();
+  });
+
+  it("degrades to no dependsOn, without error, when plan-output.json is corrupt JSON", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "001-setup.md"), "# Task 1: Setup\n");
+    await fs.writeFile(path.join(dir, "plan-output.json"), "{ not valid json ");
+
+    const preview = await readPreviewData(dir, "corrupt-plan-output");
+
+    expect(preview.tasks).toHaveLength(1);
+    expect(preview.tasks[0].dependsOn).toBeUndefined();
+  });
+
+  it("filters a dangling dependsOn id that does not match any parsed task id in this response", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "001-setup.md"), "# Task 1: Setup\n");
+    await fs.writeFile(
+      path.join(dir, "plan-output.json"),
+      JSON.stringify({ tasks: [{ id: "001", dependsOn: ["999"] }] })
+    );
+
+    const preview = await readPreviewData(dir, "dangling-project");
+
+    expect(preview.tasks[0].dependsOn).toBeUndefined();
+  });
+
+  it("backfills wave from plan-output.json only when the task file has no Wave section, and never overwrites an explicit one", async () => {
+    const dir = await makeTempDir();
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "001-no-wave.md"), "# Task 1: No wave section\n");
+    await fs.writeFile(path.join(tasksDir, "002-explicit-wave.md"), "# Task 2: Explicit wave\n\n## Wave\n\nwave-9\n");
+    await fs.writeFile(
+      path.join(dir, "plan-output.json"),
+      JSON.stringify({
+        tasks: [
+          { id: "001", wave: "wave-3" },
+          { id: "002", wave: "wave-5" },
+        ],
+      })
+    );
+
+    const preview = await readPreviewData(dir, "wave-backfill-project");
+
+    const byId = new Map(preview.tasks.map((t) => [t.id, t]));
+    expect(byId.get("001")?.wave).toBe("wave-3");
+    expect(byId.get("002")?.wave).toBe("wave-9");
+  });
+
+  async function writePlanFixture(planTasks: unknown): Promise<string> {
+    const dir = await makeTempDir();
+    await fs.writeFile(
+      path.join(dir, "planforge-index.json"),
+      JSON.stringify({
+        generatedBy: "agent-planforge",
+        rootFiles: { architecture: "architecture-overview.md" },
+        directories: { tasks: "tasks" },
+        planning: { planOutput: "planning/plan-output.json" },
+        exports: {},
+        ai: {},
+      })
+    );
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "001-setup.md"), "# Task 1: Setup\n\n## Wave\n\nwave-1\n");
+    await fs.writeFile(path.join(tasksDir, "002-build.md"), "# Task 2: Build\n\n## Wave\n\nwave-1\n");
+    const planningDir = path.join(dir, "planning");
+    await fs.mkdir(planningDir, { recursive: true });
+    await fs.writeFile(path.join(planningDir, "plan-output.json"), JSON.stringify({ tasks: planTasks }));
+    return dir;
+  }
+
+  it("dedups a plan entry listing the same dependency twice", async () => {
+    const dir = await writePlanFixture([
+      { id: "001", dependsOn: [] },
+      { id: "002", dependsOn: ["001", "001"] },
+    ]);
+    const preview = await readPreviewData(dir, "dedup-project");
+    expect(preview.tasks.find((t) => t.id === "002")?.dependsOn).toEqual(["001"]);
+  });
+
+  it("filters non-string entries out of dependsOn", async () => {
+    const dir = await writePlanFixture([
+      { id: "001", dependsOn: [] },
+      { id: "002", dependsOn: [null, 42, { id: "001" }, "001"] },
+    ]);
+    const preview = await readPreviewData(dir, "typeguard-project");
+    expect(preview.tasks.find((t) => t.id === "002")?.dependsOn).toEqual(["001"]);
+  });
+
+  it("degrades malformed plan-output shapes (tasks as object, null entries, non-string ids) without throwing", async () => {
+    for (const planTasks of [{ not: "an array" }, [null, ["nested"], { dependsOn: ["001"] }, { id: 2, dependsOn: ["001"] }]]) {
+      const dir = await writePlanFixture(planTasks);
+      const preview = await readPreviewData(dir, "malformed-project");
+      expect(preview.tasks).toHaveLength(2);
+      for (const t of preview.tasks) {
+        expect(t.dependsOn).toBeUndefined();
+      }
+    }
+  });
+
+  it("invariant: every emitted dependsOn id references an id of the same response", async () => {
+    const dir = await writePlanFixture([
+      { id: "001", dependsOn: ["002", "ghost-a"] },
+      { id: "002", dependsOn: ["001", "999", "001"] },
+    ]);
+    const preview = await readPreviewData(dir, "invariant-project");
+    const ids = new Set(preview.tasks.map((t) => t.id));
+    for (const t of preview.tasks) {
+      for (const dep of t.dependsOn ?? []) {
+        expect(ids.has(dep)).toBe(true);
+      }
+    }
+    expect(preview.tasks.find((t) => t.id === "001")?.dependsOn).toEqual(["002"]);
+    expect(preview.tasks.find((t) => t.id === "002")?.dependsOn).toEqual(["001"]);
+  });
+});
