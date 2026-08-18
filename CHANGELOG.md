@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `tasks[].dependsOn` in the `/api/v1/generate` and `/api/v1/preview`
+  responses, merged from `planning/plan-output.json` (ids reference the
+  ids of the same response; dangling ids are dropped, empty lists omit
+  the field). `wave` is backfilled from the same source when a task file
+  carries no `## Wave` section. Feeds project-pilot's dependency-aware
+  Forge-v2 import (pilot #125).
+
 ## [0.6.0] - 2026-06-25
 
 Forge gains a first-class web UI: a complete Next.js front-end — a landing page, authentication, dashboard, a guided project-create wizard with live preview, settings, and themed API docs — built on a new gold-accented design system. A transitive dompurify advisory and the 2026-06-16 CVE sweep are also cleared.

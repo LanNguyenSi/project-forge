@@ -77,6 +77,9 @@ async function parseTaskFiles(tempDir: string): Promise<ParsedTaskFile[]> {
   );
 }
 
+// Intentionally retained public surface: readPreviewData now consumes
+// parseTaskFiles directly, but parseTasks stays exported as the stable
+// "parsed tasks with defaults" helper for external callers and tests.
 export async function parseTasks(tempDir: string): Promise<Task[]> {
   const parsed = await parseTaskFiles(tempDir);
   return parsed.map((p) => ({
@@ -135,8 +138,9 @@ export async function readPreviewData(tempDir: string, projectName: string) {
   // as `tasks/${task.id}-${slug}.md` using the zero-padded id straight from
   // plan-output.json, and parseTaskFile's /^(\d+)-/ prefix match recovers that
   // exact string back out of the filename. So a plain string-keyed Map join
-  // (no normalization) is correct, and `knownIds` below is exactly "the ids
-  // present in this response".
+  // (no normalization) is correct, and `knownIds` below is the ids parsed
+  // from this response's task files (one id per file prefix; a duplicated
+  // prefix would collapse two files onto one id).
   const knownIds = new Set(parsedTaskFiles.map((p) => p.id));
 
   const tasks: Task[] = parsedTaskFiles.map((p) => {
@@ -147,6 +151,9 @@ export async function readPreviewData(tempDir: string, projectName: string) {
       // Backfill only: an explicit "## Wave" section in the task file always
       // wins. plan-output.json's wave fills in only when the file had none
       // (p.wave undefined) -- it must never overwrite a file-declared wave.
+      // Defensive only today: agent-planforge's task-template.md always
+      // renders "## Wave" and its planning-output schema requires wave, so
+      // this branch is unreachable for genuine planforge output.
       wave: p.wave ?? planEntry?.wave ?? "wave-1",
       category: p.category,
       priority: p.priority,
@@ -160,7 +167,9 @@ export async function readPreviewData(tempDir: string, projectName: string) {
     // foreign dependsOn edge (e.g. from a partially-regenerated plan) leaking
     // into the API response. The Set also dedups a plan listing the same
     // dependency twice. An empty result omits the field (undefined) rather
-    // than serializing [].
+    // than serializing []. Self-edges are deliberately NOT filtered here:
+    // buildTasks cannot emit one (approvalTaskId !== taskId guard), and
+    // pilot's topoSortForgeTasks fails such a graph with a clean CycleError.
     const dependsOn = [...new Set(planEntry?.dependsOn ?? [])].filter((depId) => knownIds.has(depId));
     if (dependsOn.length > 0) {
       task.dependsOn = dependsOn;

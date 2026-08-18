@@ -505,4 +505,72 @@ describe("readPreviewData: plan-output.json dependsOn/wave merge", () => {
     expect(byId.get("001")?.wave).toBe("wave-3");
     expect(byId.get("002")?.wave).toBe("wave-9");
   });
+
+  async function writePlanFixture(planTasks: unknown): Promise<string> {
+    const dir = await makeTempDir();
+    await fs.writeFile(
+      path.join(dir, "planforge-index.json"),
+      JSON.stringify({
+        generatedBy: "agent-planforge",
+        rootFiles: { architecture: "architecture-overview.md" },
+        directories: { tasks: "tasks" },
+        planning: { planOutput: "planning/plan-output.json" },
+        exports: {},
+        ai: {},
+      })
+    );
+    const tasksDir = path.join(dir, "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, "001-setup.md"), "# Task 1: Setup\n\n## Wave\n\nwave-1\n");
+    await fs.writeFile(path.join(tasksDir, "002-build.md"), "# Task 2: Build\n\n## Wave\n\nwave-1\n");
+    const planningDir = path.join(dir, "planning");
+    await fs.mkdir(planningDir, { recursive: true });
+    await fs.writeFile(path.join(planningDir, "plan-output.json"), JSON.stringify({ tasks: planTasks }));
+    return dir;
+  }
+
+  it("dedups a plan entry listing the same dependency twice", async () => {
+    const dir = await writePlanFixture([
+      { id: "001", dependsOn: [] },
+      { id: "002", dependsOn: ["001", "001"] },
+    ]);
+    const preview = await readPreviewData(dir, "dedup-project");
+    expect(preview.tasks.find((t) => t.id === "002")?.dependsOn).toEqual(["001"]);
+  });
+
+  it("filters non-string entries out of dependsOn", async () => {
+    const dir = await writePlanFixture([
+      { id: "001", dependsOn: [] },
+      { id: "002", dependsOn: [null, 42, { id: "001" }, "001"] },
+    ]);
+    const preview = await readPreviewData(dir, "typeguard-project");
+    expect(preview.tasks.find((t) => t.id === "002")?.dependsOn).toEqual(["001"]);
+  });
+
+  it("degrades malformed plan-output shapes (tasks as object, null entries, non-string ids) without throwing", async () => {
+    for (const planTasks of [{ not: "an array" }, [null, ["nested"], { dependsOn: ["001"] }, { id: 2, dependsOn: ["001"] }]]) {
+      const dir = await writePlanFixture(planTasks);
+      const preview = await readPreviewData(dir, "malformed-project");
+      expect(preview.tasks).toHaveLength(2);
+      for (const t of preview.tasks) {
+        expect(t.dependsOn).toBeUndefined();
+      }
+    }
+  });
+
+  it("invariant: every emitted dependsOn id references an id of the same response", async () => {
+    const dir = await writePlanFixture([
+      { id: "001", dependsOn: ["002", "ghost-a"] },
+      { id: "002", dependsOn: ["001", "999", "001"] },
+    ]);
+    const preview = await readPreviewData(dir, "invariant-project");
+    const ids = new Set(preview.tasks.map((t) => t.id));
+    for (const t of preview.tasks) {
+      for (const dep of t.dependsOn ?? []) {
+        expect(ids.has(dep)).toBe(true);
+      }
+    }
+    expect(preview.tasks.find((t) => t.id === "001")?.dependsOn).toEqual(["002"]);
+    expect(preview.tasks.find((t) => t.id === "002")?.dependsOn).toEqual(["001"]);
+  });
 });
