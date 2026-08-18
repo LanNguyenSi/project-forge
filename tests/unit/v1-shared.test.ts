@@ -11,6 +11,7 @@ import {
   parseTasks,
   buildFileTree,
   readPreviewData,
+  resolveDependsOn,
 } from "@/lib/v1-shared";
 import type { ForgeMeta } from "@/lib/v1-shared";
 
@@ -130,6 +131,36 @@ describe("isSessionExpired", () => {
   it("returns false for a session created at TTL - 1ms (just under boundary)", () => {
     const meta = metaWithAge(SESSION_TTL_MS - 1);
     expect(isSessionExpired(meta)).toBe(false);
+  });
+});
+
+describe("resolveDependsOn", () => {
+  it("returns undefined when raw is undefined", () => {
+    expect(resolveDependsOn(undefined, new Set(["001"]))).toBeUndefined();
+  });
+
+  it("returns undefined when raw is an empty array", () => {
+    expect(resolveDependsOn([], new Set(["001"]))).toBeUndefined();
+  });
+
+  it("dedups repeated ids", () => {
+    expect(resolveDependsOn(["001", "001"], new Set(["001"]))).toEqual(["001"]);
+  });
+
+  it("drops ids not present in knownIds", () => {
+    expect(resolveDependsOn(["001", "999"], new Set(["001"]))).toEqual(["001"]);
+  });
+
+  it("returns undefined (not []) when every id is dropped", () => {
+    expect(resolveDependsOn(["998", "999"], new Set(["001"]))).toBeUndefined();
+  });
+
+  it("does not special-case the literal string 'None' -- that filtering is a caller concern", () => {
+    // resolveDependsOn only checks knownIds membership; if a caller's
+    // knownIds happens to contain "None" (see app/api/generate/route.ts's
+    // knownIds comment), this helper alone would let it through. The
+    // "None" sentinel exclusion is deliberately NOT shared helper behavior.
+    expect(resolveDependsOn(["None"], new Set(["None"]))).toEqual(["None"]);
   });
 });
 

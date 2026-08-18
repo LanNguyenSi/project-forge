@@ -128,6 +128,24 @@ async function readPlanOutputTasksById(planOutputPath: string): Promise<Map<stri
   return byId;
 }
 
+// Shared dependsOn resolution: Set-dedup raw ids, drop any not present in
+// knownIds (this response's own parsed task ids), and omit the field
+// entirely (undefined) when nothing survives, rather than serializing [].
+// Used by both readPreviewData below (plan-output.json ids) and the legacy
+// /api/generate route (app/api/generate/route.ts, tasks/*.md-regexed ids) so
+// the two producers can no longer drift on this semantics. Deliberately does
+// NOT filter agent-planforge's "- None" empty-list sentinel string: only the
+// legacy route's id-parsing fallback (`file.replace('.md', '')` for a
+// filename that doesn't start with digits) can put the literal string
+// "None" into a knownIds set, so that exclusion is a route-local concern
+// applied by the caller, not shared helper behavior -- keeping this
+// function's output for v1's plan-output.json-sourced ids unchanged by the
+// extraction.
+export function resolveDependsOn(raw: string[] | undefined, knownIds: Set<string>): string[] | undefined {
+  const dependsOn = [...new Set(raw ?? [])].filter((depId) => knownIds.has(depId));
+  return dependsOn.length > 0 ? dependsOn : undefined;
+}
+
 export async function readPreviewData(tempDir: string, projectName: string) {
   const artifacts = await resolvePlanforgeOutputPaths(tempDir);
   const parsedTaskFiles = await parseTaskFiles(tempDir);
@@ -165,13 +183,22 @@ export async function readPreviewData(tempDir: string, projectName: string) {
     // task in THIS response is dropped defensively -- mirrors project-pilot's
     // topoSortForgeTasks dangling-id drop, guarding against a stale or
     // foreign dependsOn edge (e.g. from a partially-regenerated plan) leaking
-    // into the API response. The Set also dedups a plan listing the same
-    // dependency twice. An empty result omits the field (undefined) rather
-    // than serializing []. Self-edges are deliberately NOT filtered here:
-    // buildTasks cannot emit one (approvalTaskId !== taskId guard), and
+    // into the API response. resolveDependsOn (above) also dedups a plan
+    // listing the same dependency twice, and omits the field (undefined)
+    // rather than serializing []. Self-edges are deliberately NOT filtered
+    // here: buildTasks cannot emit one (approvalTaskId !== taskId guard), and
     // pilot's topoSortForgeTasks fails such a graph with a clean CycleError.
-    const dependsOn = [...new Set(planEntry?.dependsOn ?? [])].filter((depId) => knownIds.has(depId));
-    if (dependsOn.length > 0) {
+    //
+    // Shared with app/api/generate/route.ts (the legacy, NextAuth-gated
+    // generate route) via resolveDependsOn above: that route reads a
+    // different data source (tasks/*.md regexed directly, not
+    // plan-output.json) so it cannot call readPreviewData itself, but both
+    // producers now go through the same helper and can no longer drift on
+    // this semantics. The legacy route layers one extra, route-local filter
+    // on top (an exact-match "None" sentinel exclusion) that this helper
+    // does not apply -- see that route for why.
+    const dependsOn = resolveDependsOn(planEntry?.dependsOn, knownIds);
+    if (dependsOn) {
       task.dependsOn = dependsOn;
     }
 

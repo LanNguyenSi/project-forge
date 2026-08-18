@@ -16,7 +16,7 @@ import { buildPlanforgeInput } from '@/lib/planforge-orchestrator';
 import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from '@/lib/planforge-client';
 import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } from '@/lib/post-scaffold-review';
 import { writeAttachmentsToScaffold } from '@/lib/scaffold-attachments';
-import { validateProjectName } from '@/lib/v1-shared';
+import { resolveDependsOn, validateProjectName } from '@/lib/v1-shared';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
 // End-to-end cap for plan + scaffold + tar + SSE + untar. Server-side
@@ -134,6 +134,25 @@ export async function POST(req: NextRequest) {
       (f) => f.endsWith('.md')
     );
 
+    // Task ids parsed from this response's own file listing (same
+    // /^(\d+)-/ prefix match used per-file below). Used to filter dangling
+    // dependsOn edges below, via the shared resolveDependsOn helper (also
+    // used by v1's readPreviewData in lib/v1-shared.ts). agent-planforge's
+    // task filenames are always zero-padded digits ("001-slug.md"), so in
+    // practice knownIds only ever holds numeric ids -- but the /^(\d+)-/
+    // match falls back to `file.replace('.md', '')` for a non-conforming
+    // filename, so a file literally named "None.md" would put the literal
+    // string "None" into knownIds. agent-planforge's toMarkdownList renders
+    // "- None" for an empty dependsOn list, so relying on knownIds
+    // membership alone is NOT unconditional protection against that
+    // sentinel leaking through as dependsOn: ["None"]. The explicit
+    // `depId !== 'None'` exact-match term below (deliberately kept out of
+    // the shared resolveDependsOn helper, which v1 doesn't need it) makes
+    // the exclusion unconditional regardless of tasksDir's file listing.
+    const knownIds = new Set(
+      taskFiles.map((file) => file.match(/^(\d+)-/)?.[1] ?? file.replace('.md', ''))
+    );
+
     const tasks: Task[] = await Promise.all(
       taskFiles.map(async (file) => {
         const content = await fs.readFile(path.join(tasksDir, file), 'utf-8');
@@ -144,10 +163,21 @@ export async function POST(req: NextRequest) {
         const priorityMatch = content.match(/## Priority\s*\n\s*\n\s*(.+)/);
         const summaryMatch = content.match(/## Summary\s*\n\s*\n\s*(.+)/);
         const dependsOnMatch = content.match(/## Depends On\s*\n\s*\n\s*([\s\S]*?)(?=\n## )/);
-        const dependsOn = dependsOnMatch?.[1]
+        const rawDependsOn = dependsOnMatch?.[1]
           ?.split('\n')
           .map((line) => line.replace(/^-\s*/, '').trim())
           .filter(Boolean);
+        // Shared Set-dedup + knownIds dangling-filter (resolveDependsOn,
+        // lib/v1-shared.ts) -- same semantics v1's readPreviewData uses,
+        // even though this route reads a different data source (tasks/*.md
+        // markdown, not plan-output.json) -- plus one route-local term
+        // applied before the shared helper runs: an exact-match exclusion
+        // of the literal "None" sentinel. See the knownIds comment above
+        // for why knownIds membership alone isn't unconditional here.
+        const dependsOn = resolveDependsOn(
+          rawDependsOn?.filter((depId) => depId !== 'None'),
+          knownIds
+        );
         return {
           id: idMatch?.[1] ?? file.replace('.md', ''),
           title: (titleMatch?.[1] ?? file).trim(),
@@ -155,7 +185,7 @@ export async function POST(req: NextRequest) {
           category: (categoryMatch?.[1] ?? 'feature').trim(),
           priority: (priorityMatch?.[1] ?? 'P1').trim(),
           summary: summaryMatch?.[1]?.trim(),
-          ...(dependsOn?.length ? { dependsOn } : {}),
+          ...(dependsOn ? { dependsOn } : {}),
         };
       })
     );
