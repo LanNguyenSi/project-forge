@@ -17,6 +17,9 @@ interface PlanforgeIndex {
   handoff?: PathMap;
 }
 
+// Rule: every index-derived path in this shape must be produced by
+// resolveArtifactPath (the containment guard's single choke point) -- never
+// path.join(tempDir, ...) directly from a raw index entry.
 export interface ResolvedPlanforgeOutputPaths {
   hasIndex: boolean;
   indexPath: string | null;
@@ -77,7 +80,12 @@ async function readPlanforgeIndex(indexPath: string): Promise<PlanforgeIndex | n
   }
 }
 
-function resolveArtifactPath(tempDir: string, relativePath: string | undefined, fallbackPath: string): string {
+function resolveArtifactPath(
+  tempDir: string,
+  relativePath: string | undefined,
+  fallbackPath: string,
+  indexKey: string
+): string {
   if (!relativePath) {
     return fallbackPath;
   }
@@ -88,17 +96,30 @@ function resolveArtifactPath(tempDir: string, relativePath: string | undefined, 
   // planforge tarball today, but nothing here re-validates it, and several
   // callers mirror the resolved artifact's contents verbatim into API responses
   // (e.g. architectureOverview in app/api/generate/route.ts and lib/v1-shared.ts).
-  // A `../`-laden (or absolute) entry would otherwise let resolveArtifactPath
-  // point outside tempDir at any file the process can read. Compare fully
-  // resolved (symlink-unaware — nothing else in this module realpaths its
-  // inputs either, so lexical containment matches the rest of the module's
-  // trust model) paths with a trailing separator appended to the temp dir side,
-  // so a sibling directory that merely shares the same string prefix (e.g.
-  // "/tmp/session-evil" vs "/tmp/session") is never mistaken for "inside".
+  // A `../`-laden entry would otherwise let resolveArtifactPath point outside
+  // tempDir at any file the process can read. (An absolute-looking entry, e.g.
+  // "/etc/passwd", was already contained before this guard too: path.join
+  // re-roots a subsequent absolute segment under tempDir instead of treating it
+  // as absolute, so this guard specifically closes the `../` traversal class.)
+  // Compare fully resolved (symlink-unaware — nothing else in this module
+  // realpaths its inputs either, so lexical containment matches the rest of
+  // the module's trust model; a symlink placed inside tempDir that points
+  // outside it is still followed) paths with a trailing separator appended to
+  // the temp dir side, so a sibling directory that merely shares the same
+  // string prefix (e.g. "/tmp/session-evil" vs "/tmp/session") is never
+  // mistaken for "inside".
   const resolvedTempDir = path.resolve(tempDir);
   const resolvedCandidate = path.resolve(candidate);
   const isContained =
     resolvedCandidate === resolvedTempDir || resolvedCandidate.startsWith(resolvedTempDir + path.sep);
+
+  if (!isContained) {
+    // Signal the rejection without leaking the attacker-controlled path value
+    // into shared logs -- name only the offending index key, matching the
+    // key-only logging discipline app/api/generate/route.ts already applies
+    // to attachment names.
+    console.warn(`planforge-index ${indexKey} escaped the session dir; using default`);
+  }
 
   return isContained ? candidate : fallbackPath;
 }
@@ -121,21 +142,29 @@ export async function resolvePlanforgeOutputPaths(tempDir: string): Promise<Reso
   return {
     hasIndex: true,
     indexPath,
-    tasksDir: resolveArtifactPath(tempDir, index.directories?.tasks, path.join(tempDir, "tasks")),
+    tasksDir: resolveArtifactPath(
+      tempDir,
+      index.directories?.tasks,
+      path.join(tempDir, "tasks"),
+      "directories.tasks"
+    ),
     architecturePath: resolveArtifactPath(
       tempDir,
       index.rootFiles?.architecture,
-      path.join(tempDir, "architecture-overview.md")
+      path.join(tempDir, "architecture-overview.md"),
+      "rootFiles.architecture"
     ),
     scaffoldkitInputPath: resolveArtifactPath(
       tempDir,
       index.exports?.scaffoldkit,
-      path.join(tempDir, "scaffoldkit-input.json")
+      path.join(tempDir, "scaffoldkit-input.json"),
+      "exports.scaffoldkit"
     ),
     planOutputPath: resolveArtifactPath(
       tempDir,
       index.planning?.planOutput,
-      path.join(tempDir, "plan-output.json")
+      path.join(tempDir, "plan-output.json"),
+      "planning.planOutput"
     ),
   };
 }
