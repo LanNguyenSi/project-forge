@@ -545,6 +545,54 @@ describe("planforge output resolver", () => {
     );
   });
 
+  it("falls back to the default path when an index entry traverses outside tempDir, while legitimate entries still resolve (containment guard)", async () => {
+    const tempDir = await makeTempDir();
+    tempDirs.push(tempDir);
+
+    // A malicious/corrupt index could point an entry outside tempDir via `../`
+    // segments. Mix one traversal entry with otherwise-legitimate entries so this
+    // test also serves as the negative control: legitimate relative paths must
+    // keep resolving normally, only the escaping entry degrades to its fallback.
+    await fs.mkdir(path.join(tempDir, "tasks"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, "planforge-index.json"),
+      JSON.stringify(
+        {
+          generatedBy: "agent-planforge",
+          rootFiles: {
+            agents: "AGENTS.md",
+            // Escapes tempDir: three levels up from a nested rootFiles entry
+            // lands outside the temp dir entirely.
+            architecture: "../../../etc/architecture-overview.md",
+          },
+          directories: { ai: ".ai", tasks: "tasks" },
+          planning: {
+            // Escapes tempDir via a leading absolute-looking traversal too.
+            planOutput: "../outside-plan-output.json",
+          },
+          exports: {
+            // Legitimate: stays within tempDir.
+            scaffoldkit: "exports/scaffoldkit-input.json",
+          },
+          ai: { agents: ".ai/AGENTS.md" },
+        },
+        null,
+        2
+      )
+    );
+
+    const resolved = await resolvePlanforgeOutputPaths(tempDir);
+
+    expect(resolved.hasIndex).toBe(true);
+    // Traversal entries degrade to the exact same fallback as a missing index
+    // entry (path.join(tempDir, "<default-name>")) rather than pointing outside.
+    expect(resolved.architecturePath).toBe(path.join(tempDir, "architecture-overview.md"));
+    expect(resolved.planOutputPath).toBe(path.join(tempDir, "plan-output.json"));
+    // Negative control: the legitimate, in-bounds entry still resolves per the
+    // index, proving the guard doesn't over-reject.
+    expect(resolved.scaffoldkitInputPath).toBe(path.join(tempDir, "exports", "scaffoldkit-input.json"));
+  });
+
   it("rejects an index whose handoff block is present but malformed", async () => {
     // The optional-handoff branch must tolerate an ABSENT handoff only — a
     // present-but-broken handoff still invalidates the whole index (otherwise a
