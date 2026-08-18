@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   carries no `## Wave` section. Feeds project-pilot's dependency-aware
   Forge-v2 import (pilot #125).
 
+### Fixed
+
+- Legacy `/api/generate` (`app/api/generate/route.ts`) no longer emits
+  `dependsOn: ["None"]` for a dependency-free task. It regexes `## Depends
+  On` out of `tasks/*.md` independently of `/api/v1/*`'s `readPreviewData`
+  merge, and had no dedup or dangling-id filter, so
+  agent-planforge's `- None` empty-list rendering leaked straight into the
+  response. Now dedups and drops dangling/sentinel ids the same way
+  `readPreviewData` does.
+
 ## [0.6.0] - 2026-06-25
 
 Forge gains a first-class web UI: a complete Next.js front-end — a landing page, authentication, dashboard, a guided project-create wizard with live preview, settings, and themed API docs — built on a new gold-accented design system. A transitive dompurify advisory and the 2026-06-16 CVE sweep are also cleared.

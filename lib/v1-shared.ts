@@ -170,6 +170,15 @@ export async function readPreviewData(tempDir: string, projectName: string) {
     // than serializing []. Self-edges are deliberately NOT filtered here:
     // buildTasks cannot emit one (approvalTaskId !== taskId guard), and
     // pilot's topoSortForgeTasks fails such a graph with a clean CycleError.
+    //
+    // Divergent producer: app/api/generate/route.ts (the legacy,
+    // NextAuth-gated generate route) computes its own dependsOn by regexing
+    // "## Depends On" out of tasks/*.md instead of calling readPreviewData
+    // -- it reads a different data source (the task markdown files, not
+    // plan-output.json) so it cannot simply call this function. It applies
+    // the same Set-dedup + knownIds dangling-filter semantics by hand; keep
+    // the two in sync manually until the legacy route is retired or
+    // rerouted through readPreviewData.
     const dependsOn = [...new Set(planEntry?.dependsOn ?? [])].filter((depId) => knownIds.has(depId));
     if (dependsOn.length > 0) {
       task.dependsOn = dependsOn;

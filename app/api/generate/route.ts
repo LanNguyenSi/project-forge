@@ -134,6 +134,20 @@ export async function POST(req: NextRequest) {
       (f) => f.endsWith('.md')
     );
 
+    // Task ids parsed from this response's own file listing (same
+    // /^(\d+)-/ prefix match used per-file below). Used to filter dangling
+    // dependsOn edges below, mirroring the knownIds dangling-id filter in
+    // v1's readPreviewData (lib/v1-shared.ts). This also disposes of
+    // agent-planforge's "- None" sentinel line -- toMarkdownList renders
+    // "- None" for an empty dependsOn list, and the literal string "None"
+    // never matches a real zero-padded numeric task id, so it can never
+    // survive this membership test. No separate "None" string blacklist
+    // is needed: filtering on real task-id membership is the precise fix,
+    // not a blanket string filter that could accidentally eat a real id.
+    const knownIds = new Set(
+      taskFiles.map((file) => file.match(/^(\d+)-/)?.[1] ?? file.replace('.md', ''))
+    );
+
     const tasks: Task[] = await Promise.all(
       taskFiles.map(async (file) => {
         const content = await fs.readFile(path.join(tasksDir, file), 'utf-8');
@@ -144,10 +158,17 @@ export async function POST(req: NextRequest) {
         const priorityMatch = content.match(/## Priority\s*\n\s*\n\s*(.+)/);
         const summaryMatch = content.match(/## Summary\s*\n\s*\n\s*(.+)/);
         const dependsOnMatch = content.match(/## Depends On\s*\n\s*\n\s*([\s\S]*?)(?=\n## )/);
-        const dependsOn = dependsOnMatch?.[1]
+        const rawDependsOn = dependsOnMatch?.[1]
           ?.split('\n')
           .map((line) => line.replace(/^-\s*/, '').trim())
           .filter(Boolean);
+        // Dedup (Set) + drop dangling/sentinel ids; see knownIds comment
+        // above. Mirrors v1's readPreviewData merge semantics even though
+        // this route reads a different data source (tasks/*.md markdown,
+        // not plan-output.json).
+        const dependsOn = rawDependsOn
+          ? [...new Set(rawDependsOn)].filter((depId) => knownIds.has(depId))
+          : undefined;
         return {
           id: idMatch?.[1] ?? file.replace('.md', ''),
           title: (titleMatch?.[1] ?? file).trim(),

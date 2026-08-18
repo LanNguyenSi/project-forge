@@ -306,3 +306,141 @@ describe('POST /api/generate', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// dependsOn parsing: legacy route regexes "## Depends On" out of tasks/*.md
+// itself (a different data source than v1's readPreviewData, which reads
+// plan-output.json -- see lib/v1-shared.ts). Regression coverage for the
+// bug where a dependency-free task emitted dependsOn: ["None"], because
+// agent-planforge's toMarkdownList renders "- None" for an empty list.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/generate: dependsOn parsing', () => {
+  let depsTasksDir = '';
+  const createdDirs: string[] = [];
+  let savedPlanforgeUrl: string | undefined;
+  let savedPlanforgeToken: string | undefined;
+
+  beforeAll(async () => {
+    depsTasksDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pf-test-deps-'));
+    await fs.writeFile(
+      path.join(depsTasksDir, '01-setup.md'),
+      ['# Task 01: Setup', '', '## Summary', '', 'No dependencies section at all.'].join('\n')
+    );
+    await fs.writeFile(
+      path.join(depsTasksDir, '02-none.md'),
+      // agent-planforge's toMarkdownList renders "- None" for an empty
+      // dependsOn list -- this must never surface as dependsOn: ["None"].
+      ['# Task 02: Depends on nothing', '', '## Depends On', '', '- None', '', '## Summary', '', 'No deps.'].join(
+        '\n'
+      )
+    );
+    await fs.writeFile(
+      path.join(depsTasksDir, '03-single.md'),
+      ['# Task 03: Depends on 01', '', '## Depends On', '', '- 01', '', '## Summary', '', 'One dep.'].join('\n')
+    );
+    await fs.writeFile(
+      path.join(depsTasksDir, '04-dedup.md'),
+      [
+        '# Task 04: Duplicate dependency',
+        '',
+        '## Depends On',
+        '',
+        '- 01',
+        '- 01',
+        '',
+        '## Summary',
+        '',
+        'Same dep listed twice.',
+      ].join('\n')
+    );
+    await fs.writeFile(
+      path.join(depsTasksDir, '05-dangling.md'),
+      [
+        '# Task 05: Dangling dependency',
+        '',
+        '## Depends On',
+        '',
+        '- 01',
+        '- 999',
+        '',
+        '## Summary',
+        '',
+        'One real dep, one id not in this response.',
+      ].join('\n')
+    );
+  });
+
+  afterAll(async () => {
+    if (depsTasksDir) {
+      await fs.rm(depsTasksDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    savedPlanforgeUrl = process.env.PLANFORGE_URL;
+    savedPlanforgeToken = process.env.PLANFORGE_SERVICE_TOKEN;
+    process.env.PLANFORGE_URL = 'http://planforge:8223';
+    process.env.PLANFORGE_SERVICE_TOKEN = 'svc-token';
+
+    mResolvePaths.mockResolvedValue({
+      hasIndex: false,
+      indexPath: null,
+      tasksDir: depsTasksDir,
+      architecturePath: path.join(depsTasksDir, 'nonexistent-arch.md'),
+      scaffoldkitInputPath: '',
+      planOutputPath: '',
+    });
+  });
+
+  afterEach(async () => {
+    if (savedPlanforgeUrl === undefined) delete process.env.PLANFORGE_URL;
+    else process.env.PLANFORGE_URL = savedPlanforgeUrl;
+
+    if (savedPlanforgeToken === undefined) delete process.env.PLANFORGE_SERVICE_TOKEN;
+    else process.env.PLANFORGE_SERVICE_TOKEN = savedPlanforgeToken;
+
+    for (const dir of createdDirs.splice(0)) {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('never emits "None" as a dependsOn entry for a dependency-free task', async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    const res = await POST(jsonReq('http://test/api/generate', VALID_BODY));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    if (body.preview?.sessionId) {
+      createdDirs.push(path.join(TEMP_ROOT, body.preview.sessionId as string));
+    }
+
+    const byId = new Map(
+      (body.preview.tasks as Array<{ id: string; dependsOn?: string[] }>).map((t) => [t.id, t])
+    );
+    expect(byId.get('02')?.dependsOn).toBeUndefined();
+
+    // Invariant: no task anywhere in the response carries the literal
+    // sentinel string as a dependsOn entry.
+    for (const t of byId.values()) {
+      expect(t.dependsOn ?? []).not.toContain('None');
+    }
+  });
+
+  it('dedups a repeated dependency and drops a dangling id not in this response', async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    const res = await POST(jsonReq('http://test/api/generate', VALID_BODY));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    if (body.preview?.sessionId) {
+      createdDirs.push(path.join(TEMP_ROOT, body.preview.sessionId as string));
+    }
+
+    const byId = new Map(
+      (body.preview.tasks as Array<{ id: string; dependsOn?: string[] }>).map((t) => [t.id, t])
+    );
+    expect(byId.get('03')?.dependsOn).toEqual(['01']);
+    expect(byId.get('04')?.dependsOn).toEqual(['01']);
+    expect(byId.get('05')?.dependsOn).toEqual(['01']);
+  });
+});
