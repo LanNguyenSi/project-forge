@@ -24,7 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   merge, and had no dedup or dangling-id filter, so
   agent-planforge's `- None` empty-list rendering leaked straight into the
   response. Now dedups and drops dangling/sentinel ids the same way
-  `readPreviewData` does.
+  `readPreviewData` does (both now share one `resolveDependsOn` helper in
+  `lib/v1-shared.ts`), plus an explicit exact-match exclusion of the
+  literal `"None"` sentinel so a task-file name with no numeric prefix
+  can't reintroduce it via the id-matching fallback.
 
 ## [0.6.0] - 2026-06-25
 
