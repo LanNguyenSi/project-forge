@@ -33,8 +33,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
   }
 
-  const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 50), 200);
-  const offset = Number(req.nextUrl.searchParams.get("offset") ?? 0);
+  // Clamp so the spec's documented minimum/maximum (limit: 1-200, offset: >=0)
+  // hold for any input, including 0, negative, or non-numeric query values.
+  const limitParam = Number(req.nextUrl.searchParams.get("limit"));
+  const limit = Math.max(1, Math.min(limitParam || 50, 200));
+  const offsetParam = Number(req.nextUrl.searchParams.get("offset"));
+  const offset = Math.max(0, offsetParam || 0);
   const includeDeleted = req.nextUrl.searchParams.get("includeDeleted") === "true";
 
   const where = {

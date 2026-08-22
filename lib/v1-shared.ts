@@ -1,6 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { Task, FileTreeNode } from "./types";
+import type { Task, FileTreeNode, GenerationPreview } from "./types";
 import { readScaffoldPreview, resolvePlanforgeOutputPaths } from "./planforge-output";
 import { readPostScaffoldReview, toScaffoldFitPreview } from "./post-scaffold-review";
 
@@ -146,7 +146,15 @@ export function resolveDependsOn(raw: string[] | undefined, knownIds: Set<string
   return dependsOn.length > 0 ? dependsOn : undefined;
 }
 
-export async function readPreviewData(tempDir: string, projectName: string) {
+// Return type deliberately omits sessionId: readPreviewData never learns the
+// session id (it only reads tempDir's on-disk artifacts), and both v1 routes
+// that call it (generate, preview) attach sessionId themselves at the
+// top level of their response, not inside `preview` -- see
+// public/openapi.json's GenerationPreview schema description.
+export async function readPreviewData(
+  tempDir: string,
+  projectName: string,
+): Promise<Omit<GenerationPreview, "sessionId">> {
   const artifacts = await resolvePlanforgeOutputPaths(tempDir);
   const parsedTaskFiles = await parseTaskFiles(tempDir);
   const planOutputById = await readPlanOutputTasksById(artifacts.planOutputPath);

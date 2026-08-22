@@ -450,7 +450,6 @@
                   "ok": true,
                   "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                   "preview": {
-                    "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                     "projectName": "my-awesome-app",
                     "tasks": [
                       {
@@ -845,8 +844,8 @@
                 },
                 "example": {
                   "ok": false,
-                  "error": "Publish failed: repository name already exists",
-                  "details": "github_422"
+                  "error": "Publish failed: a repository with that name already exists on your GitHub account",
+                  "details": "repo_name_exists"
                 }
               }
             }
@@ -874,9 +873,9 @@
         "properties": {
           "projectName": {
             "type": "string",
-            "description": "Name of the project (will be used as GitHub repository name)",
+            "description": "Name of the project (will be used as GitHub repository name). This schema is shared by POST /api/v1/projects and POST /api/v1/generate; the pattern reflects generate's real validator (lib/v1-shared.ts PROJECT_NAME_RE). POST /api/v1/projects does not enforce this pattern itself -- it only rejects an empty projectName -- so a wider valid name there may fail if later passed through generate.",
             "example": "my-awesome-app",
-            "pattern": "^[a-z0-9-]+$"
+            "pattern": "^[a-zA-Z0-9._-]{1,100}$"
           },
           "summary": {
             "type": "string",
@@ -940,6 +939,7 @@
       },
       "PublishResult": {
         "type": "object",
+        "description": "The v1 API's publish result shape (app/api/v1/publish/route.ts). Same name as lib/types.ts PublishResult, but that one is shaped { repoUrl, cloneUrl, defaultBranch } for the legacy UI route -- the two are not interchangeable.",
         "properties": {
           "repoUrl": {
             "type": "string",
@@ -1057,37 +1057,6 @@
           }
         }
       },
-      "Attachment": {
-        "type": "object",
-        "description": "Optional attachment (arc42 doc, RFC, etc.) submitted alongside the intake form. Only tier=\"text\" with inlineText is produced by the UI today; diagram/structured are part of the contract but not yet populated.",
-        "required": [
-          "name",
-          "mimeType",
-          "tier"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "mimeType": {
-            "type": "string"
-          },
-          "tier": {
-            "type": "string",
-            "enum": [
-              "text",
-              "diagram",
-              "structured"
-            ]
-          },
-          "inlineText": {
-            "type": "string"
-          },
-          "contentRef": {
-            "type": "string"
-          }
-        }
-      },
       "Task": {
         "type": "object",
         "properties": {
@@ -1198,11 +1167,8 @@
       },
       "GenerationPreview": {
         "type": "object",
+        "description": "The preview body returned under GenerateResponse.preview / (v1 preview GET)'s GenerateResponse.preview. Deliberately has no sessionId of its own -- the session id lives only at the top level of GenerateResponse (see lib/v1-shared.ts readPreviewData, whose return type omits it).",
         "properties": {
-          "sessionId": {
-            "type": "string",
-            "format": "uuid"
-          },
           "projectName": {
             "type": "string"
           },
@@ -1238,6 +1204,7 @@
       },
       "GenerateResponse": {
         "type": "object",
+        "description": "The v1 API's generate/preview response shape (app/api/v1/generate and /preview). Same name as lib/types.ts GenerateResponse, but that one is shaped { ok, preview } without a top-level sessionId for the legacy UI route -- the two are not interchangeable.",
         "required": [
           "ok",
           "sessionId",

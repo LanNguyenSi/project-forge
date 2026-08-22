@@ -1,6 +1,8 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import * as fs from "fs";
+import * as fsp from "fs/promises";
+import * as os from "os";
 import * as path from "path";
 
 /**
@@ -32,6 +34,12 @@ import { GET as projectsGET, POST as projectsPOST, DELETE as projectsDELETE } fr
 import { POST as generatePOST } from "@/app/api/v1/generate/route";
 import { GET as previewGET } from "@/app/api/v1/preview/route";
 import { POST as publishPOST } from "@/app/api/v1/publish/route";
+import { validateApiToken, prisma } from "@/lib/db";
+import { readPreviewData } from "@/lib/v1-shared";
+
+const mValidateToken = vi.mocked(validateApiToken);
+const mFindMany = vi.mocked(prisma.usageLog.findMany);
+const mCount = vi.mocked(prisma.usageLog.count);
 
 const APP_API_ROOT = path.resolve(__dirname, "../../app/api");
 const OPENAPI_PATH = path.resolve(__dirname, "../../public/openapi.json");
@@ -257,5 +265,77 @@ describe("real v1 error responses validate against the spec's ErrorResponse sche
     const body = await res.json();
     expect(res.status).toBe(401);
     expect(validate(spec, errorSchemaRef, body)).toEqual([]);
+  });
+
+  it("GET /api/v1/projects 200 body matches ListProjectsResponse", async () => {
+    mValidateToken.mockResolvedValueOnce({
+      id: "tok-1",
+      userId: "user-1",
+      user: { id: "user-1" },
+    } as never);
+    mFindMany.mockResolvedValueOnce([
+      {
+        id: "proj-1",
+        repoUrl: "https://github.com/user/my-app",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        deletedAt: null,
+      },
+    ] as never);
+    mCount.mockResolvedValueOnce(1 as never);
+
+    const res = await projectsGET(
+      new NextRequest("http://test/api/v1/projects", {
+        headers: { "Content-Type": "application/json", "X-API-Key": "pf_test" },
+      }),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(validate(spec, { $ref: "#/components/schemas/ListProjectsResponse" }, body)).toEqual([]);
+  });
+});
+
+describe("readPreviewData output validates against the spec's GenerationPreview schema", () => {
+  // Regression for the sessionId mismatch (public/openapi.json's
+  // GenerationPreview once declared a sessionId property that
+  // lib/v1-shared.ts readPreviewData never actually returns -- see
+  // GenerationPreview's schema description and readPreviewData's
+  // Omit<GenerationPreview, "sessionId"> return type). validate() alone
+  // only checks properties present in the value and any schema `required`
+  // entries, so it would not by itself flag an extra schema-only property;
+  // the key-set equality assertion below is what catches that direction of
+  // drift.
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => fsp.rm(dir, { recursive: true, force: true })));
+  });
+
+  it("readPreviewData's return shape has exactly the keys GenerationPreview declares, and passes the structural validator", async () => {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "openapi-contract-preview-"));
+    tempDirs.push(dir);
+
+    const preview = await readPreviewData(dir, "contract-test-project");
+    // NextResponse.json (JSON.stringify under the hood) drops any key whose
+    // value is undefined -- e.g. scaffoldFit for a temp dir with no
+    // post-scaffold-review.json (see tests/unit/v1-shared.test.ts). Round-trip
+    // through JSON so this test validates exactly what a real client
+    // receives, not readPreviewData's raw in-memory return value.
+    const wirePreview = JSON.parse(JSON.stringify(preview)) as Record<string, unknown>;
+
+    const spec = loadSpec();
+    const components = spec.components as SpecNode;
+    const schemas = components.schemas as Record<string, SpecNode>;
+    const schema = schemas.GenerationPreview;
+    const declaredKeys = Object.keys(schema.properties as Record<string, SpecNode>).sort();
+    const actualKeys = Object.keys(wirePreview).sort();
+    const declaredButAbsent = declaredKeys.filter((k) => !actualKeys.includes(k));
+    // A sessionId regression would surface here as an extra, always-absent
+    // entry (readPreviewData never returns it): if this ever fails with
+    // "sessionId" included, the schema and readPreviewData have drifted
+    // again -- see the block comment above.
+    expect(declaredButAbsent).toEqual(["scaffoldFit"]);
+
+    expect(validate(spec, { $ref: "#/components/schemas/GenerationPreview" }, wirePreview)).toEqual([]);
   });
 });
