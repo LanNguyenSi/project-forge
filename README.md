@@ -182,7 +182,7 @@ curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \
 
 Returns the same `{ ok, result: { repoUrl, cloneUrl, projectName } }` shape as `publish`.
 
-The [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs) Swagger UI currently documents only the one-shot `POST /api/v1/projects` endpoint above, not the generate, preview, publish, list, or delete operations.
+The [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs) Swagger UI documents all six v1 operations: create (`POST /api/v1/projects`), list (`GET /api/v1/projects`), delete (`DELETE /api/v1/projects`), generate (`POST /api/v1/generate`), preview (`GET /api/v1/preview`), and publish (`POST /api/v1/publish`).
 
 ## Tech Stack
 

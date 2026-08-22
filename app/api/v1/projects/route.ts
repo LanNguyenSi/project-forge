@@ -107,14 +107,14 @@ export async function POST(req: NextRequest) {
   const apiKey = req.headers.get("X-API-Key");
 
   if (!apiKey) {
-    return NextResponse.json({ error: "Missing X-API-Key header" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Missing X-API-Key header" }, { status: 401 });
   }
 
   // Validate API token
   const tokenRecord = await validateApiToken(apiKey);
 
   if (!tokenRecord) {
-    return NextResponse.json({ error: "Invalid or revoked API token" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
   }
 
   // Check rate limit
@@ -123,6 +123,7 @@ export async function POST(req: NextRequest) {
   if (!rateLimit.allowed) {
     return NextResponse.json(
       {
+        ok: false,
         error: "Rate limit exceeded",
         details: `Maximum 10 projects per day. Used: ${rateLimit.used}/10`,
       },
@@ -137,7 +138,7 @@ export async function POST(req: NextRequest) {
 
     if (!input.projectName || !input.summary) {
       return NextResponse.json(
-        { error: "Missing required fields: projectName, summary" },
+        { ok: false, error: "Missing required fields: projectName, summary" },
         { status: 400 }
       );
     }
@@ -147,7 +148,7 @@ export async function POST(req: NextRequest) {
 
     if (!user.githubPat) {
       return NextResponse.json(
-        { error: "GitHub PAT not configured. Please add it in your dashboard." },
+        { ok: false, error: "GitHub PAT not configured. Please add it in your dashboard." },
         { status: 400 }
       );
     }
@@ -223,6 +224,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
+        ok: false,
         error: "Project generation failed",
         details: error instanceof Error ? error.message : String(error),
       },

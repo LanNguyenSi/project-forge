@@ -7,14 +7,14 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const { name } = await req.json();
 
     if (!name || !name.trim()) {
-      return NextResponse.json({ error: "Token name is required" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Token name is required" }, { status: 400 });
     }
 
     // The raw token is returned here and ONLY here: it is never persisted
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     return NextResponse.json(
-      { error: "Failed to create token", details: error instanceof Error ? error.message : String(error) },
+      { ok: false, error: "Failed to create token", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

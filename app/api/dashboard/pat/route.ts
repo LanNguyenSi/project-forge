@@ -11,7 +11,7 @@ export async function GET() {
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   const user = await prisma.user.findUnique({
@@ -20,7 +20,7 @@ export async function GET() {
   });
 
   if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+    return NextResponse.json({ ok: false, error: "User not found" }, { status: 404 });
   }
 
   // Secret-bearing response: forbid any intermediary/browser caching.
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   try {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     if (!githubPat || !githubPat.startsWith("ghp_")) {
       return NextResponse.json(
-        { error: "Invalid GitHub PAT format" },
+        { ok: false, error: "Invalid GitHub PAT format" },
         { status: 400 }
       );
     }
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
     return NextResponse.json(
-      { error: "Failed to save PAT", details: error instanceof Error ? error.message : String(error) },
+      { ok: false, error: "Failed to save PAT", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
