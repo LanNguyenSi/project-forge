@@ -61,6 +61,7 @@ make deploy
 | `GITHUB_SECRET` | GitHub OAuth app Client Secret |
 | `ALLOWED_GITHUB_LOGINS` | Comma-separated allowlist of GitHub logins permitted to register via the project-pilot broker. Unset/empty = accept any. |
 | `FORGE_TEMP_DIR` | Directory for temporary build artifacts (defaults to `/tmp/project-forge`) |
+| `API_TOKEN_HASH_SECRET` | HMAC-SHA256 key for hashing API tokens (`pf_*`) at rest. Defaults to `NEXTAUTH_SECRET` when unset. Changing whichever key is in effect invalidates all previously issued API tokens (see `scripts/backfill-api-token-hashes.js`). |
 
 ### Docker Compose
 
@@ -181,7 +182,7 @@ curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \
 
 Returns the same `{ ok, result: { repoUrl, cloneUrl, projectName } }` shape as `publish`.
 
-Full API documentation: [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs)
+The [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs) Swagger UI currently documents only the one-shot `POST /api/v1/projects` endpoint above, not the generate, preview, publish, list, or delete operations.
 
 ## Tech Stack
 

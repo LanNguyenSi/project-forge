@@ -144,8 +144,8 @@ The pipeline runs on GitHub Actions (`.github/workflows/ci.yml`) on Node 20:
 2. `npx prisma generate`
 3. `npx tsc --noEmit --skipLibCheck` (typecheck)
 4. `npm run lint` (ESLint)
-5. `npm run build` (`next build`)
-6. `npx vitest run` (tests)
+5. `npm run build` (`next build`; this step also injects mock `GITHUB_TOKEN`/`GITHUB_OWNER` env vars)
+6. `npm run test:coverage` (`vitest run --coverage`)
 
 ## Testing Strategy
 
