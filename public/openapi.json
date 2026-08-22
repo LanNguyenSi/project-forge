@@ -1167,7 +1167,15 @@
       },
       "GenerationPreview": {
         "type": "object",
-        "description": "The preview body returned under GenerateResponse.preview / (v1 preview GET)'s GenerateResponse.preview. Deliberately has no sessionId of its own -- the session id lives only at the top level of GenerateResponse (see lib/v1-shared.ts readPreviewData, whose return type omits it).",
+        "description": "The preview body returned under GenerateResponse.preview by both POST /api/v1/generate and GET /api/v1/preview. Deliberately has no sessionId of its own -- the session id lives only at the top level of GenerateResponse (see lib/v1-shared.ts readPreviewData, whose return type omits it).",
+        "required": [
+          "projectName",
+          "tasks",
+          "architectureOverview",
+          "fileTree",
+          "taskCount",
+          "waveCount"
+        ],
         "properties": {
           "projectName": {
             "type": "string"

@@ -34,11 +34,13 @@ export async function GET(req: NextRequest) {
   }
 
   // Clamp so the spec's documented minimum/maximum (limit: 1-200, offset: >=0)
-  // hold for any input, including 0, negative, or non-numeric query values.
+  // hold for any input, including 0, negative, non-numeric, or fractional
+  // query values. Math.trunc runs after the clamp (spec: integer schema) so
+  // a fractional value like 1.5 still clamps against 1/200 before rounding.
   const limitParam = Number(req.nextUrl.searchParams.get("limit"));
-  const limit = Math.max(1, Math.min(limitParam || 50, 200));
+  const limit = Math.trunc(Math.max(1, Math.min(limitParam || 50, 200)));
   const offsetParam = Number(req.nextUrl.searchParams.get("offset"));
-  const offset = Math.max(0, offsetParam || 0);
+  const offset = Math.trunc(Math.max(0, offsetParam || 0));
   const includeDeleted = req.nextUrl.searchParams.get("includeDeleted") === "true";
 
   const where = {

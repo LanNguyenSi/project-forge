@@ -266,6 +266,14 @@ describe("real v1 error responses validate against the spec's ErrorResponse sche
     expect(res.status).toBe(401);
     expect(validate(spec, errorSchemaRef, body)).toEqual([]);
   });
+});
+
+describe("real v1 success responses validate against the spec's schemas", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const spec = loadSpec();
 
   it("GET /api/v1/projects 200 body matches ListProjectsResponse", async () => {
     mValidateToken.mockResolvedValueOnce({
@@ -296,22 +304,24 @@ describe("real v1 error responses validate against the spec's ErrorResponse sche
 });
 
 describe("readPreviewData output validates against the spec's GenerationPreview schema", () => {
-  // Regression for the sessionId mismatch (public/openapi.json's
-  // GenerationPreview once declared a sessionId property that
-  // lib/v1-shared.ts readPreviewData never actually returns -- see
-  // GenerationPreview's schema description and readPreviewData's
-  // Omit<GenerationPreview, "sessionId"> return type). validate() alone
-  // only checks properties present in the value and any schema `required`
-  // entries, so it would not by itself flag an extra schema-only property;
-  // the key-set equality assertion below is what catches that direction of
-  // drift.
+  // Two-directional key-set check, in both directions:
+  //  - declaredButAbsent: regression for the sessionId mismatch
+  //    (public/openapi.json's GenerationPreview once declared a sessionId
+  //    property that lib/v1-shared.ts readPreviewData never actually
+  //    returns -- see GenerationPreview's schema description and
+  //    readPreviewData's Omit<GenerationPreview, "sessionId"> return type).
+  //  - undeclaredButPresent: catches the opposite drift, an actual field
+  //    readPreviewData returns that the schema never documents.
+  // validate() alone only checks properties present in the value and any
+  // schema `required` entries, so on its own it would not flag either
+  // direction of key-set drift; these two assertions are what catch them.
   const tempDirs: string[] = [];
 
   afterEach(async () => {
     await Promise.all(tempDirs.splice(0).map((dir) => fsp.rm(dir, { recursive: true, force: true })));
   });
 
-  it("readPreviewData's return shape has exactly the keys GenerationPreview declares, and passes the structural validator", async () => {
+  it("readPreviewData's return shape has exactly the keys GenerationPreview declares (no extra, no missing beyond the optional scaffoldFit), and passes the structural validator", async () => {
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "openapi-contract-preview-"));
     tempDirs.push(dir);
 
@@ -329,12 +339,19 @@ describe("readPreviewData output validates against the spec's GenerationPreview 
     const schema = schemas.GenerationPreview;
     const declaredKeys = Object.keys(schema.properties as Record<string, SpecNode>).sort();
     const actualKeys = Object.keys(wirePreview).sort();
+
     const declaredButAbsent = declaredKeys.filter((k) => !actualKeys.includes(k));
     // A sessionId regression would surface here as an extra, always-absent
     // entry (readPreviewData never returns it): if this ever fails with
     // "sessionId" included, the schema and readPreviewData have drifted
     // again -- see the block comment above.
     expect(declaredButAbsent).toEqual(["scaffoldFit"]);
+
+    const undeclaredButPresent = actualKeys.filter((k) => !declaredKeys.includes(k));
+    // The reverse direction: a field readPreviewData starts returning that
+    // GenerationPreview never documents (e.g. an undocumented new field)
+    // must fail here too.
+    expect(undeclaredButPresent).toEqual([]);
 
     expect(validate(spec, { $ref: "#/components/schemas/GenerationPreview" }, wirePreview)).toEqual([]);
   });

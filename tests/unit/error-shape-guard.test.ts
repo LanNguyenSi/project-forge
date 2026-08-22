@@ -16,13 +16,16 @@ import * as path from "path";
  * and for any call whose body object literal contains an `error:` key,
  * asserts that same object literal also contains `ok: false`.
  *
- * It also flags a fourth, unverifiable shape: `NextResponse.json(<expr>, {
- * status: 4xx|5xx })` where the body is a variable or other expression
- * rather than an inline object literal. The guard cannot statically inspect
- * what such an expression contains, so pairing a non-literal body with a
- * literal error status is treated as a violation on its own -- the safe
- * fix is always an inline `{ ok: false, error, ... }` literal at the call
- * site (or a fully-typed helper whose return type is ErrorResponse).
+ * It also flags a fourth, unverifiable shape: a `NextResponse.json(<expr>,
+ * { ... status: ... })` / `Response.json(<expr>, { ... status: ... })` /
+ * `new (Next)?Response(JSON.stringify(<expr>), { ... status: ... })` call
+ * whose body is a variable or other expression (not an inline object
+ * literal) paired with a `status` key -- literal or variable-held, error
+ * code or not. The guard cannot statically inspect what such an expression
+ * contains, so a non-literal body paired with any status key is treated as
+ * a violation on its own -- the safe fix is always an inline
+ * `{ ok: false, error, ... }` literal at the call site (or a fully-typed
+ * helper whose return type is ErrorResponse).
  *
  * It does NOT attempt to evaluate the code -- a fresh error response added
  * later without `ok: false` will fail this test even before any specific
@@ -109,7 +112,11 @@ function splitTopLevelArgs(argsText: string): string[] {
 }
 
 function objectLiteralHasUnsafeError(objectText: string): boolean {
-  const hasError = /(^|[{,\s])error\s*:/.test(objectText);
+  // Matches an explicit `error: ...` property or the ES2015 shorthand
+  // `{ error }` form (property name with no colon) -- `new
+  // Response(JSON.stringify({ error }), { status: 400 })` is exactly the
+  // shape a colon-only check would miss.
+  const hasError = /(^|[{,\s])error\s*(:|[,}]|$)/.test(objectText);
   if (!hasError) return false;
   return !/\bok\s*:\s*false\b/.test(objectText);
 }
@@ -150,24 +157,22 @@ function findViolations(file: string): Violation[] {
 
     // Body is a variable or other expression, not an inline object literal
     // -- the guard cannot statically verify it carries ok:false. Flag it
-    // whenever paired with a literal 4xx/5xx status: that combination is
-    // exactly the "variable-held error body" shape an inline-object check
-    // alone would miss.
-    const statusMatch = optionsArg.match(/\bstatus\s*:\s*(\d{3})\b/);
-    if (statusMatch) {
-      const status = Number(statusMatch[1]);
-      if (status >= 400 && status < 600) {
-        violations.push({
-          file,
-          line: lineOf(content, match.index),
-          snippet: `${bodyArg.slice(0, 60).replace(/\s+/g, " ")} (variable-held body, status ${status}, cannot verify ok:false statically)`,
-        });
-      }
+    // whenever paired with ANY status key (literal or variable-held): that
+    // combination is exactly the "variable-held error body" shape an
+    // inline-object check alone would miss, and the guard has no way to
+    // tell an error status from a success one once the status itself is
+    // not a literal.
+    if (/\bstatus\s*:/.test(optionsArg)) {
+      violations.push({
+        file,
+        line: lineOf(content, match.index),
+        snippet: `${bodyArg.slice(0, 60).replace(/\s+/g, " ")} (variable-held body paired with a status key, cannot verify ok:false statically)`,
+      });
     }
   }
 
-  // --- new NextResponse(JSON.stringify({ ... }), { status }) ---------------
-  const rawCtorRe = /new\s+NextResponse\(/g;
+  // --- new (Next)?Response(JSON.stringify({ ... }), { status }) -----------
+  const rawCtorRe = /new\s+(?:Next)?Response\(/g;
   while ((match = rawCtorRe.exec(content)) !== null) {
     const argsStart = match.index + match[0].length;
     const argsText = extractBalancedParenArgs(content, argsStart);
@@ -187,16 +192,12 @@ function findViolations(file: string): Violation[] {
       continue;
     }
 
-    const statusMatch = optionsArg.match(/\bstatus\s*:\s*(\d{3})\b/);
-    if (statusMatch) {
-      const status = Number(statusMatch[1]);
-      if (status >= 400 && status < 600) {
-        violations.push({
-          file,
-          line: lineOf(content, match.index),
-          snippet: `new NextResponse(JSON.stringify(${innerBody.slice(0, 40).replace(/\s+/g, " ")}), ...) (variable-held body, status ${status}, cannot verify ok:false statically)`,
-        });
-      }
+    if (/\bstatus\s*:/.test(optionsArg)) {
+      violations.push({
+        file,
+        line: lineOf(content, match.index),
+        snippet: `${match[0]}JSON.stringify(${innerBody.slice(0, 40).replace(/\s+/g, " ")}), ...) (variable-held body paired with a status key, cannot verify ok:false statically)`,
+      });
     }
   }
 
