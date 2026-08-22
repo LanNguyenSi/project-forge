@@ -26,7 +26,11 @@ project-forge/
 │   │   ├── login/page.tsx        # Login page
 │   │   └── settings/page.tsx     # User settings / API tokens
 │   ├── api/                      # API routes
-│   │   ├── v1/projects/route.ts  # Public REST API (token-auth)
+│   │   ├── v1/                   # Public REST API (X-API-Key auth)
+│   │   │   ├── generate/route.ts # Plan + scaffold, returns a sessionId
+│   │   │   ├── preview/route.ts  # Read a previously generated session
+│   │   │   ├── publish/route.ts  # Create GitHub repo from a session
+│   │   │   └── projects/route.ts # GET list / DELETE / POST one-shot create
 │   │   ├── auth/                 # NextAuth + registration
 │   │   ├── generate/route.ts     # Web UI generation (preview)
 │   │   ├── publish/route.ts      # GitHub repo creation & push
@@ -41,7 +45,9 @@ project-forge/
 │   ├── layout/AppShell.tsx       # Navigation & sidebar
 │   ├── ProjectForm.tsx           # Main project intake form
 │   ├── PreviewPanel.tsx          # Generated scaffold preview
-│   └── modals/                   # Confirmation & error dialogs
+│   ├── ConfirmModal.tsx          # Confirmation dialog
+│   ├── ErrorModal.tsx            # Error dialog
+│   └── DialogShell.tsx           # Shared modal shell
 │
 ├── lib/                          # Core business logic
 │   ├── types.ts                  # Shared TypeScript interfaces
@@ -51,10 +57,11 @@ project-forge/
 │   ├── planforge-orchestrator.ts # Intake mapping & AI enrichment
 │   ├── planforge-client.ts       # HTTP client for the planforge service (SSE + tarball extract)
 │   ├── planforge-output.ts       # Artifact parsing and path resolution
-│   └── post-scaffold-review.ts   # Scaffold fit assessment
+│   ├── post-scaffold-review.ts   # Scaffold fit assessment
+│   └── v1-shared.ts              # Public v1 session helpers (generate/preview/publish, 1h TTL)
 │
 ├── types/next-auth.d.ts          # NextAuth type extensions
-├── tests/integration/            # Integration & unit tests
+├── tests/                        # Integration (tests/integration/) & unit (tests/unit/) tests
 ├── prisma/schema.prisma          # Database schema
 ├── middleware.ts                  # Auth + API key validation
 ├── Dockerfile                    # Multi-stage build
@@ -69,7 +76,7 @@ project-forge/
 - Public API lives under `app/api/v1/` and uses `X-API-Key` header auth
 - Internal routes (used by the web UI) live under `app/api/` and use session auth
 - All routes return `NextResponse.json()` with appropriate status codes
-- Error responses follow the shape `{ error: string; details?: string }`
+- Error responses follow the shape `{ ok: false, error: string, details?: string }`
 
 ### Components
 
@@ -97,7 +104,7 @@ project-forge/
 ### Testing
 
 - Test runner: Vitest with happy-dom
-- Tests in `tests/integration/`
+- Tests in `tests/integration/` and `tests/unit/`
 - Run: `npm test` or `npm run test:watch`
 
 ## What NOT to Do
