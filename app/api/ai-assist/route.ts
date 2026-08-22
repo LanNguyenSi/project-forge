@@ -89,13 +89,14 @@ export async function POST(req: NextRequest) {
       const fileName = sanitizeFileName(body.fileName);
       if (fileContent.trim().length === 0) {
         return NextResponse.json(
-          { error: "fileContent is required for mode=file" },
+          { ok: false, error: "fileContent is required for mode=file" },
           { status: 400 },
         );
       }
       if (fileContent.length > FILE_MODE_MAX_CHARS) {
         return NextResponse.json(
           {
+            ok: false,
             error: "fileContent exceeds size limit",
             details: `${fileContent.length.toLocaleString()} chars; limit is ${FILE_MODE_MAX_CHARS.toLocaleString()}`,
           },
@@ -110,7 +111,7 @@ export async function POST(req: NextRequest) {
     } else {
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
       if (prompt.length === 0) {
-        return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+        return NextResponse.json({ ok: false, error: "Prompt is required" }, { status: 400 });
       }
       systemPrompt = PROMPT_SYSTEM_PROMPT;
       userPrompt = prompt;
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
 
     const capabilities = getAiCapabilities();
     if (!capabilities.enabled) {
-      return NextResponse.json({ error: "No AI provider configured" }, { status: 500 });
+      return NextResponse.json({ ok: false, error: "No AI provider configured" }, { status: 500 });
     }
 
     // File mode carries materially more input than prompt mode (up to
@@ -133,7 +134,7 @@ export async function POST(req: NextRequest) {
     const projectData = result.data;
 
     if (!projectData.projectName || !projectData.summary) {
-      return NextResponse.json({ error: "AI response missing required fields" }, { status: 500 });
+      return NextResponse.json({ ok: false, error: "AI response missing required fields" }, { status: 500 });
     }
 
     if (!projectData.features || projectData.features.length === 0) {
@@ -152,6 +153,6 @@ export async function POST(req: NextRequest) {
   } catch (error: unknown) {
     console.error("AI assist error:", error);
     const msg = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: "AI assist failed", details: msg }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "AI assist failed", details: msg }, { status: 500 });
   }
 }

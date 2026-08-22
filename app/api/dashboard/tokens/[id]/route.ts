@@ -11,7 +11,7 @@ export async function DELETE(
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   try {
@@ -24,7 +24,7 @@ export async function DELETE(
     });
 
     if (!token) {
-      return NextResponse.json({ error: "Token not found" }, { status: 404 });
+      return NextResponse.json({ ok: false, error: "Token not found" }, { status: 404 });
     }
 
     await prisma.apiToken.update({
@@ -35,7 +35,7 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
     return NextResponse.json(
-      { error: "Failed to revoke token", details: error instanceof Error ? error.message : String(error) },
+      { ok: false, error: "Failed to revoke token", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

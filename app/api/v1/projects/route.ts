@@ -33,8 +33,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
   }
 
-  const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 50), 200);
-  const offset = Number(req.nextUrl.searchParams.get("offset") ?? 0);
+  // Clamp so the spec's documented minimum/maximum (limit: 1-200, offset: >=0)
+  // hold for any input, including 0, negative, non-numeric, or fractional
+  // query values. Math.trunc runs after the clamp (spec: integer schema) so
+  // a fractional value like 1.5 still clamps against 1/200 before rounding.
+  const limitParam = Number(req.nextUrl.searchParams.get("limit"));
+  const limit = Math.trunc(Math.max(1, Math.min(limitParam || 50, 200)));
+  const offsetParam = Number(req.nextUrl.searchParams.get("offset"));
+  const offset = Math.trunc(Math.max(0, offsetParam || 0));
   const includeDeleted = req.nextUrl.searchParams.get("includeDeleted") === "true";
 
   const where = {
@@ -107,14 +113,14 @@ export async function POST(req: NextRequest) {
   const apiKey = req.headers.get("X-API-Key");
 
   if (!apiKey) {
-    return NextResponse.json({ error: "Missing X-API-Key header" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Missing X-API-Key header" }, { status: 401 });
   }
 
   // Validate API token
   const tokenRecord = await validateApiToken(apiKey);
 
   if (!tokenRecord) {
-    return NextResponse.json({ error: "Invalid or revoked API token" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
   }
 
   // Check rate limit
@@ -123,6 +129,7 @@ export async function POST(req: NextRequest) {
   if (!rateLimit.allowed) {
     return NextResponse.json(
       {
+        ok: false,
         error: "Rate limit exceeded",
         details: `Maximum 10 projects per day. Used: ${rateLimit.used}/10`,
       },
@@ -137,7 +144,7 @@ export async function POST(req: NextRequest) {
 
     if (!input.projectName || !input.summary) {
       return NextResponse.json(
-        { error: "Missing required fields: projectName, summary" },
+        { ok: false, error: "Missing required fields: projectName, summary" },
         { status: 400 }
       );
     }
@@ -147,7 +154,7 @@ export async function POST(req: NextRequest) {
 
     if (!user.githubPat) {
       return NextResponse.json(
-        { error: "GitHub PAT not configured. Please add it in your dashboard." },
+        { ok: false, error: "GitHub PAT not configured. Please add it in your dashboard." },
         { status: 400 }
       );
     }
@@ -223,6 +230,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
+        ok: false,
         error: "Project generation failed",
         details: error instanceof Error ? error.message : String(error),
       },

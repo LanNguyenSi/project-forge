@@ -26,6 +26,228 @@
   ],
   "paths": {
     "/api/v1/projects": {
+      "get": {
+        "summary": "List projects",
+        "description": "List projects (usage log entries) created by the authenticated user's API token, most recent first.",
+        "operationId": "listProjects",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Max number of results (capped at 200).",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Number of results to skip.",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "in": "query",
+            "required": false,
+            "description": "Include soft-deleted projects in the results.",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Projects listed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListProjectsResponse"
+                },
+                "example": {
+                  "ok": true,
+                  "projects": [
+                    {
+                      "id": "cljk3x9q10000abcd1234efgh",
+                      "repoUrl": "https://github.com/username/my-awesome-app",
+                      "projectName": "my-awesome-app",
+                      "createdAt": "2026-08-01T12:00:00.000Z"
+                    }
+                  ],
+                  "total": 1,
+                  "limit": 50,
+                  "offset": 0
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingKey": {
+                    "summary": "Missing API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing X-API-Key header"
+                    }
+                  },
+                  "invalidKey": {
+                    "summary": "Invalid API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Invalid or revoked API token"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Soft-delete a project",
+        "description": "Mark a project (usage log entry) owned by the authenticated user's token as deleted.",
+        "operationId": "deleteProject",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "description": "The project (usage log entry) id to delete.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                },
+                "example": {
+                  "ok": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing id parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingId": {
+                    "summary": "Missing id parameter",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing id parameter"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingKey": {
+                    "summary": "Missing API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing X-API-Key header"
+                    }
+                  },
+                  "invalidKey": {
+                    "summary": "Invalid API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Invalid or revoked API token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "Project not found",
+                    "value": {
+                      "ok": false,
+                      "error": "Project not found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Project already deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "alreadyDeleted": {
+                    "summary": "Already deleted",
+                    "value": {
+                      "ok": false,
+                      "error": "Already deleted"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "summary": "Create a new project",
         "description": "Generate a new project using planforge and scaffoldkit, create a GitHub repository, and push the initial commit. Rate limit: 10 project creations per user per day.",
@@ -103,12 +325,14 @@
                   "missingFields": {
                     "summary": "Missing required fields",
                     "value": {
+                      "ok": false,
                       "error": "Missing required fields: projectName, summary"
                     }
                   },
                   "missingPat": {
                     "summary": "GitHub PAT not configured",
                     "value": {
+                      "ok": false,
                       "error": "GitHub PAT not configured. Please add it in your dashboard."
                     }
                   }
@@ -127,12 +351,14 @@
                   "missingKey": {
                     "summary": "Missing API key",
                     "value": {
+                      "ok": false,
                       "error": "Missing X-API-Key header"
                     }
                   },
                   "invalidKey": {
                     "summary": "Invalid API key",
                     "value": {
+                      "ok": false,
                       "error": "Invalid or revoked API token"
                     }
                   }
@@ -148,6 +374,7 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 },
                 "example": {
+                  "ok": false,
                   "error": "Rate limit exceeded",
                   "details": "Maximum 10 projects per day. Used: 10/10"
                 }
@@ -162,8 +389,463 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 },
                 "example": {
+                  "ok": false,
                   "error": "Project generation failed",
                   "details": "planforge execution failed: timeout"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/generate": {
+      "post": {
+        "summary": "Plan and scaffold a project into a preview session",
+        "description": "Runs planforge + scaffoldkit and stores the result in a temporary session (1 hour TTL) for later preview or publish. Does not create a GitHub repository and does not count against the daily rate limit.",
+        "operationId": "generateProject",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRequest"
+              },
+              "examples": {
+                "basic": {
+                  "summary": "Basic project",
+                  "value": {
+                    "projectName": "my-awesome-app",
+                    "summary": "A web application for managing tasks",
+                    "features": [
+                      "User authentication",
+                      "Task CRUD operations"
+                    ],
+                    "constraints": [
+                      "Use TypeScript"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project generated into a preview session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateResponse"
+                },
+                "example": {
+                  "ok": true,
+                  "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                  "preview": {
+                    "projectName": "my-awesome-app",
+                    "tasks": [
+                      {
+                        "id": "001",
+                        "title": "Scaffold repo",
+                        "wave": "wave-1",
+                        "category": "infra",
+                        "priority": "P1"
+                      }
+                    ],
+                    "architectureOverview": "# Architecture\n...",
+                    "fileTree": [
+                      {
+                        "name": "README.md",
+                        "path": "README.md",
+                        "type": "file"
+                      }
+                    ],
+                    "taskCount": 1,
+                    "waveCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required fields or invalid projectName",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingFields": {
+                    "summary": "Missing required fields",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing required fields: projectName, summary"
+                    }
+                  },
+                  "invalidName": {
+                    "summary": "Invalid projectName",
+                    "value": {
+                      "ok": false,
+                      "error": "Invalid projectName. Use only letters, numbers, dots, hyphens, underscores (max 100 chars)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingKey": {
+                    "summary": "Missing API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing X-API-Key header"
+                    }
+                  },
+                  "invalidKey": {
+                    "summary": "Invalid API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Invalid or revoked API token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error - generation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "generationFailed": {
+                    "summary": "Generation failed",
+                    "value": {
+                      "ok": false,
+                      "error": "Generation failed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/preview": {
+      "get": {
+        "summary": "Read back a generated preview session",
+        "description": "Re-reads the planning/scaffold preview for a session created by POST /api/v1/generate. Sessions expire after 1 hour and are scoped to the token owner.",
+        "operationId": "getPreview",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": true,
+            "description": "Session id returned by POST /api/v1/generate.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Preview read successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing or invalid sessionId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingSession": {
+                    "summary": "Missing or invalid sessionId",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing or invalid sessionId"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingKey": {
+                    "summary": "Missing API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing X-API-Key header"
+                    }
+                  },
+                  "invalidKey": {
+                    "summary": "Invalid API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Invalid or revoked API token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found, expired, or owned by another user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "Session not found or expired",
+                    "value": {
+                      "ok": false,
+                      "error": "Session not found or expired"
+                    }
+                  },
+                  "expired": {
+                    "summary": "Session expired",
+                    "value": {
+                      "ok": false,
+                      "error": "Session expired"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error - failed to read preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "readFailed": {
+                    "summary": "Failed to read preview",
+                    "value": {
+                      "ok": false,
+                      "error": "Failed to read preview"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publish": {
+      "post": {
+        "summary": "Publish a preview session as a GitHub repository",
+        "description": "Creates a GitHub repository and pushes the scaffolded project from a session created by POST /api/v1/generate. Rate limit: 10 publishes per user per day. Each session can be published at most once.",
+        "operationId": "publishProject",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              },
+              "example": {
+                "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project published successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishResponse"
+                },
+                "example": {
+                  "ok": true,
+                  "result": {
+                    "repoUrl": "https://github.com/username/my-awesome-app",
+                    "cloneUrl": "https://github.com/username/my-awesome-app.git",
+                    "projectName": "my-awesome-app"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing/invalid sessionId or GitHub PAT not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingSession": {
+                    "summary": "Missing or invalid sessionId",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing or invalid sessionId"
+                    }
+                  },
+                  "missingPat": {
+                    "summary": "GitHub PAT not configured",
+                    "value": {
+                      "ok": false,
+                      "error": "GitHub PAT not configured. Please add it in your dashboard."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingKey": {
+                    "summary": "Missing API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Missing X-API-Key header"
+                    }
+                  },
+                  "invalidKey": {
+                    "summary": "Invalid API key",
+                    "value": {
+                      "ok": false,
+                      "error": "Invalid or revoked API token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found, expired, or owned by another user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "Session not found or expired",
+                    "value": {
+                      "ok": false,
+                      "error": "Session not found or expired"
+                    }
+                  },
+                  "expired": {
+                    "summary": "Session expired",
+                    "value": {
+                      "ok": false,
+                      "error": "Session expired"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Session already published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "alreadyPublished": {
+                    "summary": "Session already published",
+                    "value": {
+                      "ok": false,
+                      "error": "Session already published"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "ok": false,
+                  "error": "Rate limit exceeded",
+                  "details": "Used: 10/10"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error - publish failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "ok": false,
+                  "error": "Publish failed: a repository with that name already exists on your GitHub account",
+                  "details": "repo_name_exists"
                 }
               }
             }
@@ -191,9 +873,9 @@
         "properties": {
           "projectName": {
             "type": "string",
-            "description": "Name of the project (will be used as GitHub repository name)",
+            "description": "Name of the project (will be used as GitHub repository name). This schema is shared by POST /api/v1/projects and POST /api/v1/generate; the pattern reflects generate's real validator (lib/v1-shared.ts PROJECT_NAME_RE). POST /api/v1/projects does not enforce this pattern itself -- it only rejects an empty projectName -- so a wider valid name there may fail if later passed through generate.",
             "example": "my-awesome-app",
-            "pattern": "^[a-z0-9-]+$"
+            "pattern": "^[a-zA-Z0-9._-]{1,100}$"
           },
           "summary": {
             "type": "string",
@@ -241,36 +923,330 @@
       },
       "CreateProjectResponse": {
         "type": "object",
+        "required": [
+          "ok",
+          "result"
+        ],
         "properties": {
           "ok": {
             "type": "boolean",
             "example": true
           },
           "result": {
-            "type": "object",
-            "properties": {
-              "repoUrl": {
-                "type": "string",
-                "description": "GitHub repository URL",
-                "example": "https://github.com/username/my-awesome-app"
-              },
-              "cloneUrl": {
-                "type": "string",
-                "description": "Git clone URL (HTTPS)",
-                "example": "https://github.com/username/my-awesome-app.git"
-              },
-              "projectName": {
-                "type": "string",
-                "description": "Name of the created project",
-                "example": "my-awesome-app"
-              }
+            "$ref": "#/components/schemas/PublishResult"
+          }
+        }
+      },
+      "PublishResult": {
+        "type": "object",
+        "description": "The v1 API's publish result shape (app/api/v1/publish/route.ts). Same name as lib/types.ts PublishResult, but that one is shaped { repoUrl, cloneUrl, defaultBranch } for the legacy UI route -- the two are not interchangeable.",
+        "properties": {
+          "repoUrl": {
+            "type": "string",
+            "description": "GitHub repository URL",
+            "example": "https://github.com/username/my-awesome-app"
+          },
+          "cloneUrl": {
+            "type": "string",
+            "description": "Git clone URL (HTTPS)",
+            "example": "https://github.com/username/my-awesome-app.git"
+          },
+          "projectName": {
+            "type": "string",
+            "description": "Name of the created project",
+            "example": "my-awesome-app"
+          }
+        }
+      },
+      "PublishRequest": {
+        "type": "object",
+        "required": [
+          "sessionId"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session id returned by POST /api/v1/generate.",
+            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+          }
+        }
+      },
+      "PublishResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "result"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": true
+          },
+          "result": {
+            "$ref": "#/components/schemas/PublishResult"
+          }
+        }
+      },
+      "ListProjectsResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "projects",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": true
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectListItem"
             }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total matching projects (ignores limit/offset).",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 50
+          },
+          "offset": {
+            "type": "integer",
+            "example": 0
+          }
+        }
+      },
+      "ProjectListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cljk3x9q10000abcd1234efgh"
+          },
+          "repoUrl": {
+            "type": "string",
+            "example": "https://github.com/username/my-awesome-app"
+          },
+          "projectName": {
+            "type": "string",
+            "description": "Derived from the trailing path segment of repoUrl.",
+            "example": "my-awesome-app"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OkResponse": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "wave": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ScaffoldPreview": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "full",
+              "planning-baseline"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "ScaffoldFitPreview": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "review-recommended",
+              "mismatch"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "blueprint": {
+            "type": "string",
+            "nullable": true
+          },
+          "confidence": {
+            "type": "string",
+            "nullable": true
+          },
+          "agentMustCreateStructure": {
+            "type": "boolean"
+          },
+          "mustReviewBeforeImplementation": {
+            "type": "boolean"
+          },
+          "followUpTaskPath": {
+            "type": "string"
+          }
+        }
+      },
+      "FileTreeNode": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory"
+            ]
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileTreeNode"
+            }
+          },
+          "content": {
+            "type": "string",
+            "description": "Loaded on demand; absent unless explicitly requested."
+          }
+        }
+      },
+      "GenerationPreview": {
+        "type": "object",
+        "description": "The preview body returned under GenerateResponse.preview by both POST /api/v1/generate and GET /api/v1/preview. Deliberately has no sessionId of its own -- the session id lives only at the top level of GenerateResponse (see lib/v1-shared.ts readPreviewData, whose return type omits it).",
+        "required": [
+          "projectName",
+          "tasks",
+          "architectureOverview",
+          "fileTree",
+          "taskCount",
+          "waveCount"
+        ],
+        "properties": {
+          "projectName": {
+            "type": "string"
+          },
+          "scaffold": {
+            "$ref": "#/components/schemas/ScaffoldPreview"
+          },
+          "scaffoldFit": {
+            "$ref": "#/components/schemas/ScaffoldFitPreview"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          },
+          "architectureOverview": {
+            "type": "string",
+            "description": "Markdown content."
+          },
+          "fileTree": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileTreeNode"
+            }
+          },
+          "taskCount": {
+            "type": "integer"
+          },
+          "waveCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "GenerateResponse": {
+        "type": "object",
+        "description": "The v1 API's generate/preview response shape (app/api/v1/generate and /preview). Same name as lib/types.ts GenerateResponse, but that one is shaped { ok, preview } without a top-level sessionId for the legacy UI route -- the two are not interchangeable.",
+        "required": [
+          "ok",
+          "sessionId",
+          "preview"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": true
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/GenerationPreview"
           }
         }
       },
       "ErrorResponse": {
         "type": "object",
+        "description": "Standard error shape for app/api/** (lib/types.ts ErrorResponse). `ok` is always `false` on an error response.",
+        "required": [
+          "ok",
+          "error"
+        ],
         "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "example": false
+          },
           "error": {
             "type": "string",
             "description": "Error message",

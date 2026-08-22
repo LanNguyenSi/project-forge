@@ -403,7 +403,7 @@ describe("readPreviewData", () => {
     expect(preview.architectureOverview).toBe("(not generated)");
     // No scaffoldkit-input.json present -> readScaffoldPreview falls back to
     // the planning-baseline status.
-    expect(preview.scaffold.status).toBe("planning-baseline");
+    expect(preview.scaffold?.status).toBe("planning-baseline");
     // No post-scaffold-review.json present -> toScaffoldFitPreview(null) is undefined.
     expect(preview.scaffoldFit).toBeUndefined();
   });

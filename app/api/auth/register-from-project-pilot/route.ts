@@ -52,14 +52,14 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as RegisterBody;
   } catch {
     return NextResponse.json(
-      { error: "bad_request", message: "Invalid JSON body" },
+      { ok: false, error: "bad_request", message: "Invalid JSON body" },
       { status: 400 },
     );
   }
 
   if (typeof body.githubAccessToken !== "string" || body.githubAccessToken.length === 0) {
     return NextResponse.json(
-      { error: "bad_request", message: "githubAccessToken is required" },
+      { ok: false, error: "bad_request", message: "githubAccessToken is required" },
       { status: 400 },
     );
   }
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   const githubAccessToken: string = body.githubAccessToken;
   if (body.githubLogin !== undefined && typeof body.githubLogin !== "string") {
     return NextResponse.json(
-      { error: "bad_request", message: "githubLogin must be a string if provided" },
+      { ok: false, error: "bad_request", message: "githubLogin must be a string if provided" },
       { status: 400 },
     );
   }
@@ -79,13 +79,14 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof GitHubAuthError) {
       return NextResponse.json(
-        { error: "unauthorized", message: "GitHub access-token verification failed" },
+        { ok: false, error: "unauthorized", message: "GitHub access-token verification failed" },
         { status: 401 },
       );
     }
     if (err instanceof GitHubUnreachableError) {
       return NextResponse.json(
         {
+          ok: false,
           error: "upstream_unavailable",
           message: "Could not reach GitHub to verify access-token; retry shortly",
         },
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: "internal", message: "Unexpected error verifying access-token" },
+      { ok: false, error: "internal", message: "Unexpected error verifying access-token" },
       { status: 500 },
     );
   }
@@ -101,6 +102,7 @@ export async function POST(req: NextRequest) {
   if (body.githubLogin && body.githubLogin !== githubUser.login) {
     return NextResponse.json(
       {
+        ok: false,
         error: "unauthorized",
         message: "Claimed githubLogin does not match verified GitHub identity",
       },
@@ -123,6 +125,7 @@ export async function POST(req: NextRequest) {
   ) {
     return NextResponse.json(
       {
+        ok: false,
         error: "forbidden_github_login",
         message: "This GitHub login is not permitted on this project-forge instance",
       },
@@ -146,6 +149,7 @@ export async function POST(req: NextRequest) {
     if (existingByEmail && !existingByEmail.githubId) {
       return NextResponse.json(
         {
+          ok: false,
           error: "account_exists_link_required",
           message:
             "An account with this email already exists. Sign in with your " +
