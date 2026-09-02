@@ -1,0 +1,42 @@
+name: Audit
+
+# npm-audit regression gate. Deliberately a SEPARATE workflow: ci.yml
+# must stay decoupled from newly published external advisories (a fresh
+# advisory must not turn a code-unrelated run red). Threshold: HIGH and
+# CRITICAL advisories fail the gate step; moderate and low are
+# report-only (first step, never red).
+#
+# project-forge has ONE root lockfile, so a single root audit covers
+# the whole tree. npm audit reads package-lock.json directly; no npm
+# ci, zero added install time.
+#
+# If a HIGH/CRITICAL has no upstream fix, resolution is an operator
+# decision (documented override or allowlist), never a silent
+# threshold bump in this file.
+#
+# Registering this workflow as a required check is an operator action;
+# it is not required by default on creation.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: npm audit (full report, non-blocking)
+        run: npm audit || true
+      - name: npm audit gate (high/critical fail)
+        run: npm audit --audit-level=high
