@@ -71,7 +71,8 @@ Route handlers under `app/api/` export HTTP-method functions (`GET`, `POST`,
   `X-API-Key` header carrying a dashboard-issued `pf_*` token
   (`validateApiToken` in `lib/db.ts`).
 - **Web UI routes** (`app/api/generate`, `app/api/publish`, `app/api/dashboard`,
-  `app/api/ai-assist`) use NextAuth session auth.
+  `app/api/ai-assist`) use NextAuth session auth (email/password credentials
+  plus GitHub OAuth, see `lib/auth.ts`).
 - `middleware.ts` gates the protected surfaces.
 
 Error responses follow the shape `{ ok: false, error: string, details?: string }`.
@@ -103,6 +104,9 @@ preview step.
 header, consumes an SSE stream, and untars the base64 gzipped result into the
 request temp dir. The planforge container runs scaffoldkit internally; this app
 ships no Python and no scaffoldkit venv (see the Dockerfile and ADR-0002).
+`lib/planforge-output.ts` then resolves the scaffolded artifacts via the
+generated `planforge-index.json` when present, falling back to legacy root
+paths for older planforge installations that do not emit one.
 
 ### 4. Config loading
 
