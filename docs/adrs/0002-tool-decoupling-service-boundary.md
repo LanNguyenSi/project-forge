@@ -8,7 +8,7 @@ Accepted (implemented; see `lib/planforge-client.ts` and the `planforge` service
 
 `project-forge` currently depends on two external tools by filesystem shell-out:
 
-- **agent-planforge** — Node CLI, invoked via `child_process.spawn("node", [${PLANFORGE_PATH}/scripts/bootstrap-plan.js, ...])` in [`lib/planforge-runner.ts`](../../lib/planforge-runner.ts).
+- **agent-planforge** - Node CLI, invoked via `child_process.spawn("node", [${PLANFORGE_PATH}/scripts/bootstrap-plan.js, ...])` in `lib/planforge-runner.ts`.
 - **scaffoldkit** — Python CLI (Typer), invoked via `child_process.spawn("${SCAFFOLDKIT_PYTHON}", ["-m", "scaffoldkit.cli", "from-planforge", ...])` in [`app/api/v1/generate/route.ts`](../../app/api/v1/generate/route.ts).
 
 Both tools must be installed on the same machine as project-forge. `PLANFORGE_PATH` defaults to `/root/.openclaw/workspace/git/agent-planforge`; `SCAFFOLDKIT_PYTHON` defaults to `/tmp/sk-venv/bin/python3`. The [README](../../README.md) explicitly documents the co-location assumption.
@@ -104,7 +104,7 @@ Topology:
 
 ## Maintainer cross-check
 
-**This ADR assumes agent-planforge accepts the "I also orchestrate scaffoldkit" responsibility.** Today planforge only reads scaffoldkit's blueprint metadata ([`bootstrap-plan.js:1578-1670`](file:///home/lan/git/pandora/agent-planforge/scripts/bootstrap-plan.js)) — it does not invoke the generator. The decision moves the scaffoldkit subprocess call from project-forge into planforge.
+**This ADR assumes agent-planforge accepts the "I also orchestrate scaffoldkit" responsibility.** Today planforge only reads scaffoldkit's blueprint metadata ([`bootstrap-plan.js:1578-1670`](https://github.com/LanNguyenSi/agent-planforge/blob/0de7a6956dde26151b91323fbaa1f4448e69e314/scripts/bootstrap-plan.js#L1578-L1670)), it does not invoke the generator. The decision moves the scaffoldkit subprocess call from project-forge into planforge.
 
 If the agent-planforge maintainer rejects that expanded scope — e.g. on grounds of "planforge is a pure planner; execution belongs elsewhere" — **fall back to Option 2** (two independent HTTP services, project-forge orchestrates). Option 4 is strictly preferred only if planforge accepts the runner role. Get this buy-in before filing the implementation tickets.
 
@@ -117,7 +117,7 @@ If the agent-planforge maintainer rejects that expanded scope — e.g. on ground
 3. **planforge wraps scaffoldkit via `child_process.spawn`** (same pattern project-forge uses today, just relocated). scaffoldkit's Python venv moves into planforge's container.
 4. **Auth: shared service token** via a single `PLANFORGE_SERVICE_TOKEN` env var read by both project-forge and planforge (Bearer header). Simpler than NextAuth-pass-through. The trust boundary today is "same VM"; after decoupling it's "same VPC" which a shared secret fits. Rotation in v2 via a token-store if needed.
 5. **Hosting:** one additional container on the existing VPS, behind the existing Traefik. Label: `Host(`planforge.opentriologue.ai`)`. Not exposed publicly — bound to the internal Traefik entrypoint + IP-whitelisted to project-forge's container.
-6. **MCP facade:** Not in v1. Wait until an agent actually needs to call planforge programmatically outside of project-forge. When that lands, a small stdio MCP package (mirroring the ops-mcp pattern at [`/packages/mcp/src/server.ts`](file:///home/lan/git/pandora/ops-mcp/packages/mcp/src/server.ts)) can wrap the HTTP client. Keeping HTTP-only for v1 avoids building a dual facade before we know the MCP shape.
+6. **MCP facade:** Not in v1. Wait until an agent actually needs to call planforge programmatically outside of project-forge. When that lands, a small stdio MCP package (mirroring the ops-mcp pattern at `packages/mcp/src/server.ts`) can wrap the HTTP client. Keeping HTTP-only for v1 avoids building a dual facade before we know the MCP shape.
 7. **scaffoldkit does not grow an HTTP surface in v1.** It stays a CLI and a pure library. Promoting it to its own HTTP service later is a non-breaking change (planforge's internals swap shell-out for HTTP; project-forge sees nothing).
 
 ## Consequences
@@ -180,9 +180,9 @@ If the agent-planforge maintainer rejects that expanded scope — e.g. on ground
 
 ## References
 
-- Current shell-out call sites: [`project-forge/lib/planforge-runner.ts`](../../lib/planforge-runner.ts), [`project-forge/app/api/v1/generate/route.ts`](../../app/api/v1/generate/route.ts).
+- Current shell-out call sites: `project-forge/lib/planforge-runner.ts`, [`project-forge/app/api/v1/generate/route.ts`](../../app/api/v1/generate/route.ts).
 - Parent task (attachments feature, blocked by this ADR): agent-tasks `a9b53bfc-927d-41a5-b60e-1103084b722f`.
 - Companion task (planforge ingest, blocked by this ADR): agent-tasks `dc069556-077d-4b9c-926d-278a438adb8c`.
 - This spike: agent-tasks `fb21d97e-2a49-43d8-afbf-9782c31de66d`.
-- Pattern reference for stdio MCP facade over a REST service: [`ops-mcp/packages/mcp/src/server.ts`](file:///home/lan/git/pandora/ops-mcp/packages/mcp/src/server.ts). Note: ops-mcp is MCP-only (calls a remote REST gateway); there is no existing REST+MCP dual-facade pattern in the codebase today.
+- Pattern reference for stdio MCP facade over a REST service: `ops-mcp/packages/mcp/src/server.ts`. Note: ops-mcp is MCP-only (calls a remote REST gateway); there is no existing REST+MCP dual-facade pattern in the codebase today.
 - ADR-0001 (language choice) is unrelated but is the only prior ADR in this repo; follow its Markdown-only, `## Status / ## Context / ## Decision / ## Consequences` format.
