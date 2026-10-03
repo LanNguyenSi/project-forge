@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   end-to-end, consistent with the rest of this module, which never
   realpaths its inputs.
 
+### Changed
+
+- CI: `release.yml` now passes step values (release version, matrix entries, image tags) into `run:` scripts through `env:` and shell variables instead of interpolating `${{ }}` expressions into the script text. No behavior change for normal tags and versions.
+
 ## [0.6.0] - 2026-06-25
 
 Forge gains a first-class web UI: a complete Next.js front-end — a landing page, authentication, dashboard, a guided project-create wizard with live preview, settings, and themed API docs — built on a new gold-accented design system. A transitive dompurify advisory and the 2026-06-16 CVE sweep are also cleared.
