@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- Bumped dompurify 3.4.13 to 3.4.16 (transitive, via swagger-ui-react,
+  whose `^3.4.12` range already allows it) for GHSA-p98j-92pf-mc4p.
+  Lockfile-only change.
 - Bumped axios 1.18.1 to 1.20.0 (transitive, via @swagger-api/apidom-reference)
   for the advisories published 2026-09-30 against axios < 1.20.0 (for
   example GHSA-r4gj-5m52-g5wh). Lockfile-only change.
