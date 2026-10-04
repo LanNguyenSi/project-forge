@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.7.0] - 2026-10-04
 
-Breaking: API tokens are now stored hashed (schema change plus a two-phase data migration), and error responses from the routes that still returned a bare `{ error }` now carry `ok: false`. See the Changed section.
+Breaking: API tokens are now stored hashed (schema change plus a two-phase data migration that must run during the deploy, see Migration), `GET /api/dashboard` no longer returns `user.githubPat` (now `githubPatConnected`) or `tokens[].token` (now `tokenPrefix`), and a repeat `register-from-project-pilot` call now revokes the previous token and issues a new one. Error responses from the routes that still returned a bare `{ error }` now also carry `ok: false` (an added field, breaking only for strict-schema validators).
 
 ### Added
 
@@ -37,6 +37,9 @@ Breaking: API tokens are now stored hashed (schema change plus a two-phase data 
 
 ### Fixed
 
+- `GET /api/v1/projects` clamps `limit` to 1-200 (default 50) and
+  `offset` to 0 or more, and truncates fractional values, so out-of-range
+  or non-numeric query values no longer reach the database query as is.
 - Legacy `/api/generate` (`app/api/generate/route.ts`) no longer emits
   `dependsOn: ["None"]` for a dependency-free task. It regexes `## Depends
   On` out of `tasks/*.md` independently of `/api/v1/*`'s `readPreviewData`
@@ -62,11 +65,11 @@ Breaking: API tokens are now stored hashed (schema change plus a two-phase data 
 - Dependency advisories cleared across the lockfile: next 15.5.25
   (GHSA-2xp9-vwfh-vxw4, GHSA-p293-qw3h-jr36), next-auth 4.24.15 (critical),
   sharp 0.35.4, js-yaml 4.3.2, vitest 4.1.11, nanoid 3.3.18,
-  brace-expansion and fast-uri patched releases, postcss 8.5.18, plus the
+  brace-expansion patched releases, postcss 8.5.23 (floor `^8.5.18`), plus the
   in-range fixes from `npm audit fix`.
-- Bumped dompurify 3.4.13 to 3.4.16 (transitive, via swagger-ui-react,
-  whose `^3.4.12` range already allows it) for GHSA-p98j-92pf-mc4p.
-  Lockfile-only change.
+- Bumped dompurify 3.4.11 to 3.4.16 (transitive, via swagger-ui-react,
+  whose `^3.4.12` range already allows it) for GHSA-55q2-fjhq-7xh7 and
+  GHSA-p98j-92pf-mc4p. Lockfile-only change.
 - Bumped axios 1.18.1 to 1.20.0 (transitive, via @swagger-api/apidom-reference)
   for the advisories published 2026-09-30 against axios < 1.20.0 (for
   example GHSA-r4gj-5m52-g5wh). Lockfile-only change.
@@ -90,24 +93,39 @@ Breaking: API tokens are now stored hashed (schema change plus a two-phase data 
 ### Changed
 
 - **Breaking, migration required:** `ApiToken.token` is replaced by
-  `tokenHash` and `tokenPrefix` in `prisma/schema.prisma`. `prisma db push`
-  refuses to drop the old column while it still holds rows, so run
-  `node scripts/backfill-api-token-hashes.js` ahead of the deploy, again
-  with the old container stopped, then with `--contract` before starting
-  the new one (runbook in the script header). Rotating the hash key
-  (`API_TOKEN_HASH_SECRET`, or `NEXTAUTH_SECRET` when unset) invalidates
-  every issued API token.
-- **Breaking for clients that parse errors:** `POST /api/v1/projects`,
-  `ai-assist`, `auth/register`, `auth/register-from-project-pilot` and
-  `dashboard/*` now return `{ ok: false, error, details? }` instead of the
-  bare `{ error, details? }` shape, matching the other routes. A guard
-  test enforces `ok: false` on every error response under `app/api/**`.
+  `tokenHash` and `tokenPrefix` in `prisma/schema.prisma`; the new
+  container refuses to start until the data migration has run. See
+  Migration below and the "Upgrading to 0.7.0" section of
+  `docs/deployment.md`.
+- **Breaking response removals:** `GET /api/dashboard` no longer returns
+  `user.githubPat` (replaced by `githubPatConnected: boolean`) nor
+  `tokens[].token` (replaced by `tokenPrefix`). A repeat
+  `register-from-project-pilot` call now revokes the previous token and
+  issues a new one instead of returning the existing value.
+- Error responses from `POST /api/v1/projects`, `ai-assist`,
+  `auth/register`, `auth/register-from-project-pilot` and `dashboard/*`
+  now return `{ ok: false, error, details? }` instead of the bare
+  `{ error, details? }` shape, matching the other routes. This adds a
+  field; it breaks only clients that validate error bodies against a
+  strict schema. A guard test enforces `ok: false` on every error
+  response under `app/api/**`.
 - The `/styleguide` footer and sample badge read the version from
   `package.json` at build time instead of a hard-coded string.
 - CI: an npm audit workflow (`audit.yml`) gates the lockfile, `npm ci`
   runs with `--no-audit --no-fund`, and a coverage ratchet runs through
   `npm run test:coverage`.
 - CI: `release.yml` now passes step values into `run:` scripts through `env:` and shell variables instead of interpolating `${{ }}` expressions into the script text. No behavior change for normal tags and versions.
+
+### Migration
+
+The API-token schema change cannot be applied by the container's own
+`prisma db push` alone: it refuses while `ApiToken.token` still holds
+rows, so the new container does not start. Run the two-phase backfill
+(`scripts/backfill-api-token-hashes.js`, then `--contract`) around the
+cutover, with the same `API_TOKEN_HASH_SECRET` (or `NEXTAUTH_SECRET`)
+the new container uses; a different key makes every existing token
+invalid. The exact, tested docker compose commands are in "Upgrading to
+0.7.0" in `docs/deployment.md`.
 
 ## [0.6.0] - 2026-06-25
 
