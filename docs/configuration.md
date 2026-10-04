@@ -2,7 +2,9 @@
 
 Environment variables read by the `app` container. Copy `.env.example` to
 `.env` and fill in the required values before running `make deploy` or
-`docker compose up`.
+`docker compose up`. For Docker deploys, also follow the
+`docker-compose.override.yml` step in [deployment.md](deployment.md), which
+sets the persistent `DATABASE_URL`.
 
 ## Required
 

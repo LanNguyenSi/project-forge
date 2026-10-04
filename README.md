@@ -38,6 +38,11 @@ git clone https://github.com/LanNguyenSi/project-forge.git
 cd project-forge
 cp .env.example .env
 # Fill in required values, see docs/configuration.md
+cp docker-compose.override.example.yml docker-compose.override.yml
+# Fill in NEXTAUTH_SECRET (openssl rand -hex 32) and NEXTAUTH_URL, or delete
+# them from the override (its values take precedence over .env). The override
+# also points DATABASE_URL at the forge_db volume (mounted at /data by
+# docker-compose.yml): DATABASE_URL=file:/data/project-forge.db
 make deploy
 ```
 
@@ -46,7 +51,9 @@ Prerequisites: Docker with Compose, an
 to this repository (`../agent-planforge`, built as the planforge service by
 `docker-compose.yml`), and an existing external Docker network named `traefik`
 (`docker network create traefik`; a Traefik instance is needed for public
-exposure). See [docs/deployment.md](docs/deployment.md).
+exposure). Without the override file the SQLite database stays at the
+`.env.example` path (`file:./db/project-forge.db`) inside the container instead
+of on the persistent `/data` volume. See [docs/deployment.md](docs/deployment.md).
 
 ## Usage
 

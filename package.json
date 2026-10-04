@@ -12,8 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate deploy"
+    "db:push": "prisma db push"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

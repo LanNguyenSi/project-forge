@@ -49,6 +49,7 @@ project-forge/
 │   │   ├── ai-assist/route.ts    # AI form enrichment ("magic fill")
 │   │   └── dashboard/route.ts    # User/token management
 │   ├── docs/page.tsx             # Swagger UI over public/openapi.json
+│   ├── styleguide/page.tsx       # UI primitives showcase
 │   ├── layout.tsx                # Root layout
 │   └── globals.css               # Global styles + Swagger dark overrides
 │
@@ -114,8 +115,8 @@ Configuration is environment-variable based (no config file). Values are read
 directly from `process.env` at the point of use, for example `PLANFORGE_URL`,
 `PLANFORGE_SERVICE_TOKEN`, `FORGE_TEMP_DIR`, `DATABASE_URL`, `NEXTAUTH_SECRET`,
 the optional AI-provider keys, and the optional `ALLOWED_GITHUB_LOGINS`
-allowlist. See the README "Environment Variables" tables for the full list and
-which are required.
+allowlist. See [configuration.md](configuration.md) for the full list and which are
+required.
 
 ### 5. Persistence
 
@@ -148,7 +149,7 @@ The pipeline runs on GitHub Actions (`.github/workflows/ci.yml`) on Node 20:
 2. `npx prisma generate`
 3. `npx tsc --noEmit --skipLibCheck` (typecheck)
 4. `npm run lint` (ESLint)
-5. `npm run build` (`next build`; this step also injects mock `GITHUB_TOKEN`/`GITHUB_OWNER` env vars)
+5. `npm run build` (`next build`)
 6. `npm run test:coverage` (`vitest run --coverage`)
 
 ## Testing Strategy
