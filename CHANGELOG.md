@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-04
+
+Breaking: API tokens are now stored hashed (schema change plus a two-phase data migration), and error responses from the routes that still returned a bare `{ error }` now carry `ok: false`. See the Changed section.
+
 ### Added
 
 - `tasks[].dependsOn` in the `/api/v1/generate` and `/api/v1/preview`
@@ -15,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the field). `wave` is backfilled from the same source when a task file
   carries no `## Wave` section. Feeds project-pilot's dependency-aware
   Forge-v2 import (pilot #125).
+- The v1 OpenAPI spec (`public/openapi.json`) now documents every v1
+  operation (`GET`/`DELETE /api/v1/projects`, `POST /api/v1/generate`,
+  `GET /api/v1/preview`, `POST /api/v1/publish`, in addition to
+  `POST /api/v1/projects`), and `ErrorResponse` requires `ok: false`. A
+  contract test keeps the spec in step with the exported v1 routes.
+- Optional `API_TOKEN_HASH_SECRET` environment variable: the key used to
+  hash API tokens at rest. Defaults to `NEXTAUTH_SECRET`.
+- `scripts/backfill-api-token-hashes.js`: two-phase (expand, then
+  `--contract`) migration that hashes existing plaintext API tokens in
+  place, so existing tokens keep working.
+- `GET /api/dashboard/pat`: returns the signed-in owner's stored GitHub
+  PAT for the settings page.
+- Documentation: the README is condensed, with the environment variables,
+  the v1 REST reference and the compose runbook moved to
+  `docs/configuration.md`, `docs/api.md` and `docs/deployment.md`.
 
 ### Fixed
 
@@ -31,6 +50,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- API tokens (`pf_*`) are no longer stored or re-served in plaintext. The
+  `ApiToken` table stores a keyed SHA-256 digest (`tokenHash`) plus a
+  non-secret `tokenPrefix`; the raw token is shown once at creation.
+  `GET /api/dashboard` returns only the prefix. A repeat call to
+  `register-from-project-pilot` revokes the old token and issues a fresh
+  one instead of returning the existing value.
+- `GET /api/dashboard` no longer returns the raw GitHub PAT; it returns
+  `githubPatConnected: boolean`, and the raw value is available only to
+  the owner through `GET /api/dashboard/pat`.
+- Dependency advisories cleared across the lockfile: next 15.5.25
+  (GHSA-2xp9-vwfh-vxw4, GHSA-p293-qw3h-jr36), next-auth 4.24.15 (critical),
+  sharp 0.35.4, js-yaml 4.3.2, vitest 4.1.11, nanoid 3.3.18,
+  brace-expansion and fast-uri patched releases, postcss 8.5.18, plus the
+  in-range fixes from `npm audit fix`.
 - Bumped dompurify 3.4.13 to 3.4.16 (transitive, via swagger-ui-react,
   whose `^3.4.12` range already allows it) for GHSA-p98j-92pf-mc4p.
   Lockfile-only change.
@@ -56,6 +89,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Breaking, migration required:** `ApiToken.token` is replaced by
+  `tokenHash` and `tokenPrefix` in `prisma/schema.prisma`. `prisma db push`
+  refuses to drop the old column while it still holds rows, so run
+  `node scripts/backfill-api-token-hashes.js` ahead of the deploy, again
+  with the old container stopped, then with `--contract` before starting
+  the new one (runbook in the script header). Rotating the hash key
+  (`API_TOKEN_HASH_SECRET`, or `NEXTAUTH_SECRET` when unset) invalidates
+  every issued API token.
+- **Breaking for clients that parse errors:** `POST /api/v1/projects`,
+  `ai-assist`, `auth/register`, `auth/register-from-project-pilot` and
+  `dashboard/*` now return `{ ok: false, error, details? }` instead of the
+  bare `{ error, details? }` shape, matching the other routes. A guard
+  test enforces `ok: false` on every error response under `app/api/**`.
+- The `/styleguide` footer and sample badge read the version from
+  `package.json` at build time instead of a hard-coded string.
+- CI: an npm audit workflow (`audit.yml`) gates the lockfile, `npm ci`
+  runs with `--no-audit --no-fund`, and a coverage ratchet runs through
+  `npm run test:coverage`.
 - CI: `release.yml` now passes step values into `run:` scripts through `env:` and shell variables instead of interpolating `${{ }}` expressions into the script text. No behavior change for normal tags and versions.
 
 ## [0.6.0] - 2026-06-25
