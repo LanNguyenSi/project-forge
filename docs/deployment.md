@@ -13,6 +13,12 @@ The root `docker-compose.yml` ships two services:
   `app` reaches it via the shared `traefik` docker network at
   `http://planforge:8223`.
 
+For a persistent SQLite database, copy `docker-compose.override.example.yml`
+to `docker-compose.override.yml` before the first deploy. It sets
+`DATABASE_URL=file:/data/project-forge.db` and mounts the `forge_db` volume at
+`/data`; without it `.env.example`'s `file:./db/project-forge.db` is used and
+the database is not on the volume.
+
 Both services need `PLANFORGE_SERVICE_TOKEN` in `.env`. Compose propagates
 it; mismatched values cause `app` to get 401s from `planforge`.
 

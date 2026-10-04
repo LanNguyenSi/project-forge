@@ -37,6 +37,7 @@ project-forge/
 │   │   ├── ai-assist/route.ts    # AI form enrichment
 │   │   └── dashboard/            # User/token management
 │   ├── docs/page.tsx             # Swagger UI API docs
+│   ├── styleguide/page.tsx       # UI primitives showcase
 │   ├── layout.tsx                # Root layout
 │   └── globals.css               # Global styles + Swagger dark overrides
 │
@@ -58,6 +59,11 @@ project-forge/
 │   ├── planforge-client.ts       # HTTP client for the planforge service (SSE + tarball extract)
 │   ├── planforge-output.ts       # Artifact parsing and path resolution
 │   ├── post-scaffold-review.ts   # Scaffold fit assessment
+│   ├── runtime-signals.ts        # Shared "real source emitted?" scaffold detection
+│   ├── scaffold-attachments.ts   # Writes uploaded attachments into the scaffold (docs/context/)
+│   ├── github.ts                 # Minimal GitHub /user helper for the registration broker
+│   ├── publish-error.ts          # User-facing summaries of publish failures
+│   ├── subprocess.ts             # Child-process runner with timeout
 │   └── v1-shared.ts              # Public v1 session helpers (generate/preview/publish, 1h TTL)
 │
 ├── types/next-auth.d.ts          # NextAuth type extensions

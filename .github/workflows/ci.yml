@@ -21,7 +21,4 @@ jobs:
       - run: npx tsc --noEmit --skipLibCheck
       - run: npm run lint
       - run: npm run build
-        env:
-          GITHUB_TOKEN: "mock"
-          GITHUB_OWNER: "mock"
       - run: npm run test:coverage
