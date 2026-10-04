@@ -39,8 +39,10 @@ cd project-forge
 cp .env.example .env
 # Fill in required values, see docs/configuration.md
 cp docker-compose.override.example.yml docker-compose.override.yml
-# Fill in NEXTAUTH_SECRET and NEXTAUTH_URL; the override also sets
-# DATABASE_URL=file:/data/project-forge.db and mounts the forge_db volume
+# Fill in NEXTAUTH_SECRET (openssl rand -hex 32) and NEXTAUTH_URL, or delete
+# them from the override (its values take precedence over .env). The override
+# also points DATABASE_URL at the forge_db volume (mounted at /data by
+# docker-compose.yml): DATABASE_URL=file:/data/project-forge.db
 make deploy
 ```
 

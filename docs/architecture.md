@@ -49,6 +49,7 @@ project-forge/
 │   │   ├── ai-assist/route.ts    # AI form enrichment ("magic fill")
 │   │   └── dashboard/route.ts    # User/token management
 │   ├── docs/page.tsx             # Swagger UI over public/openapi.json
+│   ├── styleguide/page.tsx       # UI primitives showcase
 │   ├── layout.tsx                # Root layout
 │   └── globals.css               # Global styles + Swagger dark overrides
 │

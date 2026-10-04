@@ -15,9 +15,16 @@ The root `docker-compose.yml` ships two services:
 
 For a persistent SQLite database, copy `docker-compose.override.example.yml`
 to `docker-compose.override.yml` before the first deploy. It sets
-`DATABASE_URL=file:/data/project-forge.db` and mounts the `forge_db` volume at
-`/data`; without it `.env.example`'s `file:./db/project-forge.db` is used and
-the database is not on the volume.
+`DATABASE_URL=file:/data/project-forge.db`, which points the database at the
+`forge_db` volume (already mounted at `/data` by `docker-compose.yml`); without
+it `.env.example`'s `file:./db/project-forge.db` is used and the database is
+not on the volume.
+
+The override's `environment:` values take precedence over `.env`. Replace its
+`NEXTAUTH_SECRET` placeholder with a fresh `openssl rand -hex 32` value and set
+`NEXTAUTH_URL`, or delete those two lines from the override so the `.env`
+values apply. Do not leave the placeholder in place: `NEXTAUTH_SECRET` is also
+the fallback key for hashing API tokens when `API_TOKEN_HASH_SECRET` is unset.
 
 Both services need `PLANFORGE_SERVICE_TOKEN` in `.env`. Compose propagates
 it; mismatched values cause `app` to get 401s from `planforge`.
