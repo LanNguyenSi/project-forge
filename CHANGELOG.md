@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- AI magic fill ("Fill Form") and intake enrichment failed with "AI assist
+  failed" on Groq: the hard-coded `llama-3.3-70b-versatile` was retired by
+  Groq and now returns 404. The Groq default is `openai/gpt-oss-120b` (Groq's
+  named replacement), sent with `reasoning_effort: "low"` and extra token
+  headroom so the reasoning does not truncate the JSON answer.
+
+### Added
+
+- `GROQ_MODEL` env var to override the Groq model without a release.
+
 ## [0.7.0] - 2026-10-04
 
 Breaking: API tokens are now stored hashed (schema change plus a two-phase data migration that must run during the deploy, see Migration), `GET /api/dashboard` no longer returns `user.githubPat` (now `githubPatConnected`) or `tokens[].token` (now `tokenPrefix`), and a repeat `register-from-project-pilot` call now revokes the previous token and issues a new one. Error responses from the routes that still returned a bare `{ error }` now also carry `ok: false` (an added field, breaking only for strict-schema validators).

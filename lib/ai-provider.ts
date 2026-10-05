@@ -42,8 +42,21 @@ interface AiProviderConfig {
   baseURL?: string;
 }
 
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+// Groq retires models on its own schedule (llama-3.3-70b-versatile was
+// shut down for free/developer tiers and then 404s), so the model is
+// overridable via GROQ_MODEL without a release.
+const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
 const OPENAI_MODEL = "gpt-4o-mini";
+
+// gpt-oss models are reasoning models: their reasoning tokens are spent
+// out of the same completion budget as the JSON answer. Callers size
+// maxTokens for the answer alone, so reasoning models get low effort plus
+// fixed headroom on top, otherwise the JSON gets truncated.
+const REASONING_TOKEN_HEADROOM = 1024;
+
+function isReasoningModel(model: string): boolean {
+  return model.startsWith("openai/gpt-oss-");
+}
 
 function getAiProviderConfig(): AiProviderConfig | null {
   if (process.env.LOCAL_AI_BASE_URL && process.env.LOCAL_AI_MODEL) {
@@ -58,7 +71,7 @@ function getAiProviderConfig(): AiProviderConfig | null {
   if (process.env.GROQ_API_KEY) {
     return {
       provider: "groq",
-      model: GROQ_MODEL,
+      model: process.env.GROQ_MODEL?.trim() || DEFAULT_GROQ_MODEL,
       baseURL: "https://api.groq.com/openai/v1",
       apiKey: process.env.GROQ_API_KEY,
     };
@@ -134,6 +147,9 @@ export async function generateStructuredJson<T>(
     baseURL: config.baseURL,
   });
 
+  const reasoning = isReasoningModel(config.model);
+  const answerTokens = options?.maxTokens ?? 800;
+
   const completion = await client.chat.completions.create({
     model: config.model,
     messages: [
@@ -141,7 +157,8 @@ export async function generateStructuredJson<T>(
       { role: "user", content: userPrompt },
     ],
     temperature: options?.temperature ?? 0.2,
-    max_tokens: options?.maxTokens ?? 800,
+    max_tokens: reasoning ? answerTokens + REASONING_TOKEN_HEADROOM : answerTokens,
+    ...(reasoning ? { reasoning_effort: "low" as const } : {}),
     ...(config.provider === "local" ? {} : { response_format: { type: "json_object" as const } }),
   });
 

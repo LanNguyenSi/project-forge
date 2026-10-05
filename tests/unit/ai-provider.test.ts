@@ -35,6 +35,7 @@ const AI_ENV_KEYS = [
   'LOCAL_AI_MODEL',
   'LOCAL_AI_API_KEY',
   'GROQ_API_KEY',
+  'GROQ_MODEL',
   'OPENAI_API_KEY',
 ] as const;
 
@@ -99,9 +100,23 @@ describe('getAiCapabilities', () => {
 
       expect(caps.enabled).toBe(true);
       expect(caps.provider).toBe('groq');
-      expect(caps.model).toBe('llama-3.3-70b-versatile');
+      expect(caps.model).toBe('openai/gpt-oss-120b');
       expect(caps.maxContextChars).toBe(50000);
       expect(caps.features.magicFill).toBe(true);
+    });
+
+    it('uses GROQ_MODEL when set', () => {
+      process.env.GROQ_API_KEY = 'gsk_test_key';
+      process.env.GROQ_MODEL = 'qwen/qwen3.8-27b';
+
+      expect(getAiCapabilities().model).toBe('qwen/qwen3.8-27b');
+    });
+
+    it('falls back to the default model when GROQ_MODEL is blank', () => {
+      process.env.GROQ_API_KEY = 'gsk_test_key';
+      process.env.GROQ_MODEL = '   ';
+
+      expect(getAiCapabilities().model).toBe('openai/gpt-oss-120b');
     });
 
     it('groq takes priority over OPENAI_API_KEY when both are set and no local env', () => {
@@ -277,6 +292,30 @@ describe('generateStructuredJson', () => {
       const callArg = mockCreate.mock.calls[0][0];
       expect(callArg.temperature).toBe(0.9);
       expect(callArg.max_tokens).toBe(42);
+    });
+
+    it('gives gpt-oss reasoning models low effort and token headroom on top of maxTokens', async () => {
+      process.env.GROQ_API_KEY = 'gsk_test_key';
+      mockCreate.mockResolvedValue(completionWith('{"foo":"oss"}'));
+
+      await generateStructuredJson<Parsed>('sys', 'user', { maxTokens: 500 });
+
+      const callArg = mockCreate.mock.calls[0][0];
+      expect(callArg.model).toBe('openai/gpt-oss-120b');
+      expect(callArg.reasoning_effort).toBe('low');
+      expect(callArg.max_tokens).toBe(1524);
+    });
+
+    it('sends neither reasoning_effort nor headroom for a non-reasoning groq model', async () => {
+      process.env.GROQ_API_KEY = 'gsk_test_key';
+      process.env.GROQ_MODEL = 'qwen/qwen3.8-27b';
+      mockCreate.mockResolvedValue(completionWith('{"foo":"qwen"}'));
+
+      await generateStructuredJson<Parsed>('sys', 'user', { maxTokens: 500 });
+
+      const callArg = mockCreate.mock.calls[0][0];
+      expect(callArg).not.toHaveProperty('reasoning_effort');
+      expect(callArg.max_tokens).toBe(500);
     });
 
     it('constructs the OpenAI client with the provider apiKey and baseURL, and sends system+user messages', async () => {
