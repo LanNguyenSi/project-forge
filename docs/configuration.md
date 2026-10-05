@@ -27,7 +27,7 @@ sets the persistent `DATABASE_URL`.
 |---|---|
 | `OPENAI_API_KEY` | Enables AI magic fill (OpenAI, `gpt-4o-mini`) |
 | `GROQ_API_KEY` | Enables AI magic fill (Groq, preferred, free tier available) |
-| `GROQ_MODEL` | Groq model id (defaults to `openai/gpt-oss-120b`). Set it when Groq retires the default. |
+| `GROQ_MODEL` | Groq model id (defaults to `openai/gpt-oss-120b`). Set it when Groq retires the default. Reasoning handling (low effort, extra token budget) applies only to `openai/gpt-oss-*`; other Groq reasoning models are not supported. |
 | `LOCAL_AI_BASE_URL` | Enables a local OpenAI-compatible model endpoint for AI magic fill and server-side intake enrichment |
 | `LOCAL_AI_MODEL` | Model name for the local AI endpoint |
 | `LOCAL_AI_API_KEY` | Optional API key for the local AI endpoint |
