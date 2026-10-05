@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- AI magic fill ("Fill Form") and intake enrichment failed with "AI assist
-  failed" on Groq: the hard-coded `llama-3.3-70b-versatile` was retired by
-  Groq and now returns 404. The Groq default is `openai/gpt-oss-120b` (Groq's
-  named replacement), sent with `reasoning_effort: "low"` and extra token
-  headroom so the reasoning does not truncate the JSON answer.
+- AI magic fill ("Fill Form"), intake enrichment and the post-scaffold
+  review failed on Groq ("AI assist failed"): the hard-coded
+  `llama-3.3-70b-versatile` was retired by Groq and now returns 404. The
+  Groq default is `openai/gpt-oss-120b` (Groq's named replacement), sent
+  with `reasoning_effort: "low"` and extra token headroom so the reasoning
+  does not truncate the JSON answer.
 
 ### Added
 

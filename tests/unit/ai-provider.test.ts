@@ -107,9 +107,9 @@ describe('getAiCapabilities', () => {
 
     it('uses GROQ_MODEL when set', () => {
       process.env.GROQ_API_KEY = 'gsk_test_key';
-      process.env.GROQ_MODEL = 'qwen/qwen3.8-27b';
+      process.env.GROQ_MODEL = 'example/plain-chat-model';
 
-      expect(getAiCapabilities().model).toBe('qwen/qwen3.8-27b');
+      expect(getAiCapabilities().model).toBe('example/plain-chat-model');
     });
 
     it('falls back to the default model when GROQ_MODEL is blank', () => {
@@ -308,8 +308,8 @@ describe('generateStructuredJson', () => {
 
     it('sends neither reasoning_effort nor headroom for a non-reasoning groq model', async () => {
       process.env.GROQ_API_KEY = 'gsk_test_key';
-      process.env.GROQ_MODEL = 'qwen/qwen3.8-27b';
-      mockCreate.mockResolvedValue(completionWith('{"foo":"qwen"}'));
+      process.env.GROQ_MODEL = 'example/plain-chat-model';
+      mockCreate.mockResolvedValue(completionWith('{"foo":"plain"}'));
 
       await generateStructuredJson<Parsed>('sys', 'user', { maxTokens: 500 });
 
