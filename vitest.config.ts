@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
@@ -8,6 +8,9 @@ export default defineConfig({
     globals: true,
     environment: 'happy-dom',
     testTimeout: 30000, // Generous for integration tests
+    // scripts/audit-gate.test.mjs is a node:test self-test run by the audit
+    // workflow (`node --test`); vitest must not collect it.
+    exclude: [...configDefaults.exclude, 'scripts/audit-gate.test.mjs'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
