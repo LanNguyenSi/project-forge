@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `npm audit` gate: an ID-scoped, dated allowlist (`.github/audit-allowlist.json`) with one entry for GHSA-vfj7-8cjw-p6xm (braces 3.0.3, dev dependency only, no upstream fix; reviewBy 2026-11-06). The gate step now captures `npm audit --audit-level=high --json` and classifies it with the dependency-free `scripts/audit-gate.mjs`, vendored from depsight commit be8c7ea, so any other HIGH or CRITICAL advisory still fails the job. A dependency-free self-test (`node --test scripts/audit-gate.test.mjs`) runs before the gate.
 - `GROQ_MODEL` env var to override the Groq model without a release.
 
 ## [0.7.0] - 2026-10-04

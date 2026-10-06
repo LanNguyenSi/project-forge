@@ -1,0 +1,9 @@
+{
+  "entries": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "reason": "braces 3.0.3 reaches the tree only as a dev dependency (micromatch via fast-glob under eslint-config-next, and via tailwindcss and chokidar; per npm ls braces micromatch --all after npm ci); npm audit offers no in-tree fix. Drop the entry once braces or micromatch ships a fix.",
+      "reviewBy": "2026-11-06"
+    }
+  ]
+}
