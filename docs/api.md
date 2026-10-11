@@ -168,6 +168,6 @@ Errors use the shape `{ ok: false, error: <code>, message }`:
 | 400 | Invalid JSON, missing `githubAccessToken`, or a non-string `githubLogin` |
 | 401 | GitHub token verification failed, or `githubLogin` differs from the verified login |
 | 403 | The login is not in `ALLOWED_GITHUB_LOGINS` (when that variable is set) |
-| 409 | An email/password account with the same email exists and has no linked GitHub id |
+| 409 | An account with the same email already exists and has no linked GitHub id (an email/password account, or one created by GitHub sign-in on the web UI) |
 | 503 | GitHub could not be reached |
 | 500 | Unexpected error during verification |

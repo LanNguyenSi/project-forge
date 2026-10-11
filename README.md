@@ -93,10 +93,13 @@ npx prisma db push
 npm run dev
 ```
 
-Or run `make dev`, which creates `.env` first (with a generated
-`NEXTAUTH_SECRET` and `NEXTAUTH_URL=http://localhost:3000`), then installs
-dependencies, generates the Prisma client, creates the database and starts the
-dev server. It does not set `PLANFORGE_URL` or `PLANFORGE_SERVICE_TOKEN`.
+Or run `make dev`, which creates `.env` from `.env.example` when it does not
+exist yet, then installs dependencies, generates the Prisma client, creates the
+database and starts the dev server. With GNU sed it also writes a generated
+`NEXTAUTH_SECRET` and `NEXTAUTH_URL=http://localhost:3000` into the new `.env`.
+On macOS (BSD sed) those two edits fail without stopping `make`, so set both
+values in `.env` by hand (`openssl rand -hex 32` for the secret). It does not
+set `PLANFORGE_URL` or `PLANFORGE_SERVICE_TOKEN`.
 
 Generating a project needs the agent-planforge HTTP service with scaffoldkit.
 Locally, run its container from an agent-planforge checkout:
