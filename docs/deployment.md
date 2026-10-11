@@ -29,6 +29,40 @@ the fallback key for hashing API tokens when `API_TOKEN_HASH_SECRET` is unset.
 Both services need `PLANFORGE_SERVICE_TOKEN` in `.env`. Compose propagates
 it; mismatched values cause `app` to get 401s from `planforge`.
 
+### Routing
+
+The `app` service publishes no host port and is reached through Traefik. Its
+labels in `docker-compose.yml` set the router rule `Host(...)` to the upstream
+hostname, the entrypoint `websecure`, and the certificate resolver
+`letsencrypt`. For your own instance, redefine these labels in
+`docker-compose.override.yml` (Compose merges labels by key):
+
+```yaml
+services:
+  app:
+    labels:
+      traefik.http.routers.project-forge.rule: Host(`forge.example.com`)
+      traefik.http.routers.project-forge.entrypoints: <your entrypoint>
+      traefik.http.routers.project-forge.tls.certresolver: <your resolver>
+```
+
+Set `NEXTAUTH_URL` to the same public URL. To run without Traefik, add
+`ports: ["3000:3000"]` under `app` in the override and use
+`http://localhost:3000` as `NEXTAUTH_URL`; the external `traefik` network must
+still exist.
+
+### Session cleanup
+
+Generated sessions live in `FORGE_TEMP_DIR` (`/tmp/project-forge` on the
+`forge_tmp` volume). There is no background cleanup: an expired session is
+removed only when it is read again, and a published one right after the push.
+Sessions that are never previewed or published stay on the volume, together
+with any uploaded documents. Prune them periodically, for example:
+
+```bash
+docker compose exec app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} +
+```
+
 ## Service Token Rotation (manual, v1)
 
 ```bash

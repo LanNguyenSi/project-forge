@@ -31,11 +31,11 @@ project-forge/
 │   │   │   ├── preview/route.ts  # Read a previously generated session
 │   │   │   ├── publish/route.ts  # Create GitHub repo from a session
 │   │   │   └── projects/route.ts # GET list / DELETE / POST one-shot create
-│   │   ├── auth/                 # NextAuth + registration
+│   │   ├── auth/                 # NextAuth, email/password sign-up (register/), project-pilot broker
 │   │   ├── generate/route.ts     # Web UI generation (preview)
 │   │   ├── publish/route.ts      # GitHub repo creation & push
 │   │   ├── ai-assist/route.ts    # AI form enrichment
-│   │   └── dashboard/            # User/token management
+│   │   └── dashboard/            # profile (route.ts), API tokens (tokens/), GitHub PAT (pat/)
 │   ├── docs/page.tsx             # Swagger UI API docs
 │   ├── styleguide/page.tsx       # UI primitives showcase
 │   ├── layout.tsx                # Root layout
@@ -69,7 +69,7 @@ project-forge/
 ├── types/next-auth.d.ts          # NextAuth type extensions
 ├── tests/                        # Integration (tests/integration/) & unit (tests/unit/) tests
 ├── prisma/schema.prisma          # Database schema
-├── middleware.ts                  # Auth + API key validation
+├── middleware.ts                  # X-API-Key presence check on /api/v1, login redirect for pages
 ├── Dockerfile                    # Multi-stage build
 ├── docker-compose.yml            # Container orchestration
 └── AI_CONTEXT.md                 # This file
@@ -103,7 +103,7 @@ project-forge/
 
 ### Styling
 
-- Tailwind CSS with dark-first design (bg-gray-950, text-gray-100, etc.)
+- Tailwind CSS with the palette from `tailwind.config.ts` (`forge-*`, `ember`, `gold`, `success`/`warning`/`danger`); `/styleguide` shows the primitives
 - No light mode — the app is dark-only
 - Swagger UI has custom dark-mode overrides in `globals.css`
 
@@ -111,7 +111,7 @@ project-forge/
 
 - Test runner: Vitest with happy-dom
 - Tests in `tests/integration/` and `tests/unit/`
-- Run: `npm test` or `npm run test:watch`
+- Run: `npm test` or `npm run test:watch`; `npm run test:coverage` applies CI's coverage thresholds
 
 ## What NOT to Do
 

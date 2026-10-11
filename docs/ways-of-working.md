@@ -11,7 +11,8 @@ A feature or bug fix is done when:
 - [ ] Typecheck passes (`npm run typecheck` / `npx tsc --noEmit`)
 - [ ] Lint passes with no new warnings (`npm run lint`)
 - [ ] The app builds (`npm run build`)
-- [ ] Tests are written and passing (`npm test`, Vitest)
+- [ ] Tests are written and passing (`npm test`, Vitest; CI runs
+      `npm run test:coverage`, which also enforces coverage thresholds)
 - [ ] API responses keep the documented shape (`{ ok, error, details? }` for
       errors); breaking shape changes are called out
 - [ ] No secrets (PATs, tokens, file paths, stderr) leak into responses or logs
@@ -44,8 +45,8 @@ These rules govern the HTTP surface. All contributors must follow them.
 
 ### Rate limiting
 
-- The publish path and `POST /api/v1/projects` consume the per-user daily quota
-  (`checkRateLimit`); `generate`, `preview`, and list/delete do not. Keep that
+- The publish path and `POST /api/v1/projects` consume the per-user publish
+  quota (10 in a rolling 24 hours, `checkRateLimit`); `generate`, `preview`, and list/delete do not. Keep that
   split intact when adding endpoints.
 
 ## Components and Styling
@@ -53,7 +54,9 @@ These rules govern the HTTP surface. All contributors must follow them.
 - Page-level layout uses `<AppShell>` (sidebar) and `<PageShell>` (title /
   subtitle).
 - Pages that need session or interactivity are client components (`"use client"`).
-- Tailwind, dark-first (`bg-gray-950`, `text-gray-100`, ...). No light mode.
+- Tailwind with the palette from `tailwind.config.ts` (`forge-*`, `ember`,
+  `gold`, and the `success`/`warning`/`danger` status colors); `/styleguide`
+  shows the primitives. No light mode.
 
 ## Database
 
@@ -91,7 +94,9 @@ its REST API:
 1. Bump `version` in `package.json`
 2. Update `CHANGELOG.md`
 3. Commit: `chore(release): vX.Y.Z`
-4. Tag and push the tag; CI runs the build/test pipeline
+4. Tag `vX.Y.Z` and push the tag. The Release workflow reruns CI and
+   publishes a GitHub Release with the matching `## [X.Y.Z]` section of
+   `CHANGELOG.md` as notes, so the heading must match the tag version.
 
 ## Branching Strategy
 
@@ -111,7 +116,8 @@ docs/<description>
 1. Branch from `main`
 2. Make small, focused commits
 3. Open a Pull Request (draft if in progress)
-4. Pass CI checks (typecheck, lint, build, tests)
+4. Pass CI checks (typecheck, lint, build, tests with coverage thresholds)
+   and the npm audit gate
 5. Get at least one review approval
 6. Squash-merge into `main`
 7. Delete the branch
@@ -205,7 +211,7 @@ before working on the codebase.
 - Provide the expected request/response shape as part of the specification
 - Review auth, status codes, and secret handling carefully
 - Run `npm run typecheck`, `npm run lint`, `npm run build`, and `npm test` after
-  AI-generated changes
+  AI-generated changes; `npm run test:coverage` applies CI's coverage thresholds
 
 ## Communication
 
