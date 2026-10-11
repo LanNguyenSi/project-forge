@@ -111,7 +111,7 @@ project-forge/
 
 - Test runner: Vitest with happy-dom
 - Tests in `tests/integration/` and `tests/unit/`
-- Run: `npm test` or `npm run test:watch`
+- Run: `npm test` or `npm run test:watch`; `npm run test:coverage` applies CI's coverage thresholds
 
 ## What NOT to Do
 

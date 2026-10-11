@@ -160,7 +160,7 @@ sequenceDiagram
   A-->>C: ok, sessionId, preview
   C->>A: POST /api/v1/publish with sessionId
   A->>D: checkRateLimit (429 at 10 in 24h)
-  A->>T: owner and TTL check (404)
+  A->>T: owner and TTL check (404, expired dir removed)
   A->>T: create .forge-published (409 if present)
   A->>G: POST /user/repos (public), then git push
   A->>D: insert UsageLog row

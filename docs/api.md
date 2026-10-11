@@ -1,8 +1,8 @@
 # API Reference: project-forge
 
-All `/api/v1` endpoints require an API token generated in the dashboard,
-passed via the `X-API-Key` header. [Broker registration](#broker-registration)
-takes a GitHub access token instead.
+All `/api/v1` endpoints require a `pf_` API token, issued in the dashboard or
+by [broker registration](#broker-registration), passed via the `X-API-Key`
+header. Broker registration itself takes a GitHub access token instead.
 
 Rate limit: 10 publishes per user in any rolling 24-hour window, counted
 across all of the user's tokens. Only `POST /api/v1/publish` and the one-shot
@@ -149,9 +149,8 @@ as `publish`.
 
 ## Broker registration
 
-`POST /api/auth/register-from-project-pilot` registers or signs in a user for
-an identity broker such as project-pilot and returns a project-forge API
-token. It takes no `X-API-Key`; the caller passes a GitHub access token, which
+`POST /api/auth/register-from-project-pilot` creates or updates a user for an
+identity broker such as project-pilot and returns a project-forge API token. It takes no `X-API-Key`; the caller passes a GitHub access token, which
 project-forge verifies against GitHub's `GET /user`.
 
 Request body: `{ githubAccessToken, githubLogin? }`. Response:

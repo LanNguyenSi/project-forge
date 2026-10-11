@@ -45,8 +45,8 @@ These rules govern the HTTP surface. All contributors must follow them.
 
 ### Rate limiting
 
-- The publish path and `POST /api/v1/projects` consume the per-user daily quota
-  (`checkRateLimit`); `generate`, `preview`, and list/delete do not. Keep that
+- The publish path and `POST /api/v1/projects` consume the per-user publish
+  quota (10 in a rolling 24 hours, `checkRateLimit`); `generate`, `preview`, and list/delete do not. Keep that
   split intact when adding endpoints.
 
 ## Components and Styling
@@ -211,7 +211,7 @@ before working on the codebase.
 - Provide the expected request/response shape as part of the specification
 - Review auth, status codes, and secret handling carefully
 - Run `npm run typecheck`, `npm run lint`, `npm run build`, and `npm test` after
-  AI-generated changes
+  AI-generated changes; `npm run test:coverage` applies CI's coverage thresholds
 
 ## Communication
 
