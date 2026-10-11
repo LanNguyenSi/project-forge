@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (implemented; see `lib/planforge-client.ts` and the `planforge` service in `docker-compose.yml`)
+Accepted (implemented; see `lib/planforge-client.ts` and the `planforge` service in `docker-compose.yml`). As built, the endpoint is `POST /api/generate`, and the planforge container has no Traefik labels or published ports; `app` reaches it on the shared docker network (see [deployment.md](../deployment.md)).
 
 ## Context
 
@@ -185,4 +185,4 @@ If the agent-planforge maintainer rejects that expanded scope — e.g. on ground
 - Companion task (planforge ingest, blocked by this ADR): agent-tasks `dc069556-077d-4b9c-926d-278a438adb8c`.
 - This spike: agent-tasks `fb21d97e-2a49-43d8-afbf-9782c31de66d`.
 - Pattern reference for stdio MCP facade over a REST service: `ops-mcp/packages/mcp/src/server.ts`. Note: ops-mcp is MCP-only (calls a remote REST gateway); there is no existing REST+MCP dual-facade pattern in the codebase today.
-- ADR-0001 (language choice) is unrelated but is the only prior ADR in this repo; follow its Markdown-only, `## Status / ## Context / ## Decision / ## Consequences` format.
+- Follow the `## Status / ## Context / ## Decision / ## Consequences` format.

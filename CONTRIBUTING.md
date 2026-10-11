@@ -16,6 +16,8 @@ Thanks for your interest. project-forge is a web UI for creating AI-toolchain pr
    ```bash
    npm install
    npx prisma generate
+   npm run typecheck
+   npm run lint
    npm run build
    npm test
    ```
@@ -28,13 +30,14 @@ Thanks for your interest. project-forge is a web UI for creating AI-toolchain pr
 ```bash
 git clone https://github.com/LanNguyenSi/project-forge.git
 cd project-forge
+cp .env.example .env # set NEXTAUTH_SECRET, NEXTAUTH_URL, PLANFORGE_URL, PLANFORGE_SERVICE_TOKEN
 npm install
 npx prisma generate
 npx prisma db push   # creates the local SQLite database
 npm run dev
 ```
 
-The database is local SQLite (file path from `DATABASE_URL`); no separate database server is needed. Or run `make dev` to install deps, generate the Prisma client, create the SQLite DB, scaffold `.env`, and start the dev server in one step.
+The database is local SQLite (file path from `DATABASE_URL` in `.env`); no separate database server is needed. Or run `make dev` to scaffold `.env`, install deps, generate the Prisma client, create the SQLite DB, and start the dev server in one step; it does not set `PLANFORGE_URL` or `PLANFORGE_SERVICE_TOKEN`. Generating a project needs a running agent-planforge service, see [Development and Contributing](README.md#development-and-contributing) in the README.
 
 ## Style
 

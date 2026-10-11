@@ -27,9 +27,9 @@ drive generation programmatically.
 - Form-based project intake, with optional AI magic fill
 - Deterministic fallback when no AI provider is configured
 - Review generated tasks, architecture overview, and file tree before anything is created
-- One-click GitHub repository creation with the scaffold pushed
+- One-click GitHub repository creation with the scaffold pushed (the repository is public, see [GitHub publishing](docs/api.md#github-publishing))
 - Token-authenticated REST API (`X-API-Key`) for agents: generate, preview, publish, or one-shot create
-- Single external dependency: the agent-planforge HTTP service, which bundles scaffoldkit in its own container (see [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md))
+- Single toolchain dependency: the agent-planforge HTTP service, which bundles scaffoldkit in its own container (see [ADR-0002](docs/adrs/0002-tool-decoupling-service-boundary.md))
 
 ## Quick Start (Docker)
 
@@ -50,10 +50,12 @@ Prerequisites: Docker with Compose, an
 [agent-planforge](https://github.com/LanNguyenSi/agent-planforge) checkout next
 to this repository (`../agent-planforge`, built as the planforge service by
 `docker-compose.yml`), and an existing external Docker network named `traefik`
-(`docker network create traefik`; a Traefik instance is needed for public
-exposure). Without the override file the SQLite database stays at the
-`.env.example` path (`file:./db/project-forge.db`) inside the container instead
-of on the persistent `/data` volume. See [docs/deployment.md](docs/deployment.md).
+(`docker network create traefik`). The app is reachable only through Traefik
+or a port you publish in the override, see
+[docs/deployment.md](docs/deployment.md#routing). Without the override file
+the SQLite database stays at the `.env.example` path
+(`file:./db/project-forge.db`) inside the container instead of on the
+persistent `/data` volume. See [docs/deployment.md](docs/deployment.md).
 
 ## Usage
 
@@ -70,7 +72,7 @@ curl -X POST https://project-forge.opentriologue.ai/api/v1/generate \
 
 Returns `{ ok: true, sessionId, preview }`; pass `sessionId` to `preview` or
 `publish`. See [docs/api.md](docs/api.md) for the full REST API reference,
-including the one-shot create endpoint and the daily rate limit.
+including the one-shot create endpoint and the publish rate limit.
 
 ## Documentation
 
@@ -84,12 +86,28 @@ including the one-shot create endpoint and the daily rate limit.
 ## Development and Contributing
 
 ```bash
+cp .env.example .env   # set NEXTAUTH_SECRET, NEXTAUTH_URL=http://localhost:3000, PLANFORGE_URL, PLANFORGE_SERVICE_TOKEN
 npm install
+npx prisma generate
+npx prisma db push
 npm run dev
 ```
 
+Or run `make dev`, which creates `.env` first (with a generated
+`NEXTAUTH_SECRET` and `NEXTAUTH_URL=http://localhost:3000`), then installs
+dependencies, generates the Prisma client, creates the database and starts the
+dev server. It does not set `PLANFORGE_URL` or `PLANFORGE_SERVICE_TOKEN`.
+
+Generating a project needs the agent-planforge HTTP service with scaffoldkit.
+Locally, run its container from an agent-planforge checkout:
+`docker build -f server/Dockerfile -t agent-planforge .` and
+`docker run -p 8223:8223 -e PLANFORGE_SERVICE_TOKEN=<token> agent-planforge`.
+Then set `PLANFORGE_URL=http://localhost:8223` and the same
+`PLANFORGE_SERVICE_TOKEN` in `.env`.
+
 Run `npm run typecheck`, `npm run lint`, `npm run build`, and `npm test`
-before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+before opening a PR; `npm run test:coverage` reproduces CI's coverage
+thresholds. See [CONTRIBUTING.md](CONTRIBUTING.md) and
 [docs/ways-of-working.md](docs/ways-of-working.md) for full conventions.
 
 ## License
