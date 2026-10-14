@@ -34,6 +34,7 @@ dev-db:
 dev-env:
 	@if [ ! -f .env ]; then \
 		set -e; \
+		trap 'rm -f .env.tmp .env.tmp.bak' EXIT; \
 		echo "Creating .env from .env.example..."; \
 		secret=$$(openssl rand -hex 32); \
 		[ -n "$$secret" ]; \

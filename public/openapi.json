@@ -402,7 +402,7 @@
     "/api/v1/generate": {
       "post": {
         "summary": "Plan and scaffold a project into a preview session",
-        "description": "Runs planforge + scaffoldkit and stores the result in a temporary session (1 hour TTL) for later preview or publish. Does not create a GitHub repository and does not count against the daily rate limit.",
+        "description": "Runs planforge + scaffoldkit and stores the result in a temporary session (1 hour TTL) for later preview or publish. Does not create a GitHub repository and does not count against the publish rate limit.",
         "operationId": "generateProject",
         "tags": [
           "Projects"

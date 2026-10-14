@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
   }
 
-  // Note: generate does NOT count against the daily project rate limit.
+  // Note: generate does NOT count against the publish rate limit (rolling 24-hour window).
   // Only publish does, since generate doesn't create a repo.
 
   let sessionId: string | null = null;
