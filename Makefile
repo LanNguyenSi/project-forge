@@ -33,15 +33,26 @@ dev-db:
 # Create .env from example if it doesn't exist yet
 dev-env:
 	@if [ ! -f .env ]; then \
+		set -e; \
+		trap 'rm -f .env.tmp .env.tmp.bak' EXIT; \
 		echo "Creating .env from .env.example..."; \
-		cp .env.example .env; \
-		sed -i 's|^NEXTAUTH_SECRET=.*|NEXTAUTH_SECRET='$$(openssl rand -hex 32)'|' .env; \
-		sed -i 's|^NEXTAUTH_URL=.*|NEXTAUTH_URL=http://localhost:3000|' .env; \
+		secret=$$(openssl rand -hex 32); \
+		[ -n "$$secret" ]; \
+		cp .env.example .env.tmp; \
+		sed -i.bak -e 's|^NEXTAUTH_SECRET=.*|NEXTAUTH_SECRET='"$$secret"'|' -e 's|^NEXTAUTH_URL=.*|NEXTAUTH_URL=http://localhost:3000|' .env.tmp; \
+		rm -f .env.tmp.bak; \
+		grep -q "^NEXTAUTH_SECRET=$$secret\$$" .env.tmp; \
+		grep -q '^NEXTAUTH_URL=http://localhost:3000$$' .env.tmp; \
+		mv .env.tmp .env; \
 		echo ""; \
 		echo "━━━ .env created ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo "  NEXTAUTH_SECRET  generated"; \
 		echo "  NEXTAUTH_URL     http://localhost:3000"; \
 		echo "  DATABASE_URL     file:./db/project-forge.db"; \
+		echo ""; \
+		echo "  Needed to generate projects (agent-planforge HTTP service):"; \
+		echo "    PLANFORGE_URL            (e.g. http://localhost:8223)"; \
+		echo "    PLANFORGE_SERVICE_TOKEN  (same value as in the planforge service)"; \
 		echo ""; \
 		echo "  Optional - fill in to enable all features:"; \
 		echo "    GITHUB_ID      (OAuth login)"; \

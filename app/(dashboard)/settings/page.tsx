@@ -240,7 +240,7 @@ export default function SettingsPage() {
                     type="password"
                     value={githubPat}
                     onChange={(e) => setGithubPat(e.target.value)}
-                    placeholder="github_pat_..."
+                    placeholder="ghp_..."
                     className="font-mono text-sm mb-3"
                   />
                   <Button size="sm" onClick={handleSavePat} loading={loading}>
@@ -255,7 +255,7 @@ export default function SettingsPage() {
           <Card>
             <CardHeader
               title="API Tokens"
-              subtitle="Create tokens for your agents to use the REST API. Rate limit: 10 project publishes per user per day."
+              subtitle="Create tokens for your agents to use the REST API. Rate limit: 10 project publishes per user in any rolling 24-hour window."
             />
 
             <div className="flex gap-3 mb-6">

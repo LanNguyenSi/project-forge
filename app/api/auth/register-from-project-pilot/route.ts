@@ -5,9 +5,12 @@
  *   POST /api/auth/register-from-project-pilot
  *   Body:     { githubAccessToken: string, githubLogin?: string }
  *   Response: { apiToken, userId, githubLogin }
- *   Errors:   401 invalid token / login mismatch
+ *   Errors:   400 missing fields
+ *             401 invalid token / login mismatch
+ *             403 forbidden_github_login (login not in ALLOWED_GITHUB_LOGINS)
+ *             409 account_exists_link_required
+ *             500 internal
  *             503 GitHub unreachable
- *             400 missing fields
  *
  * project-forge does NOT blindly trust the caller (project-pilot). The
  * access-token is re-verified against `api.github.com/user`. A compromised
