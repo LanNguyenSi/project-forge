@@ -9,7 +9,7 @@ export const prisma =
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
-// Rate limit: max 10 projects per user per day
+// Rate limit: max 10 projects per user in any rolling 24-hour window
 export const RATE_LIMIT_PER_DAY = 10;
 
 export async function checkRateLimit(userId: string): Promise<{ allowed: boolean; used: number }> {

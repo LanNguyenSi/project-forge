@@ -34,7 +34,7 @@ const features = [
       </svg>
     ),
     title: "Agent-Ready API",
-    desc: "One POST request from your agent creates a GitHub repo. No PAT required, just your project-forge token.",
+    desc: "One POST request from your agent creates a GitHub repo. The agent sends only its project-forge token; GitHub access comes from the account you connected in Settings.",
   },
   {
     icon: (

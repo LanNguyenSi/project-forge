@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Copy and dev setup match the code.** The Settings PAT field suggests a classic `ghp_` token, the only format the API accepts. Rate-limit texts (Settings, docs page, API error, OpenAPI) say "rolling 24-hour window" instead of "per day"; the OpenAPI publish descriptions say the repository is created as public. The landing page no longer claims no PAT is needed. `.env.example` documents `PLANFORGE_URL` and the AI provider order, and `make dev-env` works with BSD sed and fails instead of reporting a secret it did not write (task a4bfb0cc).
 - AI magic fill ("Fill Form"), intake enrichment and the post-scaffold
   review failed on Groq ("AI assist failed"): the hard-coded
   `llama-3.3-70b-versatile` was retired by Groq and now returns 404. The

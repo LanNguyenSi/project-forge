@@ -250,7 +250,7 @@
       },
       "post": {
         "summary": "Create a new project",
-        "description": "Generate a new project using planforge and scaffoldkit, create a GitHub repository, and push the initial commit. Rate limit: 10 project creations per user per day.",
+        "description": "Generate a new project using planforge and scaffoldkit, create a GitHub repository, and push the initial commit. The repository is created as public. Rate limit: 10 project creations per user in any rolling 24-hour window.",
         "operationId": "createProject",
         "tags": [
           "Projects"
@@ -376,7 +376,7 @@
                 "example": {
                   "ok": false,
                   "error": "Rate limit exceeded",
-                  "details": "Maximum 10 projects per day. Used: 10/10"
+                  "details": "Maximum 10 projects per rolling 24 hours. Used: 10/10"
                 }
               }
             }
@@ -681,7 +681,7 @@
     "/api/v1/publish": {
       "post": {
         "summary": "Publish a preview session as a GitHub repository",
-        "description": "Creates a GitHub repository and pushes the scaffolded project from a session created by POST /api/v1/generate. Rate limit: 10 publishes per user per day. Each session can be published at most once.",
+        "description": "Creates a GitHub repository and pushes the scaffolded project from a session created by POST /api/v1/generate. The repository is created as public. Rate limit: 10 publishes per user in any rolling 24-hour window. Each session can be published at most once.",
         "operationId": "publishProject",
         "tags": [
           "Projects"

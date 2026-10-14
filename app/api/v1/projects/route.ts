@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error: "Rate limit exceeded",
-        details: `Maximum 10 projects per day. Used: ${rateLimit.used}/10`,
+        details: `Maximum 10 projects per rolling 24 hours. Used: ${rateLimit.used}/10`,
       },
       { status: 429 }
     );

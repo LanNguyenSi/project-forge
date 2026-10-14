@@ -320,6 +320,17 @@ describe("POST /api/dashboard/pat", () => {
     expect(user.update).not.toHaveBeenCalled();
   });
 
+  it("400 for a fine-grained token (github_pat_): the form accepts classic tokens only", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    const res = await savePat(
+      jsonReq("http://test/api/dashboard/pat", {
+        githubPat: "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz",
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(user.update).not.toHaveBeenCalled();
+  });
+
   it("400 when githubPat is missing", async () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
     const res = await savePat(jsonReq("http://test/api/dashboard/pat", {}));
