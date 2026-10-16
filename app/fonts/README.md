@@ -14,8 +14,8 @@ Space Grotesk is a variable font (wght axis), taken from the
 variable build, so the static weights the app uses (all normal style) come from
 `@fontsource/ibm-plex-sans` and `@fontsource/ibm-plex-mono`, version 5.3.0
 each. Files are from the packages' `files/` directory. Fontsource repackages the
-upstream OFL fonts: same font versions and glyph coverage as Google Fonts,
-though not byte-identical files.
+upstream OFL fonts with the same glyph coverage per subset as Google Fonts;
+some files differ byte-wise from Google's builds (IBM Plex Sans does).
 
 ## Subset decision
 
