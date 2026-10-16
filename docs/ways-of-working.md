@@ -54,8 +54,8 @@ These rules govern the HTTP surface. All contributors must follow them.
 - Page-level layout uses `<AppShell>` (sidebar) and `<PageShell>` (title /
   subtitle).
 - Pages that need session or interactivity are client components (`"use client"`).
-- Tailwind with the palette from `tailwind.config.ts` (`forge-*`, `ember`,
-  `gold`, and the `success`/`warning`/`danger` status colors); `/styleguide`
+- Tailwind CSS 4 with the palette defined in the `@theme` block of
+  `app/globals.css` (`forge-*`, `ember`, `gold`, and the `success`/`warning`/`danger` status colors); `/styleguide`
   shows the primitives. No light mode.
 
 ## Database

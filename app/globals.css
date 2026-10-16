@@ -21,8 +21,13 @@
   --background-image-heat: linear-gradient(95deg, #f5641e, #ffb02e);
 }
 
-/* The font variables are injected by next/font on <html>; inline keeps the
-   utilities pointing at them instead of redefining them. */
+/* next/font injects --font-display, --font-sans and --font-mono via classes on
+   <html>. @theme inline makes the font-* utilities read those variables
+   directly. Tailwind still emits the same names as self-referencing theme
+   variables on :root (inside @layer theme). That is harmless only while the
+   next/font classes sit on <html>: their unlayered declarations win there.
+   Moving those classes to <body> would leave <html> with invalid font
+   variables. */
 @theme inline {
   --font-display: var(--font-display), sans-serif;
   --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
@@ -252,4 +257,13 @@
 .swagger-ui svg.arrow,
 .swagger-ui button.model-box-control svg {
   fill: var(--text) !important;
+}
+
+/* Tailwind CSS v4 colours placeholders with half-transparent currentColor;
+   keep the v3 gray-400 for inputs without an explicit placeholder colour. */
+@layer base {
+  input::placeholder,
+  textarea::placeholder {
+    color: #9ca3af;
+  }
 }

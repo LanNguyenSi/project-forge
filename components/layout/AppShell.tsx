@@ -65,7 +65,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Link
           href="/create"
           onClick={() => setSidebarOpen(false)}
-          className={`flex items-center gap-3 rounded-btn px-3 py-2.5 text-sm font-medium transition-colors mt-3 ${
+          className={`flex items-center gap-3 rounded-btn px-3 py-2.5 text-sm font-medium transition-colors ${
             isActive("/create")
               ? "bg-ember text-forge-void"
               : "bg-ember/10 text-ember hover:bg-ember/20 hover:text-ember-soft"
