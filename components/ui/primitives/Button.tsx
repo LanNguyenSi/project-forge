@@ -53,7 +53,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         disabled={disabled || loading}
         className={`
           inline-flex items-center justify-center gap-2 rounded-btn font-medium
-          transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
+          transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2
           focus-visible:ring-offset-forge-void
           disabled:cursor-not-allowed disabled:opacity-50
           ${variantStyles[variant]}

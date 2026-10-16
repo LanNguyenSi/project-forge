@@ -137,7 +137,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-forge-void text-forge-mist">
       {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-forge-steel bg-forge-void/95 backdrop-blur-sm px-4 py-3">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-4 py-3">
         <button
           onClick={() => setSidebarOpen(true)}
           className="rounded-btn p-1.5 text-forge-ash hover:bg-forge-steel hover:text-forge-mist transition"
@@ -155,7 +155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
-          className="md:hidden fixed inset-0 z-50 bg-forge-void/60 backdrop-blur-sm"
+          className="md:hidden fixed inset-0 z-50 bg-forge-void/60 backdrop-blur-xs"
           onClick={() => setSidebarOpen(false)}
         >
           <aside

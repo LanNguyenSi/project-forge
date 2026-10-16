@@ -18,7 +18,7 @@ export function PublicNav() {
   const onLoginPage = usePathname() === "/login";
 
   return (
-    <nav className="sticky top-0 z-30 border-b border-forge-steel bg-forge-void/95 backdrop-blur-sm px-6 py-4">
+    <nav className="sticky top-0 z-30 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-6 py-4">
       <div className="flex items-center justify-between max-w-7xl mx-auto">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2.5 group">
