@@ -1,28 +1,86 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --color-forge-void: #0b0d10;
+  --color-forge-iron: #14181d;
+  --color-forge-steel: #222a32;
+  --color-forge-ash: #8a93a0;
+  --color-forge-mist: #e7ecf2;
+
+  --color-ember: #f5641e;
+  --color-ember-soft: #fb7a33;
+
+  --color-gold: #ffb02e;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #fb7185;
+
+  --radius-btn: 4px;
+  --radius-card: 10px;
+
+  --background-image-heat: linear-gradient(95deg, #f5641e, #ffb02e);
+}
+
+/* next/font injects --font-display, --font-sans and --font-mono via classes on
+   <html>. @theme inline makes the font-* utilities read those variables
+   directly. Tailwind still emits the same names as self-referencing theme
+   variables on :root (inside @layer theme). That is harmless only while the
+   next/font classes sit on <html>: their unlayered declarations win there.
+   Moving those classes to <body> would leave <html> with invalid font
+   variables. */
+@theme inline {
+  --font-display: var(--font-display), sans-serif;
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 /* ── Forge design-system tokens ── */
 :root {
   /* surface scale */
-  --forge-void:  #0B0D10;
-  --forge-iron:  #14181D;
-  --forge-steel: #222A32;
-  --forge-ash:   #8A93A0;
-  --forge-mist:  #E7ECF2;
+  --forge-void: #0b0d10;
+  --forge-iron: #14181d;
+  --forge-steel: #222a32;
+  --forge-ash: #8a93a0;
+  --forge-mist: #e7ecf2;
 
   /* accent palette */
-  --ember:      #F5641E;
-  --ember-soft: #FB7A33;
-  --gold:       #FFB02E;
+  --ember: #f5641e;
+  --ember-soft: #fb7a33;
+  --gold: #ffb02e;
 
   /* semantic */
-  --success: #34D399;
-  --warning: #FBBF24;
-  --danger:  #FB7185;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fb7185;
 
   /* --font-display, --font-sans, --font-mono are injected by next/font
-     via className on the <html> element (see app/layout.tsx) */
+   via className on the <html> element (see app/layout.tsx) */
+}
+
+/* Tailwind 3 preflight gave buttons a pointer cursor; v4 does not. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 @layer base {
@@ -199,4 +257,13 @@
 .swagger-ui svg.arrow,
 .swagger-ui button.model-box-control svg {
   fill: var(--text) !important;
+}
+
+/* Tailwind CSS v4 colours placeholders with half-transparent currentColor;
+   keep the v3 gray-400 for inputs without an explicit placeholder colour. */
+@layer base {
+  input::placeholder,
+  textarea::placeholder {
+    color: #9ca3af;
+  }
 }

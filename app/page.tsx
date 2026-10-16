@@ -77,7 +77,7 @@ export default function LandingPage() {
         </div>
 
         {/* Headline */}
-        <h1 className="font-display text-4xl sm:text-6xl font-bold mb-6 leading-tight tracking-tight text-forge-mist">
+        <h1 className="font-display text-4xl sm:text-6xl font-bold mb-6 leading-tight sm:leading-none tracking-tight text-forge-mist">
           Cold idea.{" "}
           <br className="hidden sm:block" />
           Hot forge.{" "}
@@ -86,7 +86,7 @@ export default function LandingPage() {
         </h1>
 
         {/* Sub-headline */}
-        <p className="text-forge-ash text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed">
+        <p className="text-forge-ash text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed sm:leading-7">
           project-forge uses planforge + scaffoldkit to turn your project description into a
           fully planned, scaffolded, and committed repository, ready for your agent to build.
         </p>

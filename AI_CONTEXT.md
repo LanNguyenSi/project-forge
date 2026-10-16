@@ -103,7 +103,7 @@ project-forge/
 
 ### Styling
 
-- Tailwind CSS with the palette from `tailwind.config.ts` (`forge-*`, `ember`, `gold`, `success`/`warning`/`danger`); `/styleguide` shows the primitives
+- Tailwind CSS 4 with the palette in the `@theme` block of `app/globals.css` (`forge-*`, `ember`, `gold`, `success`/`warning`/`danger`); `/styleguide` shows the primitives
 - No light mode — the app is dark-only
 - Swagger UI has custom dark-mode overrides in `globals.css`
 

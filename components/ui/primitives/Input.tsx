@@ -1,7 +1,7 @@
 import { InputHTMLAttributes, TextareaHTMLAttributes, forwardRef } from "react";
 
 const baseStyles =
-  "w-full rounded-btn border-0 bg-forge-steel px-3.5 py-2 text-forge-mist placeholder-forge-ash ring-1 ring-inset ring-forge-steel/80 transition-colors focus:ring-2 focus:ring-ember focus:outline-none";
+  "w-full rounded-btn border-0 bg-forge-steel px-3.5 py-2 text-forge-mist placeholder-forge-ash ring-1 ring-inset ring-forge-steel/80 transition-colors focus:ring-2 focus:ring-ember focus:outline-hidden";
 
 type InputProps = InputHTMLAttributes<HTMLInputElement>;
 
