@@ -25,8 +25,20 @@ jobs:
         # next/font/google makes `next build` depend on fonts.googleapis.com
         # being reachable and well-formed.
         run: |
-          if grep -rn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' --include='*.mjs' --exclude-dir=node_modules --exclude-dir=.next 'next/font/google' app components lib middleware.ts; then
+          # Scan from the repo root so a renamed or removed directory cannot
+          # turn a match into grep's "operand missing" status 2, which `if`
+          # would read as "no match". Only rc 1 (no match) passes.
+          rc=0
+          grep -rn \
+            --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' \
+            --include='*.mjs' --include='*.cjs' --include='*.mts' --include='*.cts' \
+            --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=coverage --exclude-dir=.git \
+            'next/font/google' . || rc=$?
+          if [ "$rc" -eq 0 ]; then
             echo "next/font/google is forbidden, vendor the font and use next/font/local" >&2
+            exit 1
+          elif [ "$rc" -ne 1 ]; then
+            echo "font guard could not scan (grep exit $rc)" >&2
             exit 1
           fi
       - run: npm run build

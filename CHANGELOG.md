@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- The app now self-hosts its fonts: `next/font/google` (Space Grotesk 500/700, IBM Plex Sans 400/500/600, IBM Plex Mono 400/500) is replaced by `next/font/local` with vendored woff2 files and their OFL licenses in `app/fonts/` (Space Grotesk as a variable font, IBM Plex as the static weights actually used). `next build` no longer contacts fonts.googleapis.com or fonts.gstatic.com, so a throttled or malformed Google response can no longer fail CI or a deploy. Latin and latin-ext are vendored (project names and descriptions are user input); Cyrillic, Greek and Vietnamese glyphs fall back to the next font in the stack. The `--font-display`, `--font-sans` and `--font-mono` variables and `display: swap` are unchanged. CI gains a guard that fails when `next/font/google` is imported again.
+- The app now self-hosts its fonts: `next/font/google` (Space Grotesk 500/700, IBM Plex Sans 400/500/600, IBM Plex Mono 400/500) is replaced by `next/font/local` with vendored woff2 files and their OFL licenses in `app/fonts/` (Space Grotesk as a variable font, IBM Plex as the static weights actually used). `next build` no longer contacts fonts.googleapis.com or fonts.gstatic.com, so a throttled or malformed Google response can no longer fail CI or a deploy. Every subset Google served for these families is vendored (latin, latin-ext, vietnamese, and cyrillic, cyrillic-ext, greek where the family has them), so glyph coverage matches the previous build; only latin is preloaded. The `--font-display`, `--font-sans` and `--font-mono` variables and `display: swap` are unchanged. CI gains a guard that fails when `next/font/google` is imported again.
 
 ### Security
 
