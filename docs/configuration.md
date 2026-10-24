@@ -2,9 +2,11 @@
 
 Environment variables read by the `app` container. Copy `.env.example` to
 `.env` and fill in the required values before running `make deploy` or
-`docker compose up`. For Docker deploys, also follow the
-`docker-compose.override.yml` step in [deployment.md](deployment.md), which
-sets the persistent `DATABASE_URL`.
+`docker compose up`. For Docker deploys, also follow
+[deployment.md](deployment.md): the database path needs no setting
+(`docker-compose.yml` keeps it on the persistent volume), and deploys that run
+`docker compose -f docker-compose.yml` skip `docker-compose.override.yml`, so
+their secrets belong in `.env`.
 
 ## Required
 
@@ -12,7 +14,7 @@ sets the persistent `DATABASE_URL`.
 |---|---|
 | `NEXTAUTH_SECRET` | Random secret (`openssl rand -hex 32`) |
 | `NEXTAUTH_URL` | Public URL (e.g. `https://project-forge.example.com`) |
-| `DATABASE_URL` | SQLite path (e.g. `file:/data/project-forge.db`) |
+| `DATABASE_URL` | SQLite path for local development (`.env.example` ships `file:./db/project-forge.db`). In Docker the container gets `file:/data/project-forge.db`; the `.env` value does not reach it. Use `FORGE_DATABASE_URL` (below) to change the container path. |
 | `PLANFORGE_URL` | URL of the planforge HTTP service (set to `http://planforge:8223` by `docker-compose.yml`). Not in `.env.example`; for local development add it to `.env`, for example `http://localhost:8223`. |
 | `PLANFORGE_SERVICE_TOKEN` | Shared bearer token for the planforge HTTP service. Generate with `openssl rand -hex 32`. Same value in both `app` and `planforge` containers. |
 
@@ -22,10 +24,16 @@ sets the persistent `DATABASE_URL`.
 > There is no server-level `GITHUB_TOKEN` or `GITHUB_OWNER` env var. For OAuth
 > sign-in, set the optional `GITHUB_ID` / `GITHUB_SECRET` below.
 
-With `docker-compose.yml`, `PLANFORGE_URL` and `FORGE_TEMP_DIR` are fixed in
-the service's `environment:` block, which takes precedence over `.env`; change
-them in `docker-compose.override.yml` (the `forge_tmp` volume is mounted at
-`/tmp/project-forge`).
+With `docker-compose.yml`, `PLANFORGE_URL`, `FORGE_TEMP_DIR` and `DATABASE_URL`
+are fixed in the service's `environment:` block, which takes precedence over
+`.env`; change `PLANFORGE_URL` and `FORGE_TEMP_DIR` in
+`docker-compose.override.yml` (the `forge_tmp` volume is mounted at
+`/tmp/project-forge`). The container's `DATABASE_URL` is
+`${FORGE_DATABASE_URL:-file:/data/project-forge.db}`: set `FORGE_DATABASE_URL`
+in `.env` or the shell to use another file on the `forge_db` volume (compose
+only; the app does not read it). The full precedence, including the override
+and `docker compose -f docker-compose.yml` deploys that skip it, is in
+[deployment.md](deployment.md#database-location).
 
 ## Optional
 
@@ -47,4 +55,5 @@ mapping and the scaffold review stay deterministic.
 | `GITHUB_SECRET` | GitHub OAuth app Client Secret |
 | `ALLOWED_GITHUB_LOGINS` | Comma-separated allowlist of GitHub logins permitted to register via the project-pilot broker. Unset/empty = accept any. |
 | `FORGE_TEMP_DIR` | Directory for temporary build artifacts (defaults to `/tmp/project-forge`) |
+| `FORGE_DATABASE_URL` | Docker only, read by compose (not by the app) from `.env` or the shell: the container's `DATABASE_URL`. Unset or empty = `file:/data/project-forge.db`. See [deployment.md](deployment.md#database-location). |
 | `API_TOKEN_HASH_SECRET` | HMAC-SHA256 key for hashing API tokens (`pf_*`) at rest. Defaults to `NEXTAUTH_SECRET` when unset. Changing whichever key is in effect invalidates all previously issued API tokens (see `scripts/backfill-api-token-hashes.js`). |

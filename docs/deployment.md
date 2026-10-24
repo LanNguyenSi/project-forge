@@ -14,46 +14,76 @@ The root `docker-compose.yml` ships two services:
   `http://planforge:8223`.
 
 Copy `docker-compose.override.example.yml` to `docker-compose.override.yml`
-before the first deploy and replace its `NEXTAUTH_SECRET` placeholder with a
-fresh `openssl rand -hex 32` value (or delete that line and the
+before the first manual deploy and replace its `NEXTAUTH_SECRET` placeholder
+with a fresh `openssl rand -hex 32` value (or delete that line and the
 `NEXTAUTH_URL` line from the override so the `.env` values apply). Do not leave
 the placeholder in place: `NEXTAUTH_SECRET` is also the fallback key for
 hashing API tokens when `API_TOKEN_HASH_SECRET` is unset, and the app refuses
 to serve with the placeholder or an empty value (see
 [Required secrets](#required-secrets)).
 
+**Deploys through deploy-panel and agent-relay never load the override.** The
+relay runs every compose command as `docker compose -f docker-compose.yml ...`
+(`compose_file` in `.relay.yml`), and an explicit `-f` replaces the default
+file lookup, so `docker-compose.override.yml` is skipped. Everything such a
+deploy needs comes from `docker-compose.yml`, `.env` and the shell of the
+relay: put the secrets and a non-default database path in `.env`, not in the
+override. `make deploy` and `make pull` run plain `docker compose`, which does
+load the override.
+
 ### Database location
 
-`docker-compose.yml` sets `DATABASE_URL=file:/data/project-forge.db` for `app`,
-which is the `forge_db` volume, so the database survives `make deploy`
-(rebuild plus recreate). Precedence, highest first:
+`docker-compose.yml` sets the container's `DATABASE_URL` to
+`${FORGE_DATABASE_URL:-file:/data/project-forge.db}`. The default is the
+`forge_db` volume, so the database survives a rebuild plus recreate.
+`FORGE_DATABASE_URL` is a compose-only knob: set it in `.env` (or the shell,
+which wins over `.env`) to use another file on the volume. An empty value
+counts as unset. Precedence, highest first:
 
-1. `docker-compose.override.yml`, `services.app.environment.DATABASE_URL`:
-   use this to point at a different file on the volume.
-2. The default in `docker-compose.yml` (`file:/data/project-forge.db`).
+1. `docker-compose.override.yml`, `services.app.environment.DATABASE_URL`.
+   Applies to plain `docker compose` only, never with `-f docker-compose.yml`.
+2. `FORGE_DATABASE_URL` from the shell, then from `.env`.
+3. The default `file:/data/project-forge.db`.
 
-A `DATABASE_URL` in `.env` does not apply to the container: the `environment:`
-block of the compose file beats `env_file`, and `.env.example` ships a local
-development path (`file:./db/project-forge.db`) that would otherwise put the
-database inside the container layer. The same holds for a `DATABASE_URL`
-exported in the shell, because the compose file does not interpolate it. Local
-development (`npm run dev`, `make dev`) still reads `.env`.
+The `DATABASE_URL` in `.env` (the local development path
+`file:./db/project-forge.db` from `.env.example`) does not reach the
+container: the `environment:` block of the compose file beats `env_file`, and
+compose interpolates only `FORGE_DATABASE_URL`. A `DATABASE_URL` exported in
+the shell is ignored for the same reason. Local development (`npm run dev`,
+`make dev`) still reads `.env`.
+
+Resulting container `DATABASE_URL`, checked with `docker compose config` (plain)
+and `docker compose -f docker-compose.yml config` (the relay path):
+
+| Inputs | plain | `-f docker-compose.yml` |
+|---|---|---|
+| nothing set | `file:/data/project-forge.db` | `file:/data/project-forge.db` |
+| `.env` `DATABASE_URL` only | `file:/data/project-forge.db` | `file:/data/project-forge.db` |
+| `.env` `FORGE_DATABASE_URL=file:/data/env.db` | `file:/data/env.db` | `file:/data/env.db` |
+| shell `FORGE_DATABASE_URL=file:/data/shell.db` | `file:/data/shell.db` | `file:/data/shell.db` |
+| override `DATABASE_URL=file:/data/override.db` | `file:/data/override.db` | `file:/data/project-forge.db` |
 
 Check the effective value with
-`docker compose config | grep DATABASE_URL`.
+`docker compose -f docker-compose.yml config | grep 'DATABASE_URL'`
+(the plain form shows what a manual run would use). On a running stack,
+`docker compose exec app printenv DATABASE_URL` shows what the container has.
 
 ### Required secrets
 
-- `PLANFORGE_SERVICE_TOKEN` is read for both services from `.env` or the shell
-  (compose interpolation does not see the override file). Compose refuses to
-  run any command, including `docker compose up`, while it is unset or empty,
+- `PLANFORGE_SERVICE_TOKEN` is read for both services from `.env` or the shell.
+  Compose interpolates `docker-compose.yml` before it merges the override, so
+  a token that only the override sets does not satisfy the check, even though
+  the app would receive it. Compose refuses to run any command, including
+  `docker compose up` and `docker compose config`, while it is unset or empty,
   and names the variable in the error.
-- `NEXTAUTH_SECRET` may be set in `.env` or in the override. The `app`
-  container checks it when the production server starts: with a missing or
-  empty value, or a placeholder copied from `.env.example` or the override
-  example, every request returns 500 and the error is logged
-  (`Refusing to start: NEXTAUTH_SECRET ...`). `next dev`, `next build` and
-  the test run are not affected.
+- `NEXTAUTH_SECRET` may be set in `.env` or, for plain `docker compose` runs,
+  in the override. On deploys through agent-relay (override not loaded) it must
+  be in `.env`. The `app` container checks it when the production server
+  starts: with a missing or empty value, or a placeholder copied from
+  `.env.example` or the override example, the process keeps running but every
+  request returns 500 and the error is logged
+  (`Refusing to serve: NEXTAUTH_SECRET ...`), and the healthcheck fails.
+  `next dev`, `next build` and the test run are not affected.
 
 ### Health check and logs
 
@@ -129,25 +159,38 @@ A token store + in-place rotation is a follow-up (see
 
 ## Upgrading to the safe-by-default compose stack
 
-This change moves several defaults into `docker-compose.yml`. An existing
-VPS `docker-compose.override.yml` keeps working; check these before the next
-`make deploy` or `make pull` (both now rebuild with `--build`):
+This change moves several defaults into `docker-compose.yml`. Check these
+before the next deploy (`make deploy` and `make pull` now rebuild with
+`--build`; deploy-panel deploys skip the override, see
+[Docker Compose](#docker-compose)):
 
-- **Database path.** If the override already sets
-  `DATABASE_URL=file:/data/project-forge.db`, nothing changes. If you never
-  created the override, the database was inside the container layer and the
-  new default moves it to the empty `forge_db` volume on the next recreate:
-  copy the old file across first, for example
-  `docker compose cp app:/app/prisma/db/project-forge.db ./project-forge.db`
-  (the old path depends on where `prisma db push` created it; look under
-  `/app/prisma` and `/app/db`), then after the deploy copy it to
-  `/data/project-forge.db` in the new container and restart `app`.
+- **Database path. Check BEFORE deploying, never after.** Read the live value:
+  `docker compose exec app printenv DATABASE_URL`.
+  - `file:/data/project-forge.db`: nothing changes.
+  - Anything else (for example `file:./db/project-forge.db` from a missing
+    override, which the previous compose file left inside the container layer):
+    the new default would point at an empty database on the `forge_db` volume.
+    Either set `FORGE_DATABASE_URL` in `.env` to that live value so the
+    container keeps using it, or copy the file onto the volume with the app
+    idle before the deploy:
+    `docker compose exec app cp /app/prisma/db/project-forge.db /data/project-forge.db`.
+    The Prisma schema lives in `/app/prisma`, so a relative `file:./db/...`
+    resolves to `/app/prisma/db/...`; adjust the source path for other values.
+    Do this against the old container; once it is recreated, the file in its
+    layer is gone.
+- **Existing override.** `DATABASE_URL`, `NEXTAUTH_SECRET` and `NEXTAUTH_URL`
+  set only in `docker-compose.override.yml` keep working for plain
+  `docker compose` runs and are silently absent from deploys that use
+  `-f docker-compose.yml`. Move the ones those deploys need into `.env`
+  (`FORGE_DATABASE_URL` for the database path).
 - **`PLANFORGE_SERVICE_TOKEN`.** Must be a non-empty value in `.env` (or the
-  shell). A token that only exists in the override file never reached
-  `planforge`, and compose now stops with an error naming the variable.
-- **`NEXTAUTH_SECRET`.** Must be a real value in `.env` or in the override;
-  the placeholder from the example files, or no value, makes the production
-  server answer 500 and the container `unhealthy`.
+  shell), also when the override sets it: compose interpolates
+  `docker-compose.yml` before merging the override. A setup whose token only
+  lives in the override worked before; it now stops every compose command with
+  an error naming the variable, so move the token into `.env` first.
+- **`NEXTAUTH_SECRET`.** Must be a real value in `.env` or, for plain compose
+  runs, in the override; the placeholder from the example files, or no value,
+  makes the production server answer 500 and the container `unhealthy`.
 - **Logs and health.** The `json-file` rotation applies after the containers
   are recreated; the healthcheck starts out `starting` for up to 60 seconds.
   If you use `.relay.yml`, its `health: /` check is unchanged.

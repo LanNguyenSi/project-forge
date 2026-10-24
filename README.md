@@ -40,9 +40,9 @@ cp .env.example .env
 # Fill in required values, see docs/configuration.md
 cp docker-compose.override.example.yml docker-compose.override.yml
 # Fill in NEXTAUTH_SECRET (openssl rand -hex 32) and NEXTAUTH_URL, or delete
-# them from the override (its values take precedence over .env). The override
-# also points DATABASE_URL at the forge_db volume (mounted at /data by
-# docker-compose.yml): DATABASE_URL=file:/data/project-forge.db
+# them from the override (its values take precedence over .env). The database
+# needs no setting: docker-compose.yml keeps it on the forge_db volume
+# (file:/data/project-forge.db) unless FORGE_DATABASE_URL is set in .env.
 make deploy
 ```
 
@@ -52,10 +52,13 @@ to this repository (`../agent-planforge`, built as the planforge service by
 `docker-compose.yml`), and an existing external Docker network named `traefik`
 (`docker network create traefik`). The app is reachable only through Traefik
 or a port you publish in the override, see
-[docs/deployment.md](docs/deployment.md#routing). Without the override file
-the SQLite database stays at the `.env.example` path
-(`file:./db/project-forge.db`) inside the container instead of on the
-persistent `/data` volume. See [docs/deployment.md](docs/deployment.md).
+[docs/deployment.md](docs/deployment.md#routing). The SQLite database is
+on the persistent `/data` volume by default; the `DATABASE_URL` in `.env` is
+for local development and does not reach the container (use
+`FORGE_DATABASE_URL` for another path). Deploys that run
+`docker compose -f docker-compose.yml` (deploy-panel, agent-relay) skip the
+override file, so keep the secrets in `.env` there. See
+[docs/deployment.md](docs/deployment.md).
 
 ## Usage
 

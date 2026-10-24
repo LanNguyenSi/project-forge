@@ -50,7 +50,7 @@ describe("assertSecretsConfigured", () => {
     expect(() => assertSecretsConfigured({ NEXTAUTH_SECRET: "f".repeat(64) })).not.toThrow();
   });
 
-  it("throws a start-refusal naming the variable", () => {
-    expect(() => assertSecretsConfigured({})).toThrow(/Refusing to start: NEXTAUTH_SECRET/);
+  it("throws a refusal naming the variable", () => {
+    expect(() => assertSecretsConfigured({})).toThrow(/Refusing to serve: NEXTAUTH_SECRET/);
   });
 });

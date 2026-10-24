@@ -1,7 +1,8 @@
 // Production start-up guard for secrets that ship as placeholders in the
-// example files. It runs from instrumentation.ts, so a container with a
-// missing or copied-over secret exits at boot instead of serving sessions
-// signed with a publicly known value.
+// example files. It runs from instrumentation.ts. Next.js catches the error
+// thrown from register(): the process keeps running and every request
+// answers 500, so the container does not exit, but it never serves sessions
+// signed with a publicly known value, and its /api/health check fails.
 
 // Placeholder values from .env.example and docker-compose.override.example.yml
 // ("your-secret-here-generate-with-openssl-rand-hex-32",
@@ -24,6 +25,6 @@ export function findSecretProblems(env: Record<string, string | undefined>): str
 export function assertSecretsConfigured(env: Record<string, string | undefined>): void {
   const problems = findSecretProblems(env);
   if (problems.length > 0) {
-    throw new Error(`Refusing to start: ${problems.join("; ")}`);
+    throw new Error(`Refusing to serve: ${problems.join("; ")}`);
   }
 }

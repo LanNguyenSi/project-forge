@@ -16,12 +16,12 @@ describe("instrumentation register()", () => {
     vi.unstubAllEnvs();
   });
 
-  it("refuses to boot the production server with the placeholder secret", async () => {
+  it("refuses to serve with the placeholder secret", async () => {
     stubServerEnv({});
-    await expect(register()).rejects.toThrow(/Refusing to start/);
+    await expect(register()).rejects.toThrow(/Refusing to serve/);
   });
 
-  it("refuses to boot the production server without a secret", async () => {
+  it("refuses to serve without a secret", async () => {
     stubServerEnv({ NEXTAUTH_SECRET: "" });
     await expect(register()).rejects.toThrow(/NEXTAUTH_SECRET is not set/);
   });
