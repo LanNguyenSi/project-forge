@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma, createApiToken } from "@/lib/db";
+import { internalErrorDetails } from "@/lib/server-error";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     return NextResponse.json(
-      { ok: false, error: "Failed to create token", details: error instanceof Error ? error.message : String(error) },
+      { ok: false, error: "Failed to create token", details: internalErrorDetails("Create token failed", error) },
       { status: 500 }
     );
   }

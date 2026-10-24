@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
+import { internalErrorDetails } from "@/lib/server-error";
 
 export async function POST(req: NextRequest) {
   try {
@@ -51,9 +52,8 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    console.error("Registration error:", error);
     return NextResponse.json(
-      { ok: false, error: "Registration failed", details: error instanceof Error ? error.message : String(error) },
+      { ok: false, error: "Registration failed", details: internalErrorDetails("Registration error", error) },
       { status: 500 }
     );
   }

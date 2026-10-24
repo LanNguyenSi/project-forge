@@ -17,6 +17,7 @@ import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from 
 import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } from '@/lib/post-scaffold-review';
 import { writeAttachmentsToScaffold } from '@/lib/scaffold-attachments';
 import { resolveDependsOn, validateProjectName } from '@/lib/v1-shared';
+import { internalErrorDetails } from "@/lib/server-error";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
 // End-to-end cap for plan + scaffold + tar + SSE + untar. Server-side
@@ -217,8 +218,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error: unknown) {
-    console.error('Generation failed:', error);
-
     if (sessionId) {
       const tempDir = path.join(TEMP_ROOT, sessionId);
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -228,7 +227,7 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error: 'Failed to generate project',
-        details: error instanceof Error ? error.message : String(error),
+        details: internalErrorDetails("Generation failed", error),
       },
       { status: 500 }
     );

@@ -139,7 +139,7 @@ export default function CreatePage() {
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-gold mb-1">GitHub connection required</h3>
+                    <h2 className="font-semibold text-gold mb-1">GitHub connection required</h2>
                     <p className="text-sm text-forge-ash mb-4">
                       Connect your GitHub account to create repositories. Choose OAuth for the fastest setup.
                     </p>

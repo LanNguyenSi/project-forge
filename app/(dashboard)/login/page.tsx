@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Button, Input, Label, Alert } from "@/components/ui/primitives";
+import { Button, Input, Label, Alert, Field } from "@/components/ui/primitives";
 import { PublicNav } from "@/components/layout/PublicNav";
 
 export default function LoginPage() {
@@ -108,7 +108,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4 rounded-card bg-forge-iron border border-forge-steel p-6">
             {error && <Alert variant="error">{error}</Alert>}
 
-            <div>
+            <Field>
               <Label>Email</Label>
               <Input
                 type="email"
@@ -117,9 +117,9 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 required
               />
-            </div>
+            </Field>
 
-            <div>
+            <Field>
               <Label>Password</Label>
               <Input
                 type="password"
@@ -129,7 +129,7 @@ export default function LoginPage() {
                 required
                 minLength={8}
               />
-            </div>
+            </Field>
 
             <Button type="submit" block size="lg" loading={loading}>
               {loading

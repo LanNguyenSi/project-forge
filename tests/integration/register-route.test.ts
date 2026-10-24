@@ -139,4 +139,17 @@ describe("POST /api/auth/register", () => {
     const body = await res.json();
     expect(body.error).toMatch(/registration failed/i);
   });
+
+  it("500 body does not leak the thrown error message", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    user.findUnique.mockResolvedValue(null);
+    user.create.mockRejectedValue(new Error("Invalid prisma.user.create() invocation: secret-column"));
+
+    const res = await POST(makeReq({ email: "x@test.com", password: "validpass!" }));
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).not.toContain("prisma.user.create");
+    expect(text).not.toContain("secret-column");
+    expect(JSON.parse(text).details).toMatch(/^An internal error occurred\. Reference: [0-9a-f]{8}$/);
+  });
 });

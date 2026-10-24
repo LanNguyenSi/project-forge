@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { ProjectInput } from "@/lib/types";
 import { getAiCapabilities, generateStructuredJson } from "@/lib/ai-provider";
+import { internalErrorDetails } from "@/lib/server-error";
 
 const PROMPT_SYSTEM_PROMPT = `You are a project specification assistant. Extract project details from user descriptions and return structured JSON.
 
@@ -151,8 +152,9 @@ export async function POST(req: NextRequest) {
       model: result.model,
     });
   } catch (error: unknown) {
-    console.error("AI assist error:", error);
-    const msg = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ ok: false, error: "AI assist failed", details: msg }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "AI assist failed", details: internalErrorDetails("AI assist error", error) },
+      { status: 500 }
+    );
   }
 }

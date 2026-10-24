@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { internalErrorDetails } from "@/lib/server-error";
 
 // Settings-only: the caller's own raw GitHub PAT. The shared GET /api/dashboard
 // response only exposes a `githubPatConnected` boolean (see app/api/dashboard/route.ts)
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
     return NextResponse.json(
-      { ok: false, error: "Failed to save PAT", details: error instanceof Error ? error.message : String(error) },
+      { ok: false, error: "Failed to save PAT", details: internalErrorDetails("Save PAT failed", error) },
       { status: 500 }
     );
   }

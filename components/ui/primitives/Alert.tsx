@@ -12,6 +12,15 @@ const variantStyles: Record<NonNullable<AlertProps["variant"]>, string> = {
   info:    "border-l-forge-ash bg-forge-steel text-forge-mist",
 };
 
+// Errors interrupt (role=alert, assertive); everything else is announced
+// politely (role=status) so a success toast does not cut off a screen reader.
+const variantRoles: Record<NonNullable<AlertProps["variant"]>, "alert" | "status"> = {
+  error:   "alert",
+  success: "status",
+  warning: "status",
+  info:    "status",
+};
+
 export function Alert({
   children,
   variant = "info",
@@ -20,6 +29,7 @@ export function Alert({
 }: AlertProps) {
   return (
     <div
+      role={variantRoles[variant]}
       className={`border-l-2 rounded-r-btn pl-4 pr-4 py-3 text-sm ${variantStyles[variant]} ${className}`}
     >
       <div className="flex items-start gap-3">
