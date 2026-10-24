@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { ForgeMark } from "@/components/layout/ForgeMark";
+import { DialogShell } from "@/components/DialogShell";
 
 const mainNavItems = [
   {
@@ -27,10 +28,14 @@ const mainNavItems = [
   },
 ];
 
+const MOBILE_NAV_ID = "mobile-nav-drawer";
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const pathname = usePathname();
+  // Stable identity: DialogShell re-runs its focus handling when onClose changes.
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const { data: session } = useSession();
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
@@ -139,10 +144,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile top bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-4 py-3">
         <button
+          type="button"
           onClick={() => setSidebarOpen(true)}
-          className="rounded-btn p-1.5 text-forge-ash hover:bg-forge-steel hover:text-forge-mist transition"
+          aria-label="Open navigation menu"
+          aria-expanded={sidebarOpen}
+          aria-controls={MOBILE_NAV_ID}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-btn text-forge-ash hover:bg-forge-steel hover:text-forge-mist transition"
         >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <svg className="w-6 h-6" aria-hidden="true" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
           </svg>
         </button>
@@ -152,19 +161,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      {/* Mobile sidebar overlay */}
+      {/* Mobile navigation drawer: a modal dialog (Escape, overlay click, focus trap and focus return in DialogShell) */}
       {sidebarOpen && (
-        <div
-          className="md:hidden fixed inset-0 z-50 bg-forge-void/60 backdrop-blur-xs"
-          onClick={() => setSidebarOpen(false)}
-        >
-          <aside
-            className="h-full w-64 bg-forge-iron border-r border-forge-steel flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {sidebarContent}
-          </aside>
-        </div>
+        <DialogShell title="Navigation menu" variant="drawer" onClose={closeSidebar} id={MOBILE_NAV_ID}>
+          {sidebarContent}
+        </DialogShell>
       )}
 
       {/* Desktop sidebar */}

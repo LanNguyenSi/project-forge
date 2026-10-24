@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Mobile navigation and API docs are usable by keyboard and screen reader.** The hamburger button has an accessible name ("Open navigation menu") with `aria-expanded` and `aria-controls`, and is 44 px square (was 36 px). The mobile drawer is now a modal dialog built on `DialogShell` (new `drawer` variant): `role="dialog"`, `aria-modal`, a label, focus moves into it on open and back to the hamburger on close, Tab stays inside, and Escape or a click on the overlay closes it. The public navigation links ("Docs", "Login") have a 36 px tall hit area (were 20 px). On `/docs` both code blocks scroll inside themselves and are keyboard focusable, so the page no longer scrolls horizontally at 390 px, and the swagger-ui server select gets the accessible name "API server".
 - **Copy and dev setup match the code.** The Settings PAT field suggests a classic `ghp_` token, the only format the API accepts. Rate-limit texts (Settings, docs page, API error, OpenAPI) say "rolling 24-hour window" instead of "per day"; the OpenAPI publish descriptions say the repository is created as public. The landing page no longer claims no PAT is needed. `.env.example` documents `PLANFORGE_URL` and the AI provider order, and `make dev-env` works with BSD sed and fails instead of reporting a secret it did not write (task a4bfb0cc).
 - AI magic fill ("Fill Form"), intake enrichment and the post-scaffold
   review failed on Groq ("AI assist failed"): the hard-coded
