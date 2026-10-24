@@ -218,7 +218,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error: unknown) {
-
     if (sessionId) {
       const tempDir = path.join(TEMP_ROOT, sessionId);
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
