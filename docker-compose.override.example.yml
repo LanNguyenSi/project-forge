@@ -1,12 +1,20 @@
-# Copy to docker-compose.override.yml and fill in values
+# Copy to docker-compose.override.yml and fill in values.
+# Values here take precedence over docker-compose.yml and .env, but only for
+# plain `docker compose` runs: deploy tooling that runs
+# `docker compose -f docker-compose.yml` never loads this file, so on such
+# deploys NEXTAUTH_SECRET and NEXTAUTH_URL must be set in .env instead.
 services:
   app:
     environment:
+      # Required. Generate with: openssl rand -hex 32
+      # The app refuses to serve (every request returns 500) with this
+      # placeholder or an empty value.
       NEXTAUTH_SECRET: "your_nextauth_secret_here-generate-with-openssl-rand-hex-32"
       NEXTAUTH_URL: "https://project-forge.opentriologue.ai"
-      DATABASE_URL: "file:/data/project-forge.db"
-    volumes:
-      - forge_db:/data
-
-volumes:
-  forge_db:
+      # Optional. docker-compose.yml already points DATABASE_URL at the
+      # forge_db volume (file:/data/project-forge.db). To use a different file,
+      # prefer FORGE_DATABASE_URL in .env: this override is skipped by
+      # `docker compose -f docker-compose.yml` (how deploy tooling runs), so a
+      # DATABASE_URL set only here applies to manual `docker compose` runs and
+      # silently not to those deploys.
+      # DATABASE_URL: "file:/data/other.db"

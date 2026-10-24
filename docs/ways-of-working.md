@@ -57,6 +57,9 @@ These rules govern the HTTP surface. All contributors must follow them.
 - Tailwind CSS 4 with the palette defined in the `@theme` block of
   `app/globals.css` (`forge-*`, `ember`, `gold`, and the `success`/`warning`/`danger` status colors); `/styleguide`
   shows the primitives. No light mode.
+- Form fields: wrap a `<Label>` and its `<Input>` or `<Textarea>` in `<Field>`
+  so the label is programmatically associated (or pass `id`/`htmlFor`
+  explicitly). A control without a visible label gets an `aria-label`.
 
 ## Database
 

@@ -54,7 +54,7 @@ export default function DashboardPage() {
             /* State: GitHub NOT connected → guide to connect */
             <Card tone="accent" padding="lg">
               <div className="flex items-center gap-2 text-xs text-ember font-medium mb-4">
-                <span className="flex items-center gap-1.5 rounded-full bg-ember/20 px-2.5 py-1">Step 1 of 2</span>
+                <span className="flex items-center gap-1.5 rounded-full bg-ember/20 px-2.5 py-1 text-ember-soft">Step 1 of 2</span>
                 Connect GitHub
               </div>
               <h2 className="font-display text-xl sm:text-2xl font-bold text-forge-mist mb-2">

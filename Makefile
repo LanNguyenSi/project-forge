@@ -13,7 +13,7 @@ restart:
 	docker compose restart
 
 pull:
-	git pull && docker compose up -d
+	git pull && docker compose up -d --build
 
 # ── Local Development ────────────────────────────────────────
 

@@ -241,6 +241,7 @@ export default function SettingsPage() {
                     value={githubPat}
                     onChange={(e) => setGithubPat(e.target.value)}
                     placeholder="ghp_..."
+                    aria-label="GitHub personal access token"
                     className="font-mono text-sm mb-3"
                   />
                   <Button size="sm" onClick={handleSavePat} loading={loading}>
@@ -264,6 +265,7 @@ export default function SettingsPage() {
                 value={newTokenName}
                 onChange={(e) => setNewTokenName(e.target.value)}
                 placeholder="Token name (e.g., my-agent)"
+                aria-label="API token name"
                 className="flex-1"
               />
               <Button variant="success" onClick={handleCreateToken} loading={loading}>
@@ -294,7 +296,7 @@ export default function SettingsPage() {
                       <div className="text-sm font-mono text-forge-ash mt-1 truncate">
                         {token.tokenPrefix}&hellip;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;
                       </div>
-                      <div className="text-xs text-forge-ash/70 mt-1">
+                      <div className="text-xs text-forge-ash mt-1">
                         Created: {new Date(token.createdAt).toLocaleDateString()} &middot;{" "}
                         Last used: {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleDateString() : "Never"}
                       </div>

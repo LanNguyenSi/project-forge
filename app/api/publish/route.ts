@@ -6,6 +6,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { excludePlanforgeArtifactsFromPublish, prunePublishedPlanforgeIndex } from "@/lib/planforge-output";
 import type { PublishResponse, ErrorResponse } from "../../../lib/types";
+import { scrubSecrets } from "@/lib/scrub-secrets";
 import { runCommand } from "@/lib/subprocess";
 import { SESSION_UUID_RE, readForgeMeta, isSessionExpired } from "@/lib/v1-shared";
 
@@ -154,11 +155,7 @@ export async function POST(req: NextRequest) {
     // `TOKEN@`/`x-access-token:TOKEN@` remote form plus bare GitHub token
     // shapes as defense in depth.
     const raw = error instanceof Error ? error.message : String(error);
-    const sanitized = raw
-      .replace(/x-access-token:[^@]+@/g, "x-access-token:***@")
-      .replace(/https:\/\/[^@\s/]+@/g, "https://***@")
-      .replace(/\b(gho|ghp|ghu|ghs)_[A-Za-z0-9]+/g, "$1_***")
-      .replace(/\bgithub_pat_[A-Za-z0-9_]+/g, "github_pat_***");
+    const sanitized = scrubSecrets(raw);
     console.error("Publish failed:", sanitized);
 
     // Always remove the temp dir on failure: on the throw path the cleanup

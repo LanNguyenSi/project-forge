@@ -8,6 +8,7 @@ import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
 import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from "@/lib/planforge-client";
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { runCommand } from "@/lib/subprocess";
+import { internalErrorDetails, UserFacingError } from "@/lib/server-error";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 // End-to-end cap for plan + scaffold + tar + SSE + untar + git push.
@@ -221,8 +222,6 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    console.error("Project generation failed:", error);
-
     if (sessionId) {
       const tempDir = path.join(TEMP_ROOT, sessionId);
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -232,7 +231,7 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error: "Project generation failed",
-        details: error instanceof Error ? error.message : String(error),
+        details: internalErrorDetails("Project generation failed", error),
       },
       { status: 500 }
     );
@@ -261,14 +260,14 @@ async function createAndPushRepo(
 
   if (!createRes.ok) {
     const errorText = await createRes.text();
-    
+
     // Provide specific error messages based on status code
     if (createRes.status === 401) {
-      throw new Error(
+      throw new UserFacingError(
         "Invalid or expired GitHub PAT. Please update your GitHub Personal Access Token in the dashboard."
       );
     } else if (createRes.status === 403) {
-      throw new Error(
+      throw new UserFacingError(
         "GitHub PAT lacks required permissions. Please ensure your PAT has 'repo' scope enabled."
       );
     } else if (createRes.status === 422) {
@@ -283,7 +282,7 @@ async function createAndPushRepo(
       } catch {
         message += "Please check the repository name and try again.";
       }
-      throw new Error(message);
+      throw new UserFacingError(message);
     } else {
       throw new Error(`GitHub repo creation failed (${createRes.status}): ${errorText}`);
     }
