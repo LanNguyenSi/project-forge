@@ -35,6 +35,11 @@ describe("findSecretProblems", () => {
     expect(findSecretProblems({ NEXTAUTH_SECRET: "changeme-generate-with-openssl" })).toHaveLength(1);
   });
 
+  it("rejects a your-prefixed placeholder without the generate hint", () => {
+    expect(findSecretProblems({ NEXTAUTH_SECRET: "your-secret-here" })).toHaveLength(1);
+    expect(findSecretProblems({ NEXTAUTH_SECRET: "YOUR_SECRET" })).toHaveLength(1);
+  });
+
   it("does not flag a random secret that merely starts with other text", () => {
     expect(findSecretProblems({ NEXTAUTH_SECRET: "yours3cr3tvalue0123456789abcdef" })).toEqual([]);
   });
