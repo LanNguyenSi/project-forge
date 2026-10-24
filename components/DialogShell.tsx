@@ -13,6 +13,15 @@ interface DialogShellProps {
   children: ReactNode;
   onClose: () => void;
   initialFocusRef?: MutableRefObject<HTMLElement | null>;
+  /**
+   * "center" (default) is the centred modal card. "drawer" is a full-height
+   * left panel for the mobile navigation: same dialog semantics, Escape,
+   * focus trap and focus return, but no card padding, no centring, and it
+   * is hidden from the md breakpoint up where the desktop sidebar takes over.
+   */
+  variant?: "center" | "drawer";
+  /** id of the dialog element, for an opener's aria-controls. */
+  id?: string;
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -29,6 +38,8 @@ export function DialogShell({
   children,
   onClose,
   initialFocusRef,
+  variant = "center",
+  id,
 }: DialogShellProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -97,18 +108,29 @@ export function DialogShell({
     };
   }, [initialFocusRef, onClose]);
 
+  const isDrawer = variant === "drawer";
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-forge-void/70 p-4 backdrop-blur-xs"
+      className={
+        isDrawer
+          ? "md:hidden fixed inset-0 z-50 bg-forge-void/60 backdrop-blur-xs"
+          : "fixed inset-0 z-50 flex items-center justify-center bg-forge-void/70 p-4 backdrop-blur-xs"
+      }
       onClick={onClose}
     >
       <div
         ref={dialogRef}
+        id={id}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="w-full max-w-md rounded-card bg-forge-iron border border-forge-steel p-8 shadow-2xl focus:outline-hidden"
+        className={
+          isDrawer
+            ? "h-full w-64 bg-forge-iron border-r border-forge-steel flex flex-col focus:outline-hidden"
+            : "w-full max-w-md rounded-card bg-forge-iron border border-forge-steel p-8 shadow-2xl focus:outline-hidden"
+        }
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="sr-only">

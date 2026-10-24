@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import "swagger-ui-react/swagger-ui.css";
@@ -10,11 +11,41 @@ import { PublicNav } from "@/components/layout/PublicNav";
 
 const SwaggerUI = dynamic(() => import("swagger-ui-react"), { ssr: false });
 
+/**
+ * swagger-ui renders its server picker as `<label><select id="servers">` with
+ * no text in the label, so the select has no accessible name. The picker is
+ * third-party markup that appears after the spec loads (and can be re-created),
+ * so name it from an observer instead of patching swagger-ui.
+ */
+function SwaggerWithNamedServerSelect() {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const nameServerSelects = () => {
+      root.querySelectorAll<HTMLSelectElement>(".servers select").forEach((select) => {
+        if (!select.hasAttribute("aria-label")) select.setAttribute("aria-label", "API server");
+      });
+    };
+    nameServerSelects();
+    const observer = new MutationObserver(nameServerSelects);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={rootRef}>
+      <SwaggerUI url="/openapi.json" />
+    </div>
+  );
+}
+
 function DocsContent() {
   return (
     <div className="space-y-6">
       <Card padding="none" className="overflow-hidden">
-        <SwaggerUI url="/openapi.json" />
+        <SwaggerWithNamedServerSelect />
       </Card>
 
       <Card>
@@ -31,7 +62,7 @@ function DocsContent() {
           </div>
           <div>
             <h3 className="font-semibold text-forge-mist mb-2">2. Make a Request</h3>
-            <pre className="rounded-card bg-forge-iron px-4 py-3 font-mono text-forge-mist overflow-x-auto">
+            <pre tabIndex={0} className="rounded-card bg-forge-iron px-4 py-3 font-mono text-forge-mist overflow-x-auto">
 {`curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: pf_your_token_here" \\
@@ -48,7 +79,7 @@ function DocsContent() {
             <p className="text-forge-ash mb-2">
               The API returns a GitHub repository URL. Clone it and start developing:
             </p>
-            <pre className="rounded-card bg-forge-iron px-4 py-3 font-mono text-forge-mist">
+            <pre tabIndex={0} className="rounded-card bg-forge-iron px-4 py-3 font-mono text-forge-mist overflow-x-auto">
               git clone https://github.com/username/my-app.git
             </pre>
           </div>

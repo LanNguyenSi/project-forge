@@ -32,7 +32,7 @@ export function PublicNav() {
         <div className="flex items-center gap-5 text-sm">
           <Link
             href="/docs"
-            className="text-forge-ash hover:text-forge-mist transition-colors"
+            className="inline-flex min-h-9 items-center text-forge-ash hover:text-forge-mist transition-colors"
           >
             Docs
           </Link>
@@ -49,7 +49,7 @@ export function PublicNav() {
               <>
                 <Link
                   href="/login"
-                  className="text-forge-ash hover:text-forge-mist transition-colors"
+                  className="inline-flex min-h-9 items-center text-forge-ash hover:text-forge-mist transition-colors"
                 >
                   Login
                 </Link>
