@@ -27,6 +27,7 @@ describe("internalErrorDetails", () => {
       ["ghp_ token", "Invalid `prisma.user.update()` data: { githubPat: 'ghp_abcDEF123456' }", "ghp_abcDEF123456"],
       ["github_pat_ token", "failed with github_pat_11AAAA_bbbCCC999", "github_pat_11AAAA_bbbCCC999"],
       ["x-access-token remote", "fatal: unable to access 'https://x-access-token:SEKRET9@github.com/o/r.git'", "SEKRET9"],
+      ["bare x-access-token form", "git push failed: x-access-token:SEKRET7@github.com/o/r.git", "SEKRET7"],
       ["userinfo remote", "fatal: unable to access 'https://SEKRET8@github.com/o/r.git'", "SEKRET8"],
     ];
     for (const [name, message, secret] of cases) {
