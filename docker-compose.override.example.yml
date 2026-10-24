@@ -1,12 +1,13 @@
-# Copy to docker-compose.override.yml and fill in values
+# Copy to docker-compose.override.yml and fill in values.
+# Values here take precedence over docker-compose.yml and .env.
 services:
   app:
     environment:
+      # Required. Generate with: openssl rand -hex 32
+      # The app refuses to start with this placeholder or an empty value.
       NEXTAUTH_SECRET: "your_nextauth_secret_here-generate-with-openssl-rand-hex-32"
       NEXTAUTH_URL: "https://project-forge.opentriologue.ai"
-      DATABASE_URL: "file:/data/project-forge.db"
-    volumes:
-      - forge_db:/data
-
-volumes:
-  forge_db:
+      # Optional. docker-compose.yml already points DATABASE_URL at the
+      # forge_db volume (file:/data/project-forge.db). Uncomment only to use a
+      # different file on that volume.
+      # DATABASE_URL: "file:/data/other.db"
