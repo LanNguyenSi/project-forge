@@ -1,3 +1,11 @@
+# Bounded container logs: json-file keeps at most 3 x 10 MB per service, so a
+# chatty or crash-looping container cannot fill the host disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   app:
     build: .
@@ -8,11 +16,23 @@ services:
       NODE_ENV: production
       PORT: "3000"
       FORGE_TEMP_DIR: /tmp/project-forge
+      # SQLite lives on the forge_db volume (mounted at /data below), so a
+      # rebuild or recreate keeps the data. FORGE_DATABASE_URL is a
+      # compose-only knob read from .env or the shell; the DATABASE_URL in .env
+      # is for local development and does not reach the container. Deploy
+      # tooling runs `docker compose -f docker-compose.yml`, which skips
+      # docker-compose.override.yml, so a path that must survive such deploys
+      # belongs in FORGE_DATABASE_URL, not in the override.
+      DATABASE_URL: ${FORGE_DATABASE_URL:-file:/data/project-forge.db}
       # Planforge HTTP boundary (ADR-0002). The planforge service runs both
       # the planforge CLI and scaffoldkit in-container; this app just POSTs
       # input and untars the response. No bind-mounts needed.
       PLANFORGE_URL: http://planforge:8223
-      PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN}
+      # Required: compose refuses to start the stack when it is unset or empty.
+      # Read from .env or the shell: compose interpolates this file before it
+      # merges the override, so a value that only the override sets does not
+      # satisfy the check.
+      PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN:?set PLANFORGE_SERVICE_TOKEN in .env (openssl rand -hex 32)}
     volumes:
       - forge_tmp:/tmp/project-forge
       - forge_db:/data
@@ -28,6 +48,20 @@ services:
         # live PLANFORGE_URL target. Without the condition, app would race
         # the first request and 502 until the Hono server finishes booting.
         condition: service_healthy
+    healthcheck:
+      # Inline Node so the probe needs no curl/wget in the image. /api/health
+      # is public and does no database work. The start period covers the
+      # `prisma db push` that runs before `next start`.
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    logging: *default-logging
     networks:
       - traefik
     restart: unless-stopped
@@ -48,7 +82,7 @@ services:
       context: ../agent-planforge
       dockerfile: server/Dockerfile
     environment:
-      PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN}
+      PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN:?set PLANFORGE_SERVICE_TOKEN in .env (openssl rand -hex 32)}
     # No ports: — traffic stays on the internal docker network. No Traefik
     # labels either: public exposure would bypass the service-token contract.
     healthcheck:
@@ -63,6 +97,7 @@ services:
       timeout: 3s
       retries: 5
       start_period: 15s
+    logging: *default-logging
     networks:
       - traefik
     restart: unless-stopped
