@@ -73,6 +73,16 @@ describe("Field + Label + Input association", () => {
     expect(input.id).toBe("custom");
   });
 
+  it("an explicit id wins over the Field id on a textarea", () => {
+    render(
+      <Field>
+        <Label htmlFor="notes">Notes</Label>
+        <Textarea id="notes" />
+      </Field>,
+    );
+    expect(screen.getByRole("textbox", { name: "Notes" }).id).toBe("notes");
+  });
+
   it("works without a Field when id and htmlFor are given explicitly", () => {
     render(
       <>
