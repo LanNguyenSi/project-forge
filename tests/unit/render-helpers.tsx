@@ -1,9 +1,9 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-// @testing-library/react needs @testing-library/dom, which `npm ci
-// --legacy-peer-deps` (the CI install) does not install, so component tests
-// drive react-dom directly.
+// Thin react-dom helpers for component tests that only need to mount, click
+// and press keys; tests that query by accessible role or name use
+// @testing-library/react directly.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mounted: { root: Root; container: HTMLElement }[] = [];
@@ -32,10 +32,16 @@ export function click(el: Element) {
   });
 }
 
-export function keyDown(key: string, target: EventTarget = window) {
+export function keyDown(
+  key: string,
+  target: EventTarget = window,
+  init: KeyboardEventInit = {},
+) {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
   act(() => {
-    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    target.dispatchEvent(event);
   });
+  return event;
 }
 
 export function byRole(root: ParentNode, role: string) {

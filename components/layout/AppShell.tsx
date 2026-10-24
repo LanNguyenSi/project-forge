@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -29,6 +29,8 @@ const mainNavItems = [
 ];
 
 const MOBILE_NAV_ID = "mobile-nav-drawer";
+// Same breakpoint as Tailwind's md: the drawer is hidden and the desktop sidebar shows.
+const DESKTOP_QUERY = "(min-width: 768px)";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -37,6 +39,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Stable identity: DialogShell re-runs its focus handling when onClose changes.
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const { data: session } = useSession();
+
+  // The drawer is hidden by CSS from md up, but its DialogShell stays mounted,
+  // so the focus trap and the body scroll lock would outlive the visible
+  // drawer (a phone rotated to landscape). Close it when the desktop layout
+  // takes over.
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(DESKTOP_QUERY);
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setSidebarOpen(false);
+    };
+    query.addEventListener("change", handleChange);
+    return () => query.removeEventListener("change", handleChange);
+  }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 

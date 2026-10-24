@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
 import type { ReactNode } from "react";
 import { buttonByLabel, byRole, click, keyDown, mount, unmountAll } from "./render-helpers";
 
@@ -20,10 +21,51 @@ vi.mock("next-auth/react", () => ({
 
 import { AppShell } from "@/components/layout/AppShell";
 
+type ChangeListener = (event: { matches: boolean }) => void;
+
+const realMatchMedia = Object.getOwnPropertyDescriptor(window, "matchMedia");
+let mediaListeners: Set<ChangeListener>;
+let mediaQueries: string[];
+
+function stubMatchMedia() {
+  mediaListeners = new Set();
+  mediaQueries = [];
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => {
+      mediaQueries.push(query);
+      return {
+        matches: false,
+        media: query,
+        addEventListener: (_type: string, listener: ChangeListener) => mediaListeners.add(listener),
+        removeEventListener: (_type: string, listener: ChangeListener) =>
+          mediaListeners.delete(listener),
+      };
+    },
+  });
+}
+
+function fireMediaChange(matches: boolean) {
+  act(() => {
+    for (const listener of Array.from(mediaListeners)) listener({ matches });
+  });
+}
+
+beforeEach(stubMatchMedia);
+
 afterEach(() => {
   unmountAll();
   document.body.style.overflow = "";
+  if (realMatchMedia) Object.defineProperty(window, "matchMedia", realMatchMedia);
+  else delete (window as { matchMedia?: unknown }).matchMedia;
 });
+
+function focusableIn(dialog: HTMLElement) {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"),
+  );
+}
 
 function renderShell() {
   const container = mount(
@@ -121,5 +163,110 @@ describe("AppShell mobile navigation drawer", () => {
     const { hamburger } = renderShell();
     expect(hamburger.className).toContain("h-11");
     expect(hamburger.className).toContain("w-11");
+  });
+  describe("keyboard focus trap", () => {
+    it("wraps Tab from the last focusable element to the first", () => {
+      const { dialog } = openDrawer();
+      const focusable = focusableIn(dialog);
+      expect(focusable.length).toBeGreaterThan(1);
+      focusable[focusable.length - 1].focus();
+
+      const event = keyDown("Tab");
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusable[0]);
+    });
+
+    it("wraps Shift+Tab from the first focusable element to the last", () => {
+      const { dialog } = openDrawer();
+      const focusable = focusableIn(dialog);
+      focusable[0].focus();
+
+      const event = keyDown("Tab", window, { shiftKey: true });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusable[focusable.length - 1]);
+    });
+
+    it("leaves Tab to the browser between the ends", () => {
+      const { dialog } = openDrawer();
+      const focusable = focusableIn(dialog);
+      focusable[0].focus();
+      expect(keyDown("Tab").defaultPrevented).toBe(false);
+
+      focusable[focusable.length - 1].focus();
+      expect(keyDown("Tab", window, { shiftKey: true }).defaultPrevented).toBe(false);
+    });
+
+    it("pulls focus back into the drawer when it sits outside", () => {
+      const { dialog, hamburger } = openDrawer();
+      hamburger.focus();
+
+      const event = keyDown("Tab");
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusableIn(dialog)[0]);
+    });
+
+    it("ignores keys other than Tab and Escape", () => {
+      const { dialog } = openDrawer();
+      const focusable = focusableIn(dialog);
+      focusable[focusable.length - 1].focus();
+
+      const event = keyDown("a");
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(focusable[focusable.length - 1]);
+    });
+  });
+
+  describe("viewport grows to the desktop layout while the drawer is open", () => {
+    it("watches the md breakpoint", () => {
+      renderShell();
+      expect(mediaQueries).toEqual(["(min-width: 768px)"]);
+    });
+
+    it("closes the drawer, releases the scroll lock and the Tab trap", () => {
+      const { container, hamburger } = openDrawer();
+      expect(document.body.style.overflow).toBe("hidden");
+
+      fireMediaChange(true);
+
+      expect(byRole(container, "dialog")).toHaveLength(0);
+      expect(hamburger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.body.style.overflow).toBe("");
+      // The window keydown trap is gone: Tab from the page is not intercepted.
+      document.body.focus();
+      expect(keyDown("Tab").defaultPrevented).toBe(false);
+      expect(keyDown("Tab", window, { shiftKey: true }).defaultPrevented).toBe(false);
+    });
+
+    it("keeps the drawer open when the change event says the query no longer matches", () => {
+      const { container } = openDrawer();
+
+      fireMediaChange(false);
+
+      expect(byRole(container, "dialog")).toHaveLength(1);
+      expect(document.body.style.overflow).toBe("hidden");
+    });
+
+    it("stops listening once the shell unmounts", () => {
+      renderShell();
+      expect(mediaListeners.size).toBe(1);
+
+      unmountAll();
+
+      expect(mediaListeners.size).toBe(0);
+    });
+
+    it("still works where matchMedia does not exist", () => {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+
+      const { container } = openDrawer();
+      expect(byRole(container, "dialog")).toHaveLength(1);
+
+      keyDown("Escape");
+      expect(byRole(container, "dialog")).toHaveLength(0);
+    });
   });
 });
