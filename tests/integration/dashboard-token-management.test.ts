@@ -365,3 +365,41 @@ describe("POST /api/dashboard/pat", () => {
     expect(user.update).toHaveBeenCalledTimes(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 500 responses must not echo the thrown error message
+// ---------------------------------------------------------------------------
+describe("dashboard routes: 500 does not leak error.message", () => {
+  const LEAK = "Invalid prisma invocation: column secret_col";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+  });
+
+  async function expectGeneric(res: Response) {
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).not.toContain("prisma");
+    expect(text).not.toContain("secret_col");
+    expect(JSON.parse(text).details).toMatch(/^An internal error occurred\. Reference: [0-9a-f]{8}$/);
+    expect(console.error).toHaveBeenCalled();
+  }
+
+  it("POST /api/dashboard/tokens", async () => {
+    apiToken.create.mockRejectedValue(new Error(LEAK));
+    await expectGeneric(await createToken(jsonReq("http://test/api/dashboard/tokens", { name: "ci" })));
+  });
+
+  it("DELETE /api/dashboard/tokens/[id]", async () => {
+    apiToken.findFirst.mockRejectedValue(new Error(LEAK));
+    const req = new NextRequest("http://test/api/dashboard/tokens/t1", { method: "DELETE" });
+    await expectGeneric(await revokeToken(req, { params: Promise.resolve({ id: "t1" }) }));
+  });
+
+  it("POST /api/dashboard/pat", async () => {
+    user.update.mockRejectedValue(new Error(LEAK));
+    await expectGeneric(await savePat(jsonReq("http://test/api/dashboard/pat", { githubPat: "ghp_abc" })));
+  });
+});

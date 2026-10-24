@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { internalErrorDetails } from "@/lib/server-error";
 
 export async function DELETE(
   req: NextRequest,
@@ -35,7 +36,7 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
     return NextResponse.json(
-      { ok: false, error: "Failed to revoke token", details: error instanceof Error ? error.message : String(error) },
+      { ok: false, error: "Failed to revoke token", details: internalErrorDetails("Revoke token failed", error) },
       { status: 500 }
     );
   }
