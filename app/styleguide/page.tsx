@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/primitives/Button";
 import { Card, CardHeader } from "@/components/ui/primitives/Card";
-import { Input, Textarea, Label } from "@/components/ui/primitives/Input";
+import { Input, Textarea, Label, Field } from "@/components/ui/primitives/Input";
 import { Badge } from "@/components/ui/primitives/Badge";
 import { Alert } from "@/components/ui/primitives/Alert";
 
@@ -33,14 +33,15 @@ interface SwatchProps {
   name: string;
   hex: string;
   bg: string;
-  textColor?: string;
 }
 
-function Swatch({ name, hex, bg, textColor = "text-forge-mist" }: SwatchProps) {
+// The name sits on the page background below the swatch, so it always uses the
+// light text color; a per-swatch color made the names of light swatches vanish.
+function Swatch({ name, hex, bg }: SwatchProps) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className={`h-14 w-full rounded-card ${bg} border border-forge-steel/40`} />
-      <div className={`text-xs font-medium ${textColor}`}>{name}</div>
+      <div className="text-xs font-medium text-forge-mist">{name}</div>
       <div className="text-xs text-forge-ash font-mono">{hex}</div>
     </div>
   );
@@ -55,7 +56,7 @@ export default function StyleguidePage() {
   const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
 
   return (
-    <div className="min-h-screen bg-forge-void px-6 py-12">
+    <main className="min-h-screen bg-forge-void px-6 py-12">
       <div className="mx-auto max-w-5xl">
 
         {/* Page header */}
@@ -83,24 +84,24 @@ export default function StyleguidePage() {
               <Swatch name="forge.void"  hex="#0B0D10" bg="bg-forge-void border border-forge-steel" />
               <Swatch name="forge.iron"  hex="#14181D" bg="bg-forge-iron" />
               <Swatch name="forge.steel" hex="#222A32" bg="bg-forge-steel" />
-              <Swatch name="forge.ash"   hex="#8A93A0" bg="bg-forge-ash" textColor="text-forge-void" />
-              <Swatch name="forge.mist"  hex="#E7ECF2" bg="bg-forge-mist" textColor="text-forge-void" />
+              <Swatch name="forge.ash"   hex="#8A93A0" bg="bg-forge-ash" />
+              <Swatch name="forge.mist"  hex="#E7ECF2" bg="bg-forge-mist" />
             </div>
           </SubSection>
 
           <SubSection title="Accent palette">
             <div className="grid grid-cols-5 gap-4">
-              <Swatch name="ember"       hex="#F5641E" bg="bg-ember"      textColor="text-forge-void" />
-              <Swatch name="ember.soft"  hex="#FB7A33" bg="bg-ember-soft" textColor="text-forge-void" />
-              <Swatch name="gold"        hex="#FFB02E" bg="bg-gold"       textColor="text-forge-void" />
+              <Swatch name="ember"       hex="#F5641E" bg="bg-ember"      />
+              <Swatch name="ember.soft"  hex="#FB7A33" bg="bg-ember-soft" />
+              <Swatch name="gold"        hex="#FFB02E" bg="bg-gold"       />
             </div>
           </SubSection>
 
           <SubSection title="Semantic">
             <div className="grid grid-cols-5 gap-4">
-              <Swatch name="success" hex="#34D399" bg="bg-success" textColor="text-forge-void" />
-              <Swatch name="warning" hex="#FBBF24" bg="bg-warning" textColor="text-forge-void" />
-              <Swatch name="danger"  hex="#FB7185" bg="bg-danger"  textColor="text-forge-void" />
+              <Swatch name="success" hex="#34D399" bg="bg-success" />
+              <Swatch name="warning" hex="#FBBF24" bg="bg-warning" />
+              <Swatch name="danger"  hex="#FB7185" bg="bg-danger"  />
             </div>
           </SubSection>
         </Section>
@@ -242,31 +243,31 @@ export default function StyleguidePage() {
         <Section title="Input">
           <SubSection title="Text input">
             <div className="max-w-md space-y-4">
-              <div>
+              <Field>
                 <Label>Default input</Label>
                 <Input placeholder="Placeholder text…" />
-              </div>
-              <div>
+              </Field>
+              <Field>
                 <Label required hint="(optional note)">Required field</Label>
                 <Input placeholder="Enter value…" defaultValue="" />
-              </div>
-              <div>
+              </Field>
+              <Field>
                 <Label>Disabled</Label>
                 <Input placeholder="Cannot edit" disabled />
-              </div>
+              </Field>
             </div>
           </SubSection>
 
           <SubSection title="Textarea">
             <div className="max-w-md space-y-4">
-              <div>
+              <Field>
                 <Label>Description</Label>
                 <Textarea placeholder="Describe your project…" rows={4} />
-              </div>
-              <div>
+              </Field>
+              <Field>
                 <Label>Disabled textarea</Label>
                 <Textarea placeholder="Read only" disabled rows={3} />
-              </div>
+              </Field>
             </div>
           </SubSection>
         </Section>
@@ -415,6 +416,6 @@ export default function StyleguidePage() {
           Forge design system — project-forge v{appVersion} — dark-only
         </footer>
       </div>
-    </div>
+    </main>
   );
 }
