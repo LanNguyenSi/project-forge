@@ -24,9 +24,9 @@ function SwaggerWithNamedServerSelect() {
     const root = rootRef.current;
     if (!root) return;
     const nameServerSelects = () => {
-      root
-        .querySelectorAll<HTMLSelectElement>(".servers select:not([aria-label])")
-        .forEach((select) => select.setAttribute("aria-label", "API server"));
+      root.querySelectorAll<HTMLSelectElement>(".servers select").forEach((select) => {
+        if (!select.hasAttribute("aria-label")) select.setAttribute("aria-label", "API server");
+      });
     };
     nameServerSelects();
     const observer = new MutationObserver(nameServerSelects);
