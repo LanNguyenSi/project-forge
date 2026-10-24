@@ -92,7 +92,7 @@ public route that answers `{"ok":true}` without touching the database. It
 gives the container 60 seconds to run `prisma db push` and start, then probes
 every 15 seconds; five failures in a row mark it `unhealthy`
 (`docker compose ps`). Because the check reads the route, a server that
-refuses to start (see above) is `unhealthy` too. Docker does not restart an
+refuses to serve (see above) is `unhealthy` too. Docker does not restart an
 unhealthy container on its own; the check is the signal for operators and
 deploy tooling.
 
@@ -164,30 +164,32 @@ before the next deploy (`make deploy` and `make pull` now rebuild with
 `--build`; deploy-panel deploys skip the override, see
 [Docker Compose](#docker-compose)):
 
-- **Database path. Check BEFORE deploying, never after.** Read the live value:
-  `docker compose exec app printenv DATABASE_URL`.
-  - `file:/data/project-forge.db`: nothing changes.
-  - Anything else (for example `file:./db/project-forge.db` from a missing
-    override, which the previous compose file left inside the container layer):
-    the new default would point at an empty database on the `forge_db` volume.
-    Either set `FORGE_DATABASE_URL` in `.env` to that live value so the
-    container keeps using it, or copy the file onto the volume with the app
-    idle before the deploy:
-    `docker compose exec app cp /app/prisma/db/project-forge.db /data/project-forge.db`.
-    The Prisma schema lives in `/app/prisma`, so a relative `file:./db/...`
-    resolves to `/app/prisma/db/...`; adjust the source path for other values.
-    Do this against the old container; once it is recreated, the file in its
-    layer is gone.
-- **Existing override.** `DATABASE_URL`, `NEXTAUTH_SECRET` and `NEXTAUTH_URL`
-  set only in `docker-compose.override.yml` keep working for plain
-  `docker compose` runs and are silently absent from deploys that use
-  `-f docker-compose.yml`. Move the ones those deploys need into `.env`
-  (`FORGE_DATABASE_URL` for the database path).
 - **`PLANFORGE_SERVICE_TOKEN`.** Must be a non-empty value in `.env` (or the
   shell), also when the override sets it: compose interpolates
   `docker-compose.yml` before merging the override. A setup whose token only
   lives in the override worked before; it now stops every compose command with
   an error naming the variable, so move the token into `.env` first.
+- **Database path. Check BEFORE deploying (and before pulling the new compose
+  file), never after.** Read the live value:
+  `docker compose exec app printenv DATABASE_URL`.
+  - `file:/data/project-forge.db`: nothing changes.
+  - Another path under `/data` (on the `forge_db` volume): set
+    `FORGE_DATABASE_URL` in `.env` to that value so the container keeps using it.
+  - Anything outside `/data` (for example `file:./db/project-forge.db` from a
+    missing override, which the previous compose file left inside the container
+    layer): the deploy recreates the container and that layer is discarded, so
+    setting `FORGE_DATABASE_URL` to it does not keep the data. Copy the file onto
+    the volume first, with the app idle, from the old container:
+    `docker compose exec app cp /app/prisma/db/project-forge.db /data/project-forge.db`
+    (then leave `FORGE_DATABASE_URL` unset, or point it at the copy under
+    `/data`). The Prisma schema lives in `/app/prisma`, so a relative
+    `file:./db/...` resolves to `/app/prisma/db/...`; adjust the source path for
+    other values.
+- **Existing override.** `DATABASE_URL`, `NEXTAUTH_SECRET` and `NEXTAUTH_URL`
+  set only in `docker-compose.override.yml` keep working for plain
+  `docker compose` runs and are silently absent from deploys that use
+  `-f docker-compose.yml`. Move the ones those deploys need into `.env`
+  (`FORGE_DATABASE_URL` for the database path).
 - **`NEXTAUTH_SECRET`.** Must be a real value in `.env` or, for plain compose
   runs, in the override; the placeholder from the example files, or no value,
   makes the production server answer 500 and the container `unhealthy`.
