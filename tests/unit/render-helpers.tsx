@@ -55,3 +55,11 @@ export async function settle(ms = 20) {
     await new Promise((r) => setTimeout(r, ms));
   });
 }
+
+export async function waitFor(condition: () => boolean, timeoutMs = 2000) {
+  const start = Date.now();
+  while (!condition()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor: condition not met");
+    await settle(5);
+  }
+}

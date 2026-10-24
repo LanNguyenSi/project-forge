@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, useEffect, useRef } from "react";
-import { mount, settle, unmountAll } from "./render-helpers";
+import { mount, unmountAll, waitFor } from "./render-helpers";
 
 vi.mock("swagger-ui-react/swagger-ui.css", () => ({}));
 vi.mock("next/dynamic", () => ({
@@ -29,7 +29,7 @@ afterEach(unmountAll);
 describe("API docs page", () => {
   it("gives the swagger server select an accessible name once it appears", async () => {
     const container = mount(<ApiDocsPage />);
-    await settle();
+    await waitFor(() => container.querySelector("#servers")?.hasAttribute("aria-label") === true);
     const select = container.querySelector("#servers");
     expect(select).not.toBeNull();
     expect(select!.getAttribute("aria-label")).toBe("API server");
@@ -37,7 +37,7 @@ describe("API docs page", () => {
 
   it("names a server select that swagger-ui re-creates later", async () => {
     const container = mount(<ApiDocsPage />);
-    await settle();
+    await waitFor(() => container.querySelector("#servers")?.hasAttribute("aria-label") === true);
     const servers = container.querySelector(".servers")!;
     await act(async () => {
       servers.replaceChildren();
@@ -45,7 +45,7 @@ describe("API docs page", () => {
       select.id = "servers";
       servers.appendChild(select);
     });
-    await settle();
+    await waitFor(() => container.querySelector("#servers")?.hasAttribute("aria-label") === true);
     expect(container.querySelector("#servers")!.getAttribute("aria-label")).toBe("API server");
   });
 
