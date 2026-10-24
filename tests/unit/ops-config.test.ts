@@ -24,7 +24,7 @@ describe("docker-compose.yml defaults", () => {
   it("gives the app a healthcheck against the health route", () => {
     const hc = /healthcheck:\n([\s\S]*?)\n    logging:/.exec(app)?.[1] ?? "";
     expect(hc).toContain("- CMD");
-    expect(hc).toContain("/api/health");
+    expect(hc).toMatch(/^ {8}- "require\('http'\)\.get\('http:\/\/127\.0\.0\.1:3000\/api\/health'/m);
   });
 
   it("pins DATABASE_URL to the forge_db volume mount", () => {
