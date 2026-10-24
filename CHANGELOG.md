@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **next 15.5.27** (GHSA-mcj8-r9mp-w47p, GHSA-4jqv-mc3x-m676): the lockfile resolves 15.5.27 with its matching `@next/env` and `@next/swc-*` packages and the `next` dependency floor is now `^15.5.27`.
 - **next 15.5.28** (GHSA-2464-fhr4-w9xw, GHSA-p3m5-59mp-jv5r): the lockfile resolves 15.5.28 with its matching `@next/env` and `@next/swc-*` packages and the `next` dependency floor is now `^15.5.28`, superseding the 15.5.27 entry above.
 - **dompurify 3.4.17** (GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr, GHSA-c6gr-qvv4-5v3f), installed through `swagger-ui-react`: the lockfile resolves 3.4.17, the first release patched for all three advisories.
+- **happy-dom 21.0.4** (GHSA-834v-8h66-3h79), a dev dependency used as the vitest test environment: the `happy-dom` range moves from `^20.8.8` to `^21.0.4`, the first release line patched for the advisory. It pulls in `buffer-image-size` and raises its `ws` floor to `^8.21.0` (already resolved). No test changes were needed; the npm audit gate reports no HIGH or CRITICAL advisory outside the allowlist again.
 - **sharp 0.35.5** (GHSA-wq5f-xc86-pv6w, task aff72e2b), installed through `next`: the lockfile resolves 0.35.5 with matching `@img/*` binaries and the `sharp` override floor is now `^0.35.5`.
 
 ### Fixed
