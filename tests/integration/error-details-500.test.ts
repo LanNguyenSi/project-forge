@@ -38,6 +38,10 @@ afterEach(() => {
 
 describe("POST /api/ai-assist 500 body", () => {
   it("hides the provider error text", async () => {
+    vi.doMock("next-auth", () => ({
+      getServerSession: vi.fn().mockResolvedValue({ user: { id: "user-1" } }),
+    }));
+    vi.doMock("@/lib/auth", () => ({ authOptions: {} }));
     vi.doMock("@/lib/ai-provider", () => ({
       getAiCapabilities: () => ({
         enabled: true,

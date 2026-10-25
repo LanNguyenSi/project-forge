@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 /**
@@ -8,7 +8,18 @@ import { NextRequest } from "next/server";
  * added in the unified Magic-Fill seed PR. The provider SDK is mocked
  * so no real LLM call happens; we only verify the route's own contract.
  */
+function mockSession(session: unknown) {
+  vi.doMock("next-auth", () => ({
+    getServerSession: vi.fn().mockResolvedValue(session),
+  }));
+  vi.doMock("@/lib/auth", () => ({ authOptions: {} }));
+}
+
 describe("POST /api/ai-assist — mode dispatch & validation", () => {
+  beforeEach(() => {
+    mockSession({ user: { id: "user-1" } });
+  });
+
   afterEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
@@ -183,5 +194,99 @@ describe("POST /api/ai-assist — mode dispatch & validation", () => {
     // because it fell past the 200-char limit.
     expect(userPrompt).toMatch(/^Document filename: a{200}\n/);
     expect(userPrompt).not.toContain("a".repeat(201));
+  });
+});
+
+describe("/api/ai-assist session gate", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  function providerMocks() {
+    const generateMock = vi.fn(async () => ({
+      provider: "local" as const,
+      model: "qwen-local",
+      data: {
+        projectName: "x",
+        summary: "y",
+        features: ["a", "b"],
+        constraints: [],
+        targetUsers: ["u"],
+      },
+    }));
+    vi.doMock("@/lib/ai-provider", () => ({
+      getAiCapabilities: () => ({
+        enabled: true,
+        provider: "local",
+        model: "qwen-local",
+        features: { magicFill: true, intakeEnrichment: true },
+        maxContextChars: 50_000,
+      }),
+      generateStructuredJson: generateMock,
+    }));
+    return generateMock;
+  }
+
+  function postReq(): NextRequest {
+    return new NextRequest("http://test/api/ai-assist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "a todo app" }),
+    });
+  }
+
+  it("GET returns 401 without a session and leaks no provider info", async () => {
+    mockSession(null);
+    providerMocks();
+    const { GET } = await import("../../app/api/ai-assist/route");
+    const res = await GET();
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ ok: false, error: "Not authenticated" });
+  });
+
+  it("GET returns 401 for a session without a user id", async () => {
+    mockSession({ user: {} });
+    providerMocks();
+    const { GET } = await import("../../app/api/ai-assist/route");
+    expect((await GET()).status).toBe(401);
+  });
+
+  it("GET returns the capabilities for a logged-in user", async () => {
+    mockSession({ user: { id: "user-1" } });
+    providerMocks();
+    const { GET } = await import("../../app/api/ai-assist/route");
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { enabled: boolean; provider: string };
+    expect(body.enabled).toBe(true);
+    expect(body.provider).toBe("local");
+  });
+
+  it("POST returns 401 without a session and never calls the LLM", async () => {
+    mockSession(null);
+    const generateMock = providerMocks();
+    const { POST } = await import("../../app/api/ai-assist/route");
+    const res = await POST(postReq());
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ ok: false, error: "Not authenticated" });
+    expect(generateMock).not.toHaveBeenCalled();
+  });
+
+  it("POST returns 401 for a session without a user id", async () => {
+    mockSession({ user: {} });
+    const generateMock = providerMocks();
+    const { POST } = await import("../../app/api/ai-assist/route");
+    expect((await POST(postReq())).status).toBe(401);
+    expect(generateMock).not.toHaveBeenCalled();
+  });
+
+  it("POST calls the LLM for a logged-in user", async () => {
+    mockSession({ user: { id: "user-1" } });
+    const generateMock = providerMocks();
+    const { POST } = await import("../../app/api/ai-assist/route");
+    const res = await POST(postReq());
+    expect(res.status).toBe(200);
+    expect(generateMock).toHaveBeenCalledTimes(1);
   });
 });

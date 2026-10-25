@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import type { ProjectInput } from "@/lib/types";
 import { getAiCapabilities, generateStructuredJson } from "@/lib/ai-provider";
 import { internalErrorDetails } from "@/lib/server-error";
@@ -44,7 +46,20 @@ Guidelines:
 - Preserve the document's own terminology where possible — don't rename features unless translation is necessary.
 - Output JSON only.`;
 
+// Both handlers sit behind the NextAuth session, like app/api/generate and
+// app/api/publish, so an anonymous caller can neither probe the configured
+// provider/model nor drive LLM calls at our cost.
+async function requireSession(): Promise<NextResponse | null> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+  }
+  return null;
+}
+
 export async function GET() {
+  const denied = await requireSession();
+  if (denied) return denied;
   const capabilities = getAiCapabilities();
   return NextResponse.json({
     enabled: capabilities.enabled,
@@ -77,6 +92,8 @@ function sanitizeFileName(raw: unknown): string {
 
 export async function POST(req: NextRequest) {
   try {
+    const denied = await requireSession();
+    if (denied) return denied;
     const body = (await req.json()) as AiAssistRequest;
     // Back-compat: an older client that sends only `{ prompt }` is
     // treated as mode="prompt". New clients explicitly pass mode.
