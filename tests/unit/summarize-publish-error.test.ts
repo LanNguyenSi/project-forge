@@ -62,7 +62,9 @@ describe("known case: missing workflow scope", () => {
         "error: failed to push some refs to 'https://github.com/lan/todo-app.git'",
       ].join("\n");
       const out = summarizePublishError(stderr);
-      expect(out).toMatch(/the GitHub token used for publishing lacks the workflow scope or permission/i);
+      expect(out).toBe(
+        "The GitHub token used for publishing lacks the workflow scope or permission needed to create or update files under .github/workflows. Remove the workflow files from the project or grant that scope or permission, then publish again.",
+      );
       expect(out).not.toMatch(/OAuth App|Personal Access Token|GitHub App/);
     });
   }
@@ -144,6 +146,18 @@ describe("credentials pattern anchors", () => {
   it("does not read a longer status like 4030 as a credentials failure", () => {
     const stderr = "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 4030";
     expect(summarizePublishError(stderr)).toMatch(GENERIC);
+  });
+
+  it("does not read github_4030 at the start of a line as a credentials failure", () => {
+    expect(summarizePublishError("github_4030")).toMatch(GENERIC);
+  });
+
+  it("does not read a github_403 that ends a longer line as a credentials failure", () => {
+    expect(summarizePublishError("git exited with code 1\nsee github_403")).toMatch(GENERIC);
+  });
+
+  it("reads github_403 on its own line inside a multi-line message as a credentials failure", () => {
+    expect(summarizePublishError("git exited with code 1\ngithub_403\ndone")).toMatch(/GitHub rejected the credentials/);
   });
 
   it("still reads a whole-line github_403 code as a credentials failure", () => {

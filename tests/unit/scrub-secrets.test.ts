@@ -58,6 +58,14 @@ describe("scrubSecrets", () => {
     expect(elapsedMs).toBeLessThan(200);
   });
 
+  it("masks a scheme-less x-access-token credential of 200 characters", () => {
+    expect(scrubSecrets(`x-access-token:${"z".repeat(200)}@github.com`)).toBe("x-access-token:***@github.com");
+  });
+
+  it("falls back to the bare-token mask for a ghs_ token longer than the cap", () => {
+    expect(scrubSecrets(`x-access-token:ghs_${"a".repeat(300)}@github.com`)).toBe("x-access-token:ghs_***@github.com");
+  });
+
   it("still masks a long but realistic token", () => {
     const token = "ghs_" + "a".repeat(200);
     expect(scrubSecrets(`https://x-access-token:${token}@github.com/o/r.git`)).toBe("https://***@github.com/o/r.git");
