@@ -152,8 +152,9 @@ export async function POST(req: NextRequest) {
     // Client-facing body carries only a known reason sentence or the generic
     // sentence with a reference id; summarizePublishError scrubs PATs (a
     // failed `git push` to an authed remote echoes the URL, and thus the
-    // token, in git's stderr), logs the full scrubbed message under a
-    // reference id, and keeps temp-dir paths and remote URLs server-side.
+    // token, in git's stderr), logs the scrubbed message (with a reference
+    // id only for the generic answer), and keeps temp-dir paths and remote
+    // URLs server-side.
     const raw = error instanceof Error ? error.message : String(error);
     const summary = summarizePublishError(raw);
 

@@ -48,20 +48,38 @@ describe("known case: missing workflow scope", () => {
   // The hook text names the credential type, and all three subjects below
   // are supported credentials (docs/api.md); the sentence must stay
   // neutral because the code cannot tell which token was used.
-  const SUBJECTS = ["an OAuth App", "a Personal Access Token", "a GitHub App"];
-  for (const subject of SUBJECTS) {
+  const SUBJECTS: Array<[string, string]> = [
+    ["an OAuth App", "without `workflow` scope"],
+    ["a Personal Access Token", "without `workflow` scope"],
+    ["a GitHub App", "without `workflows` permission"],
+  ];
+  for (const [subject, suffix] of SUBJECTS) {
     it(`maps the "${subject}" wording to the neutral workflow-scope sentence`, () => {
       const stderr = [
         "git exited with code 1",
         "Stderr: To https://github.com/lan/todo-app.git",
-        ` ! [remote rejected] main -> main (refusing to allow ${subject} to create or update workflow \`.github/workflows/ci.yml\` without \`workflow\` scope)`,
+        ` ! [remote rejected] main -> main (refusing to allow ${subject} to create or update workflow \`.github/workflows/ci.yml\` ${suffix})`,
         "error: failed to push some refs to 'https://github.com/lan/todo-app.git'",
       ].join("\n");
       const out = summarizePublishError(stderr);
-      expect(out).toMatch(/the GitHub token used for publishing lacks the workflow scope/i);
+      expect(out).toMatch(/the GitHub token used for publishing lacks the workflow scope or permission/i);
       expect(out).not.toMatch(/OAuth App|Personal Access Token|GitHub App/);
     });
   }
+
+  it("does not match a workflow phrase whose subject exceeds the bounded window", () => {
+    const subject = "a" + " very".repeat(8) + " long token"; // more than 40 characters
+    expect(subject.length).toBeGreaterThan(41);
+    const stderr = `remote: refusing to allow ${subject} to create or update workflow`;
+    expect(summarizePublishError(stderr)).toMatch(GENERIC);
+  });
+
+  it("stays fast on a long run of the workflow phrase opener", () => {
+    const evil = "refusing to allow a ".repeat(Math.ceil((200 * 1024) / 20));
+    const t0 = performance.now();
+    summarizePublishError(evil);
+    expect(performance.now() - t0).toBeLessThan(200);
+  });
 
   it("keeps the remote URL out of the sentence but in the log", () => {
     const out = summarizePublishError(WORKFLOW_STDERR);
@@ -115,6 +133,22 @@ describe("known case: authentication failure (GitHub-specific forms only)", () =
       expect(summarizePublishError(input)).toMatch(GENERIC);
     });
   }
+});
+
+describe("credentials pattern anchors", () => {
+  it("does not read a github_403 inside a line as a credentials failure", () => {
+    const stderr = "git exited with code 1\nStderr: remote: see github_403 docs for details\nerror: failed to push some refs";
+    expect(summarizePublishError(stderr)).toMatch(GENERIC);
+  });
+
+  it("does not read a longer status like 4030 as a credentials failure", () => {
+    const stderr = "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 4030";
+    expect(summarizePublishError(stderr)).toMatch(GENERIC);
+  });
+
+  it("still reads a whole-line github_403 code as a credentials failure", () => {
+    expect(summarizePublishError("github_403")).toMatch(/GitHub rejected the credentials/);
+  });
 });
 
 describe("known case: repository already exists", () => {

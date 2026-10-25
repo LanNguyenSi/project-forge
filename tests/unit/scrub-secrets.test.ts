@@ -36,8 +36,8 @@ describe("scrubSecrets", () => {
     // Realistic adversarial stderr: many log lines each ending in the
     // credential prefix with no closing "@" (newline-separated). An
     // unbounded [^@]+ class then backtracks across every following line
-    // from every anchor position (quadratic); the bounded class excludes
-    // the separator and fails each anchor in one step (linear).
+    // from every anchor position (quadratic); the capped run excludes the
+    // separator and fails each anchor in one step (linear).
     const evil = "x-access-token:\n".repeat(Math.ceil((200 * 1024) / 16));
     expect(evil.length).toBeGreaterThanOrEqual(200 * 1024);
     const t0 = performance.now();
@@ -45,5 +45,21 @@ describe("scrubSecrets", () => {
     const elapsedMs = performance.now() - t0;
     expect(out).toBe(evil);
     expect(elapsedMs).toBeLessThan(200);
+  });
+
+  it("handles 200 KB of x-access-token prefixes with no separator in under 200 ms", () => {
+    // Without whitespace or "/" between the repeats only the length cap
+    // keeps the scan linear.
+    const evil = "x-access-token:".repeat(Math.ceil((200 * 1024) / 15));
+    const t0 = performance.now();
+    const out = scrubSecrets(evil);
+    const elapsedMs = performance.now() - t0;
+    expect(out).toBe(evil);
+    expect(elapsedMs).toBeLessThan(200);
+  });
+
+  it("still masks a long but realistic token", () => {
+    const token = "ghs_" + "a".repeat(200);
+    expect(scrubSecrets(`https://x-access-token:${token}@github.com/o/r.git`)).toBe("https://***@github.com/o/r.git");
   });
 });

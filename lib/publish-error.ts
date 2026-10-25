@@ -45,7 +45,7 @@ const PUBLISH_ERROR_CASES: readonly PublishErrorCase[] = [
     // phrase is checked first.
     pattern: /refusing to allow an? [^\n]{0,40}? to create or update workflow/i,
     sentence:
-      "The GitHub token used for publishing lacks the workflow scope needed to create or update files under .github/workflows. Remove the workflow files from the project or grant the workflow scope, then publish again.",
+      "The GitHub token used for publishing lacks the workflow scope or permission needed to create or update files under .github/workflows. Remove the workflow files from the project or grant that scope or permission, then publish again.",
   },
   {
     // v1's internal code for this failure, plus the two GitHub API texts

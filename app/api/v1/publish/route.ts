@@ -103,7 +103,8 @@ export async function POST(req: NextRequest) {
     // sentence with a reference id. summarizePublishError scrubs PATs with
     // the shared lib/scrub-secrets (the known `x-access-token:TOKEN@` and
     // `https://TOKEN@` remote forms plus bare GitHub token shapes), logs the
-    // full scrubbed message under a reference id, and keeps git stderr,
+    // scrubbed message (with a reference id only for the generic answer),
+    // and keeps git stderr,
     // temp-dir paths and remote URLs server-side.
     const summary = summarizePublishError(raw);
 
