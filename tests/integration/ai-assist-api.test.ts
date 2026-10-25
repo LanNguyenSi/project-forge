@@ -281,6 +281,63 @@ describe("/api/ai-assist session gate", () => {
     expect(generateMock).not.toHaveBeenCalled();
   });
 
+  // The gate must run before the body is parsed or validated, so an
+  // anonymous caller learns nothing about validation or provider state.
+  describe("POST gate runs before any other work", () => {
+    function rawReq(body: string): NextRequest {
+      return new NextRequest("http://test/api/ai-assist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+    }
+
+    async function expectDenied(req: NextRequest, generateMock: ReturnType<typeof vi.fn>) {
+      const { POST } = await import("../../app/api/ai-assist/route");
+      const res = await POST(req);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ ok: false, error: "Not authenticated" });
+      expect(generateMock).not.toHaveBeenCalled();
+    }
+
+    it("returns 401 for a malformed JSON body", async () => {
+      mockSession(null);
+      const generateMock = providerMocks();
+      await expectDenied(rawReq("{not json"), generateMock);
+    });
+
+    it("returns 401 for an empty prompt (not 400)", async () => {
+      mockSession(null);
+      const generateMock = providerMocks();
+      await expectDenied(rawReq(JSON.stringify({ prompt: "   " })), generateMock);
+    });
+
+    it("returns 401 when no AI provider is configured (not 500)", async () => {
+      mockSession(null);
+      const generateMock = vi.fn();
+      vi.doMock("@/lib/ai-provider", () => ({
+        getAiCapabilities: () => ({
+          enabled: false,
+          provider: null,
+          model: null,
+          features: { magicFill: false, intakeEnrichment: false },
+          maxContextChars: 0,
+        }),
+        generateStructuredJson: generateMock,
+      }));
+      await expectDenied(rawReq(JSON.stringify({ prompt: "a todo app" })), generateMock);
+    });
+
+    it("returns 401 for an oversized file body (not 413)", async () => {
+      mockSession(null);
+      const generateMock = providerMocks();
+      await expectDenied(
+        rawReq(JSON.stringify({ mode: "file", fileContent: "x".repeat(50_001) })),
+        generateMock,
+      );
+    });
+  });
+
   it("POST calls the LLM for a logged-in user", async () => {
     mockSession({ user: { id: "user-1" } });
     const generateMock = providerMocks();
