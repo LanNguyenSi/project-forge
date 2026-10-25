@@ -150,7 +150,7 @@ export function PreviewPanel({
                             <p className="text-xs text-forge-ash mt-0.5 line-clamp-2">{task.summary}</p>
                           )}
                         </div>
-                        <span className="ml-auto text-xs text-forge-ash/60 shrink-0">{task.category}</span>
+                        <span className="ml-auto text-xs text-forge-ash shrink-0">{task.category}</span>
                       </div>
                     ))}
                   </div>

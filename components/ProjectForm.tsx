@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { ProjectInput, Attachment } from "@/lib/types";
-import { Button, Input, Textarea, Label, Alert } from "@/components/ui/primitives";
+import { Button, Input, Textarea, Label, Field, Alert } from "@/components/ui/primitives";
 
 /**
  * Matches planforge's 50_000-char total-inlineText cap (v0.1b). We enforce
@@ -205,7 +205,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
             <svg className="w-5 h-5 text-gold" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
             </svg>
-            <h3 className="font-semibold text-gold text-sm">AI Magic Fill</h3>
+            <h2 className="font-semibold text-gold text-sm">AI Magic Fill</h2>
           </div>
           <p className="text-xs text-forge-ash mb-3">
             Seed the form with a one-line prompt, or upload a document (arc42, RFC, charter) to extract the intake.
@@ -251,19 +251,22 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
 
           {seedMode === "prompt" ? (
             <div id="seed-panel-prompt" role="tabpanel" className="flex gap-2">
-              <Input
-                value={magicPrompt}
-                onChange={(e) => setMagicPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleMagicFill();
-                  }
-                }}
-                placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
-                disabled={magicLoading || isLoading}
-                className="flex-1 text-sm focus:border-gold focus:ring-gold"
-              />
+              <Field className="flex-1 min-w-0">
+                <Label className="sr-only">AI seed prompt</Label>
+                <Input
+                  value={magicPrompt}
+                  onChange={(e) => setMagicPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleMagicFill();
+                    }
+                  }}
+                  placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
+                  disabled={magicLoading || isLoading}
+                  className="text-sm focus:border-gold focus:ring-gold"
+                />
+              </Field>
               <Button
                 type="button"
                 variant="gold"
@@ -312,12 +315,15 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                   </Button>
                 </div>
               ) : (
-                <Input
-                  type="file"
-                  accept={ACCEPTED_EXTENSIONS.join(",")}
-                  onChange={handleFileSelect}
-                  disabled={magicLoading || isLoading}
-                />
+                <Field>
+                  <Label className="sr-only">Upload a project document</Label>
+                  <Input
+                    type="file"
+                    accept={ACCEPTED_EXTENSIONS.join(",")}
+                    onChange={handleFileSelect}
+                    disabled={magicLoading || isLoading}
+                  />
+                </Field>
               )}
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-forge-ash">
@@ -375,7 +381,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
         <Alert variant="error" onClose={() => setFormError(null)}>{formError}</Alert>
       )}
 
-      <div>
+      <Field>
         <Label required>Project Name</Label>
         <Input
           type="text"
@@ -384,9 +390,9 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           placeholder="my-awesome-project"
           required
         />
-      </div>
+      </Field>
 
-      <div>
+      <Field>
         <Label required>Summary</Label>
         <Textarea
           value={summary}
@@ -395,9 +401,9 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           required
           rows={3}
         />
-      </div>
+      </Field>
 
-      <div>
+      <Field>
         <Label required hint="(one per line)">Core Features</Label>
         <Textarea
           value={featuresText}
@@ -405,9 +411,9 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           placeholder={"user authentication\ndashboard with analytics\nREST API"}
           rows={4}
         />
-      </div>
+      </Field>
 
-      <div>
+      <Field>
         <Label hint="(one per line)">Constraints</Label>
         <Textarea
           value={constraintsText}
@@ -415,9 +421,9 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           placeholder={"TypeScript only\nmust be deployable with Docker\nno external auth providers"}
           rows={3}
         />
-      </div>
+      </Field>
 
-      <div>
+      <Field>
         <Label required hint="(one per line)">Target Users</Label>
         <Textarea
           value={targetUsersText}
@@ -425,7 +431,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
           placeholder={"developers\ninternal team"}
           rows={2}
         />
-      </div>
+      </Field>
 
       <Button
         type="submit"
