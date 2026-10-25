@@ -157,8 +157,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-forge-void text-forge-mist">
-      {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-4 py-3">
+      {/* Mobile top bar: a banner landmark (the `region` axe rule); md:hidden
+          keeps it out of the accessibility tree on desktop, so never two banners. */}
+      <header className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-4 py-3">
         <button
           type="button"
           onClick={() => setSidebarOpen(true)}
@@ -175,7 +176,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <ForgeMark className="h-5 w-5" />
           <span className="font-display font-semibold text-sm text-forge-mist">project-forge</span>
         </div>
-      </div>
+      </header>
 
       {/* Mobile navigation drawer: a modal dialog (Escape, overlay click, focus trap and focus return in DialogShell) */}
       {sidebarOpen && (
