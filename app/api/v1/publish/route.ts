@@ -98,26 +98,24 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    // Sanitize any embedded PAT before it touches logs or the response.
-    // First the known `x-access-token:TOKEN@` remote-URL form, then a
-    // defense-in-depth scrub of bare GitHub token shapes in case the auth
-    // embedding ever changes (Authorization header echo, `https://TOKEN@`, …).
     const raw = error instanceof Error ? error.message : String(error);
-    const sanitized = raw
-      .replace(/x-access-token:[^@]+@/g, "x-access-token:***@")
-      .replace(/\b(gho|ghp|ghu|ghs)_[A-Za-z0-9]+/g, "$1_***")
-      .replace(/\bgithub_pat_[A-Za-z0-9_]+/g, "github_pat_***");
-    console.error("Publish failed:", sanitized);
+    // Client-facing body carries only a known reason sentence or the generic
+    // sentence with a reference id. summarizePublishError scrubs PATs with
+    // the shared lib/scrub-secrets (the known `x-access-token:TOKEN@` and
+    // `https://TOKEN@` remote forms plus bare GitHub token shapes), logs the
+    // full scrubbed message under a reference id, and keeps git stderr,
+    // temp-dir paths and remote URLs server-side.
+    const summary = summarizePublishError(raw);
 
     // Cleanup temp dir on failure (PAT may be in .git/config)
     if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
     // Surface *why* publish failed instead of an opaque "Publish failed":
     // project-pilot forwards `error` to the UI, so the reason (e.g. a missing
-    // `workflow` OAuth scope on a git push) reaches the user. `details` carries
-    // the fuller sanitized message for direct API callers.
+    // `workflow` OAuth scope on a git push) reaches the user as a fixed
+    // sentence. `details` repeats it for direct API callers.
     return NextResponse.json<ErrorResponse>(
-      { ok: false, error: `Publish failed: ${summarizePublishError(sanitized)}`, details: sanitized.slice(0, 1000) },
+      { ok: false, error: `Publish failed: ${summary}`, details: summary },
       { status: 500 },
     );
   }

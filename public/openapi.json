@@ -844,8 +844,8 @@
                 },
                 "example": {
                   "ok": false,
-                  "error": "Publish failed: a repository with that name already exists on your GitHub account",
-                  "details": "repo_name_exists"
+                  "error": "Publish failed: A repository with this name already exists on your GitHub account. Choose a different project name and publish again.",
+                  "details": "A repository with this name already exists on your GitHub account. Choose a different project name and publish again."
                 }
               }
             }

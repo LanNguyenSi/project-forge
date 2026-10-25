@@ -50,8 +50,10 @@ flowchart TD
 3. **One toolchain boundary**: project-forge reaches planforge and scaffoldkit
    only through the planforge HTTP service. scaffoldkit is an implementation
    detail behind it and is never invoked from this app.
-4. **No secrets in responses or logs**: internal error detail (file paths,
-   stderr, PATs) is sanitized before it reaches clients or logs.
+ 4. **No secrets in responses or logs**: internal error detail (file paths,
+    stderr, PATs) never reaches clients; clients get fixed reason sentences
+    or a generic sentence with a reference id, and anything logged is first
+    PAT-scrubbed (`lib/scrub-secrets.ts`).
 5. **Dark-only UI**: Tailwind, dark-first, no light mode.
 
 ## System Structure
@@ -212,10 +214,13 @@ are unmetered.
 
 ### 7. Secret handling
 
-The publish path sanitizes any embedded GitHub PAT (`x-access-token:...@` remote
-URLs and bare `gho_/ghp_/ghu_/ghs_/github_pat_` token shapes) before the message
-reaches logs or responses. AI provider keys and the planforge service token are
-read from env only.
+The publish path sanitizes any embedded GitHub PAT (`x-access-token:...@` and
+`https://...@` remote URLs and bare `gho_/ghp_/ghu_/ghs_/github_pat_` token
+shapes) with the shared `lib/scrub-secrets.ts` before the message reaches logs,
+and client-facing publish failures are fixed reason sentences or a generic
+sentence with a reference id (`lib/publish-error.ts`), so git stderr, temp-dir
+paths and remote URLs never reach clients. AI provider keys and the planforge
+service token are read from env only.
 
 ### 8. Authentication surfaces
 
