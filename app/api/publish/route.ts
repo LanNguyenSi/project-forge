@@ -6,7 +6,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { excludePlanforgeArtifactsFromPublish, prunePublishedPlanforgeIndex } from "@/lib/planforge-output";
 import type { PublishResponse, ErrorResponse } from "../../../lib/types";
-import { scrubSecrets } from "@/lib/scrub-secrets";
+import { summarizePublishError } from "@/lib/publish-error";
 import { runCommand } from "@/lib/subprocess";
 import { SESSION_UUID_RE, readForgeMeta, isSessionExpired } from "@/lib/v1-shared";
 
@@ -149,21 +149,21 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    // Sanitize any embedded PAT before it reaches the client or logs. A
-    // failed `git push` to an authed remote echoes the URL (and thus the
-    // token) in git's stderr. Mirrors the v1 route's scrubbing: the known
-    // `TOKEN@`/`x-access-token:TOKEN@` remote form plus bare GitHub token
-    // shapes as defense in depth.
+    // Client-facing body carries only a known reason sentence or the generic
+    // sentence with a reference id; summarizePublishError scrubs PATs (a
+    // failed `git push` to an authed remote echoes the URL, and thus the
+    // token, in git's stderr), logs the scrubbed message (with a reference
+    // id only for the generic answer), and keeps temp-dir paths and remote
+    // URLs server-side.
     const raw = error instanceof Error ? error.message : String(error);
-    const sanitized = scrubSecrets(raw);
-    console.error("Publish failed:", sanitized);
+    const summary = summarizePublishError(raw);
 
     // Always remove the temp dir on failure: on the throw path the cleanup
     // at the success branch never runs, leaving the PAT in .git/config.
     if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
     return NextResponse.json<ErrorResponse>(
-      { ok: false, error: "Publish failed", details: sanitized },
+      { ok: false, error: "Publish failed", details: summary },
       { status: 500 }
     );
   }
