@@ -34,7 +34,8 @@ project-forge/
 │   │   ├── auth/                 # NextAuth, email/password sign-up (register/), project-pilot broker
 │   │   ├── generate/route.ts     # Web UI generation (preview)
 │   │   ├── publish/route.ts      # GitHub repo creation & push
-│   │   ├── ai-assist/route.ts    # AI form enrichment
+│   │   ├── ai-assist/route.ts    # AI form enrichment (session auth)
+│   │   ├── health/route.ts       # Public liveness probe (compose healthcheck)
 │   │   └── dashboard/            # profile (route.ts), API tokens (tokens/), GitHub PAT (pat/)
 │   ├── docs/page.tsx             # Swagger UI API docs
 │   ├── styleguide/page.tsx       # UI primitives showcase

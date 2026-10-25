@@ -73,7 +73,8 @@ project-forge/
 │   │   ├── auth/                 # NextAuth, email/password sign-up (register/), project-pilot broker
 │   │   ├── generate/route.ts     # Web UI generation (session auth)
 │   │   ├── publish/route.ts      # Web UI publish (session auth)
-│   │   ├── ai-assist/route.ts    # AI form enrichment ("magic fill")
+│   │   ├── ai-assist/route.ts    # AI form enrichment ("magic fill", session auth)
+│   │   ├── health/route.ts       # Public liveness probe (compose healthcheck)
 │   │   └── dashboard/            # profile (route.ts), API tokens (tokens/), GitHub PAT (pat/)
 │   ├── docs/page.tsx             # Swagger UI over public/openapi.json
 │   ├── styleguide/page.tsx       # UI primitives showcase
@@ -239,8 +240,11 @@ The pipelines run on GitHub Actions in three workflows:
   2. `npx prisma generate`
   3. `npx tsc --noEmit --skipLibCheck` (typecheck)
   4. `npm run lint` (ESLint)
-  5. `npm run build` (`next build`)
-  6. `npm run test:coverage` (`vitest run --coverage`, with the coverage
+  5. `Forbid next/font/google` (a grep guard that fails when `next/font/google`
+     is imported; fonts are vendored in `app/fonts` and loaded with
+     `next/font/local`)
+  6. `npm run build` (`next build`)
+  7. `npm run test:coverage` (`vitest run --coverage`, with the coverage
      thresholds from `vitest.config.ts`)
 
 - `audit.yml` (PRs and pushes to `main`): npm audit gate. HIGH or CRITICAL

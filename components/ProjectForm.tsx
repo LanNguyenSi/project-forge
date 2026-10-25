@@ -49,8 +49,8 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
 
   useEffect(() => {
     fetch("/api/ai-assist")
-      .then((res) => res.json())
-      .then((data) => setMagicEnabled(data.enabled))
+      .then((res) => (res.ok ? res.json() : { enabled: false }))
+      .then((data) => setMagicEnabled(data.enabled === true))
       .catch(() => setMagicEnabled(false));
   }, []);
 
@@ -144,6 +144,11 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
         body: JSON.stringify(body),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        setFormError("Your session has expired. Please sign in again to use magic fill.");
+        setMagicLoading(false);
+        return;
+      }
       if (!res.ok || !data.ok) {
         setFormError(data.error || "AI assist failed");
         setMagicLoading(false);
