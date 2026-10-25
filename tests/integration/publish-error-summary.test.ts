@@ -9,12 +9,13 @@ import * as path from "path";
  *   - git stderr, temp-dir paths and remote URLs never reach the client;
  *     the body carries a fixed reason sentence or the generic sentence with
  *     a reference id;
- *   - the full secret-scrubbed stderr is logged server-side under the same
- *     reference id the response carries;
+ *   - the full secret-scrubbed stderr is logged server-side; only the
+ *     generic answer carries a reference id, and it is the same id the
+ *     response carries (known cases are logged without one);
  *   - every status code is pinned so the change cannot shift them.
  *
- * FORGE_TEMP_DIR is read at module load by both routes; export it before
- * running the suite (`.lane-tmp` in CI/dev worktrees).
+ * Both routes read FORGE_TEMP_DIR at module load; set FORGE_TEMP_DIR to
+ * override the default /tmp/project-forge.
  */
 
 vi.mock("@/lib/db", async () => {
@@ -54,7 +55,7 @@ const GENERIC = /^An internal error occurred\. Reference: [0-9a-f]{8}$/;
 
 // A throw that matches no known case: the client must see the generic
 // sentence only, the log must keep the detail.
-const UNKNOWN_THrowable =
+const UNKNOWN_THROWABLE =
   "fatal: bogus internal state while exporting /tmp/project-forge/abc123/repo " +
   "to https://github.com/owner/repo.git with token gho_RouteSecret123";
 
@@ -143,7 +144,7 @@ function expectNoInternals(text: string): void {
   expect(text).not.toContain("bogus internal state");
 }
 
-describe("POST /api/publish (legacy) — status codes pinned", () => {
+describe("POST /api/publish (legacy): status codes pinned", () => {
   it("400 when sessionId or projectName is missing", async () => {
     expect((await legacyPublish(legacyReq({}))).status).toBe(400);
   });
@@ -186,7 +187,7 @@ describe("POST /api/publish (legacy) — status codes pinned", () => {
   it("500 with the generic sentence: no stderr, path, URL or token in the body", async () => {
     const sessionId = "a1111111-0000-4000-8000-000000000006";
     await setupSession(sessionId);
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error(UNKNOWN_THrowable));
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error(UNKNOWN_THROWABLE));
     try {
       const res = await legacyPublish(legacyReq({ sessionId, projectName: "demo" }));
       expect(res.status).toBe(500);
@@ -220,13 +221,16 @@ describe("POST /api/publish (legacy) — status codes pinned", () => {
       expect(body.error).toBe("Publish failed");
       expect(body.details).toMatch(/lacks the workflow scope/i);
       expect(body.details).not.toContain("github.com");
+      // Known case: logged without a reference id (only the generic answer
+      // carries one, and a logged id the client never sees would be noise).
+      expect(loggedBlob().prefix).toBe("Publish failed:");
     } finally {
       fetchSpy.mockRestore();
     }
   });
 });
 
-describe("POST /api/v1/publish — status codes pinned", () => {
+describe("POST /api/v1/publish: status codes pinned", () => {
   it("401 when the X-API-Key header is missing", async () => {
     const res = await v1Publish(req("http://test/api/v1/publish", { sessionId: "b2222222-0000-4000-8000-000000000001" }));
     expect(res.status).toBe(401);
@@ -281,7 +285,7 @@ describe("POST /api/v1/publish — status codes pinned", () => {
   it("500 with the generic sentence: error prefix kept, no internals, ref matches the log", async () => {
     const sessionId = "b2222222-0000-4000-8000-000000000009";
     await setupSession(sessionId);
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error(UNKNOWN_THrowable));
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error(UNKNOWN_THROWABLE));
     try {
       const res = await v1Publish(v1Req({ sessionId }));
       expect(res.status).toBe(500);
@@ -312,6 +316,8 @@ describe("POST /api/v1/publish — status codes pinned", () => {
       expect(body.error).toMatch(/^Publish failed: .*workflow scope/i);
       expect(body.details).toMatch(/lacks the workflow scope/i);
       expect(body.details).not.toContain("github.com");
+      // Known case: logged without a reference id.
+      expect(loggedBlob().prefix).toBe("Publish failed:");
     } finally {
       fetchSpy.mockRestore();
     }

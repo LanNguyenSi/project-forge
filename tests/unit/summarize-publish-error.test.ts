@@ -6,7 +6,9 @@ import { summarizePublishError } from "@/lib/publish-error";
  * everything else to the generic internal-error sentence with a reference id.
  * The full (secret-scrubbed) stderr is logged server-side, so these tests
  * also pin that the log keeps the detail while the client-facing sentence
- * carries none of it.
+ * carries none of it, that only the generic answer carries a reference id
+ * (known cases are logged without one), and that the credentials case
+ * matches GitHub-specific forms only, never local failures.
  */
 
 const GENERIC = /^An internal error occurred\. Reference: [0-9a-f]{8}$/;
@@ -43,6 +45,24 @@ describe("known case: missing workflow scope", () => {
     expect(out).toMatch(/\.github\/workflows/);
   });
 
+  // The hook text names the credential type, and all three subjects below
+  // are supported credentials (docs/api.md); the sentence must stay
+  // neutral because the code cannot tell which token was used.
+  const SUBJECTS = ["an OAuth App", "a Personal Access Token", "a GitHub App"];
+  for (const subject of SUBJECTS) {
+    it(`maps the "${subject}" wording to the neutral workflow-scope sentence`, () => {
+      const stderr = [
+        "git exited with code 1",
+        "Stderr: To https://github.com/lan/todo-app.git",
+        ` ! [remote rejected] main -> main (refusing to allow ${subject} to create or update workflow \`.github/workflows/ci.yml\` without \`workflow\` scope)`,
+        "error: failed to push some refs to 'https://github.com/lan/todo-app.git'",
+      ].join("\n");
+      const out = summarizePublishError(stderr);
+      expect(out).toMatch(/the GitHub token used for publishing lacks the workflow scope/i);
+      expect(out).not.toMatch(/OAuth App|Personal Access Token|GitHub App/);
+    });
+  }
+
   it("keeps the remote URL out of the sentence but in the log", () => {
     const out = summarizePublishError(WORKFLOW_STDERR);
     expect(out).not.toContain("github.com/lan/todo-app.git");
@@ -50,14 +70,18 @@ describe("known case: missing workflow scope", () => {
   });
 });
 
-describe("known case: authentication failure", () => {
+describe("known case: authentication failure (GitHub-specific forms only)", () => {
   const inputs = [
     "git exited with code 128\nStderr: fatal: Authentication failed for 'https://github.com/owner/repo.git/'",
-    "git exited with code 128\nStderr: git@github.com: Permission denied (publickey).",
     "git exited with code 128\nStderr: The requested URL returned error: 403",
+    "git exited with code 128\nStderr: The requested URL returned error: 401 Unauthorized",
     "remote: Invalid username or token.\nfatal: Authentication failed",
+    "remote: Invalid username or password.",
+    '{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest"}',
+    "remote: Permission to octo/demo.git denied to octo.",
     "Error: github_401",
     "Error: github_403",
+    "github_403",
   ];
   for (const input of inputs) {
     it(`maps ${JSON.stringify(input.slice(0, 48))} to the credentials sentence`, () => {
@@ -71,6 +95,26 @@ describe("known case: authentication failure", () => {
     );
     expect(out).toMatch(GENERIC);
   });
+
+  // Local, non-GitHub failures must never be blamed on GitHub credentials:
+  // bare "permission denied" and free-standing 401/403 digits match fs,
+  // local git, Postgres, UUID paths and hex hashes.
+  const localFailures = [
+    "Error: EACCES: permission denied, open '/tmp/project-forge/5e2a7f10-1234-4abc-8def-0123456789ab/.forge-meta.json'",
+    "git exited with code 128\nStderr: fatal: could not lock config file .git/config: Permission denied",
+    'An operation failed due to a database error: permission denied for table "UsageLog"',
+    "git exited with code 128\nStderr: fatal: not a git repository: /tmp/project-forge/1f2e3d4c-403a-4b5c-9d8e-7f6a5b4c3d2e/repo/.git",
+    "Invalid `prisma.project.update()` invocation:\nValue too long for type character varying(63) at position 403",
+    "git exited with code 1\nStderr: error: object a401b9c corrupt, appears to be truncated",
+    // SSH auth is not a publish path (both routes push over HTTPS), so
+    // dropping the bare "permission denied" alternative makes this generic.
+    "git exited with code 128\nStderr: git@github.com: Permission denied (publickey).",
+  ];
+  for (const input of localFailures) {
+    it(`maps ${JSON.stringify(input.slice(0, 48))} to the generic sentence, not credentials`, () => {
+      expect(summarizePublishError(input)).toMatch(GENERIC);
+    });
+  }
 });
 
 describe("known case: repository already exists", () => {
@@ -137,6 +181,23 @@ describe("precedence (documented in lib/publish-error.ts)", () => {
   it("workflow scope wins over the network case in a combined stderr", () => {
     const combined = `${WORKFLOW_STDERR}\nfatal: the remote end hung up unexpectedly`;
     expect(summarizePublishError(combined)).toMatch(/lacks the workflow scope/i);
+  });
+});
+
+describe("reference ids", () => {
+  it("logs a known case without a reference id (the fixed sentence leaves nothing to tie)", () => {
+    const out = summarizePublishError(WORKFLOW_STDERR);
+    expect(out).toMatch(/lacks the workflow scope/i);
+    expect(out).not.toMatch(/Reference: [0-9a-f]{8}/);
+    const { prefix } = singleLog();
+    expect(prefix).toBe("Publish failed:");
+    expect(prefix).not.toMatch(/^\[[0-9a-f]{8}\]/);
+  });
+
+  it("returns a reference id for the generic answer that matches the logged id", () => {
+    const out = summarizePublishError("git exited with code 1\nStderr: totally unknown state");
+    const ref = out.match(/Reference: ([0-9a-f]{8})$/)![1];
+    expect(singleLog().prefix).toBe(`[${ref}] Publish failed:`);
   });
 });
 

@@ -50,10 +50,10 @@ flowchart TD
 3. **One toolchain boundary**: project-forge reaches planforge and scaffoldkit
    only through the planforge HTTP service. scaffoldkit is an implementation
    detail behind it and is never invoked from this app.
- 4. **No secrets in responses or logs**: internal error detail (file paths,
-    stderr, PATs) never reaches clients; clients get fixed reason sentences
-    or a generic sentence with a reference id, and anything logged is first
-    PAT-scrubbed (`lib/scrub-secrets.ts`).
+4. **No secrets in responses or logs**: internal error detail (file paths,
+   stderr, PATs) never reaches clients; clients get fixed reason sentences
+   or a generic sentence with a reference id, and the publish routes and 500
+   error logs are PAT-scrubbed (`lib/scrub-secrets.ts`).
 5. **Dark-only UI**: Tailwind, dark-first, no light mode.
 
 ## System Structure

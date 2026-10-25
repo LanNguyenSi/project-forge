@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { scrubSecrets } from "@/lib/scrub-secrets";
 import { internalErrorDetails } from "@/lib/server-error";
 
@@ -8,10 +7,11 @@ import { internalErrorDetails } from "@/lib/server-error";
  * user-actionable reason safe to show a client.
  *
  * The full message is scrubbed of GitHub credentials (`lib/scrub-secrets.ts`)
- * and logged server-side under a short reference id. Known failures return a
- * fixed sentence; anything else returns the same generic sentence and
- * reference id as `internalErrorDetails` (lib/server-error.ts), so git
- * stderr, temp-dir paths and remote URLs never reach clients.
+ * and logged server-side. Known failures return a fixed sentence and are
+ * logged without a reference id; anything else returns the same generic
+ * sentence and reference id as `internalErrorDetails` (lib/server-error.ts)
+ * and is logged under that same id, so git stderr, temp-dir paths and remote
+ * URLs never reach clients.
  *
  * Cases are checked in this precedence order (a stderr can match more than
  * one; the first match wins, see the combined-input test):
@@ -20,7 +20,8 @@ import { internalErrorDetails } from "@/lib/server-error";
  *   3. rate limit        - GitHub also answers rate limiting with HTTP 403,
  *                          so this must precede the credentials case or the
  *                          403 substring would swallow it.
- *   4. credentials       - generic auth rejections (401/403 and friends).
+ *   4. credentials       - GitHub-specific auth rejections (github_401/403,
+ *                          HTTP 401/403 and friends; never local failures).
  *   5. network           - transport failures, the least specific.
  *
  * Lives in lib/ rather than a route module because Next.js route files may
@@ -33,14 +34,18 @@ interface PublishErrorCase {
 
 const PUBLISH_ERROR_CASES: readonly PublishErrorCase[] = [
   {
-    // GitHub's push-rejection hook text, verbatim: "refusing to allow an
-    // OAuth App to create or update workflow `.github/workflows/ci.yml`
-    // without `workflow` scope". Stable across git versions; the same stderr
-    // also carries generic "[remote rejected]" / "failed to push" lines, so
-    // this most specific phrase is checked first.
-    pattern: /refusing to allow an OAuth App to create or update workflow/i,
+    // GitHub's push-rejection hook text; the subject varies with the
+    // credential type: "refusing to allow an OAuth App / a Personal Access
+    // Token / a GitHub App to create or update workflow
+    // `.github/workflows/ci.yml` without `workflow` scope" (all three are
+    // supported credentials, see docs/api.md). Only the token-agnostic part
+    // is matched, with a bounded window (no nested quantifiers) so a
+    // crafted line cannot backtrack. The same stderr also carries generic
+    // "[remote rejected]" / "failed to push" lines, so this most specific
+    // phrase is checked first.
+    pattern: /refusing to allow an? [^\n]{0,40}? to create or update workflow/i,
     sentence:
-      "GitHub refused the push because the connected GitHub app lacks the workflow scope needed to create or update files under .github/workflows. Remove the workflow files from the project or grant the workflow scope, then publish again.",
+      "The GitHub token used for publishing lacks the workflow scope needed to create or update files under .github/workflows. Remove the workflow files from the project or grant the workflow scope, then publish again.",
   },
   {
     // v1's internal code for this failure, plus the two GitHub API texts
@@ -61,13 +66,20 @@ const PUBLISH_ERROR_CASES: readonly PublishErrorCase[] = [
       "GitHub rate limited the publish request. Wait a few minutes and publish again.",
   },
   {
-    // git: "fatal: Authentication failed for ...", "Permission denied
-    // (publickey)", "remote: Invalid username or token", "The requested URL
-    // returned error: 403"; v1's github_401 / github_403 codes. The 401/403
-    // alternatives are digit-guarded so counts or port numbers cannot read
-    // as an HTTP status.
+    // GitHub-specific auth rejections only: v1's github_401 / github_403
+    // codes (line-anchored so a "github_403" substring inside a push blob
+    // cannot read as a code), git's "The requested URL returned error:
+    // 401/403" (the "returned error: " prefix is the digit guard, so counts,
+    // port numbers or a UUID group like "-403a" cannot read as a status),
+    // "fatal: Authentication failed", "remote: Invalid username or token /
+    // password", the GitHub API "Bad credentials" body, and the push-time
+    // "Permission to owner/repo.git denied to ..." line. Deliberately not a
+    // bare "permission denied" or free-standing 401/403: fs EACCES, local
+    // git config-lock errors, Postgres "permission denied for table" and
+    // hex hashes or "at position 403" are local failures that must not be
+    // blamed on GitHub credentials.
     pattern:
-      /authentication failed|permission denied|invalid username|bad credentials|(?:\D|^)40[13](?:\D|$)/im,
+      /^(?:Error:\s*)?github_40[13]$|returned error: 40[13]\b|authentication failed|invalid username or (?:password|token)|bad credentials|Permission to \S+ denied/im,
     sentence:
       "GitHub rejected the credentials used for publishing. Reconnect GitHub in your account settings (the token may be expired or missing the repo scope) and publish again.",
   },
@@ -86,17 +98,19 @@ const PUBLISH_ERROR_CASES: readonly PublishErrorCase[] = [
 /**
  * Summarize a publish failure for the client. `stderr` is the raw (not yet
  * scrubbed) error text from the publish flow; the caller never has to scrub
- * it. Known cases return a fixed sentence; anything else returns the generic
- * sentence with a reference id. Either way the full scrubbed message is
- * logged under a reference id (for the generic answer the same id the client
- * receives).
+ * it. Known cases return a fixed sentence and are logged (scrubbed) without
+ * a reference id; anything else returns the generic sentence with a
+ * reference id and is logged under that same id, exactly as
+ * internalErrorDetails does elsewhere.
  */
 export function summarizePublishError(stderr: string): string {
   const scrubbed = scrubSecrets(stderr);
   const hit = PUBLISH_ERROR_CASES.find((c) => c.pattern.test(scrubbed));
   if (hit) {
-    const ref = randomUUID().slice(0, 8);
-    console.error(`[${ref}] Publish failed:`, scrubbed);
+    // The client gets a fixed sentence, so there is nothing for a reference
+    // id to tie a response to; the full scrubbed message is logged for
+    // diagnostics only.
+    console.error("Publish failed:", scrubbed);
     return hit.sentence;
   }
   // Unrecognized failure: log it and answer with the generic sentence and
