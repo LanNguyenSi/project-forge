@@ -22,7 +22,8 @@ describe("ProjectForm AI magic fill and the session gate", () => {
   });
 
   it("hides the magic fill panel when the capabilities request is rejected with 401", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(401, { ok: false, error: "Not authenticated" }));
+    // The body claims enabled: true so only the status check can hide the panel.
+    fetchMock.mockResolvedValue(jsonResponse(401, { enabled: true }));
     render(<ProjectForm onSubmit={vi.fn()} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/ai-assist"));
     // let the promise chain settle
