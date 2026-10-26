@@ -2,10 +2,22 @@ FROM node:20-slim AS builder
 WORKDIR /app
 RUN apt-get update && apt-get install -y git ca-certificates openssl --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
-RUN npm install
+# Same install as CI: lockfile enforced, same flags.
+RUN npm ci --legacy-peer-deps --no-audit --no-fund
 COPY . .
 RUN npx prisma generate
 RUN npm run build
+
+# Production-only dependencies for the runtime image. `prisma` is a regular
+# dependency because the container CMD runs `prisma db push`. Dev tooling
+# (eslint, vitest, typescript, ...) stays in the builder stage.
+FROM node:20-slim AS deps
+WORKDIR /app
+RUN apt-get update && apt-get install -y openssl ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund
+RUN node_modules/.bin/prisma generate
 
 FROM node:20-slim AS runner
 WORKDIR /app
@@ -19,9 +31,10 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/public ./public
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma db push --skip-generate && npx next start"]
+# Installed binaries, not npx: no network fetch at container start.
+CMD ["sh", "-c", "node_modules/.bin/prisma db push --skip-generate && node_modules/.bin/next start"]

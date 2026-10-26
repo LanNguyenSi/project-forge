@@ -1,0 +1,10 @@
+# Keep host artefacts out of the build context: the image installs its own
+# node_modules via `npm ci` and builds .next itself.
+node_modules
+.next
+.git
+coverage
+.env
+.env.*
+*.db
+*.db-journal
