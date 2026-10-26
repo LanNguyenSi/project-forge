@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Docker image installs what CI tests.** The builder stage now runs `npm ci --legacy-peer-deps --no-audit --no-fund` (same flags as CI) instead of `npm install`, so the lockfile is enforced. The runtime image no longer copies the builder's full `node_modules`: a separate `deps` stage installs production dependencies only (`npm ci --omit=dev`) and runs `prisma generate`, so eslint, vitest, typescript and the other dev tooling are no longer in the image (about 40 MB smaller). `prisma` moved from `devDependencies` to `dependencies` because the container CMD runs `prisma db push`; the lockfile changes only in the prisma entry and in dev flags. The CMD calls `node_modules/.bin/prisma` and `node_modules/.bin/next` instead of `npx`, so start needs no network fetch; the semantics (`db push` then `next start`) are unchanged. A `.dockerignore` keeps host `node_modules`, `.next`, `.git` and `.env*` out of the build context. CI gains a `docker-build` job that builds the image (no push) so Dockerfile drift fails a pull request.
+
 ## [0.8.0] - 2026-10-25
 
 Operator action required before deploying: unauthenticated `/api/ai-assist` calls now answer 401, `PLANFORGE_SERVICE_TOKEN` is required in `.env`, the database defaults to the `forge_db` volume (`FORGE_DATABASE_URL`), and deploy-panel and agent-relay skip `docker-compose.override.yml`.
