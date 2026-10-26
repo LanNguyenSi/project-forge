@@ -6,9 +6,9 @@ The root `docker-compose.yml` ships two services:
 
 - `app`: the project-forge Next.js runtime.
 - `planforge`: the agent-planforge HTTP service (per
-  [ADR-0002](adrs/0002-tool-decoupling-service-boundary.md)). Built from the
-  sibling `agent-planforge` checkout via `context: ../agent-planforge` (see
-  `docker-compose.yml`). Runs both the planforge CLI and scaffoldkit
+  [ADR-0002](adrs/0002-tool-decoupling-service-boundary.md)). Built from a
+  pinned revision of the public agent-planforge repo (see
+  [Planforge version](#planforge-version)). Runs both the planforge CLI and scaffoldkit
   in-container. **Internal-only**, no Traefik labels, no published ports.
   `app` reaches it via the shared `traefik` docker network at
   `http://planforge:8223`.
@@ -30,6 +30,29 @@ deploy needs comes from `docker-compose.yml`, `.env` and the shell of the
 relay: put the secrets and a non-default database path in `.env`, not in the
 override. `make deploy` and `make pull` run plain `docker compose`, which does
 load the override.
+
+### Planforge version
+
+The `planforge` image is built from a git URL build context pinned to an
+explicit ref, in one place: the default of `PLANFORGE_CONTEXT` on the
+`planforge` service in `docker-compose.yml`
+(`https://github.com/LanNguyenSi/agent-planforge.git#v0.6.0`). No sibling
+checkout is needed; the Docker daemon that runs the build fetches the ref from
+GitHub, so that host needs outbound HTTPS to github.com and a BuildKit-enabled
+Docker (the default in current Docker and Compose). A rollback rebuilds the
+same planforge revision.
+
+To update planforge, change the ref after `#` to another release tag or a full
+40-character commit SHA (a one-line change), then deploy. Do not use a branch
+name: it would make the build depend on whatever the branch holds at build
+time.
+
+For local development against an agent-planforge checkout, set
+`PLANFORGE_CONTEXT=../agent-planforge` in `.env` (or the shell). This is never
+the default. Set it in `.env`, not in `docker-compose.override.yml`: the
+override only changes service config after compose has interpolated the file,
+and deploy tooling that runs `docker compose -f docker-compose.yml` skips the
+override entirely.
 
 ### Database location
 

@@ -46,10 +46,11 @@ cp docker-compose.override.example.yml docker-compose.override.yml
 make deploy
 ```
 
-Prerequisites: Docker with Compose, an
-[agent-planforge](https://github.com/LanNguyenSi/agent-planforge) checkout next
-to this repository (`../agent-planforge`, built as the planforge service by
-`docker-compose.yml`), and an existing external Docker network named `traefik`
+Prerequisites: Docker with Compose (the planforge service is built from a
+pinned [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
+release fetched from GitHub, see
+[docs/deployment.md](docs/deployment.md#planforge-version); no sibling checkout
+is needed), and an existing external Docker network named `traefik`
 (`docker network create traefik`). The app is reachable only through Traefik
 or a port you publish in the override, see
 [docs/deployment.md](docs/deployment.md#routing). The SQLite database is

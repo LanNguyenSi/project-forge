@@ -17,6 +17,7 @@ their secrets belong in `.env`.
 | `DATABASE_URL` | SQLite path for local development (`.env.example` ships `file:./db/project-forge.db`). In Docker the container gets `file:/data/project-forge.db`; the `.env` value does not reach it. Use `FORGE_DATABASE_URL` (below) to change the container path. |
 | `PLANFORGE_URL` | URL of the planforge HTTP service (set to `http://planforge:8223` by `docker-compose.yml`). `.env.example` carries it commented out; for local development uncomment it in `.env` (`http://localhost:8223`). |
 | `PLANFORGE_SERVICE_TOKEN` | Shared bearer token for the planforge HTTP service. Generate with `openssl rand -hex 32`. Same value in both `app` and `planforge` containers. |
+| `PLANFORGE_CONTEXT` | Compose-only, optional. Build context of the `planforge` image; default is the pinned agent-planforge git URL in `docker-compose.yml`. Set to `../agent-planforge` to build from a local checkout, see [Planforge version](deployment.md#planforge-version). |
 
 > Publishing a repo uses each **user's own** GitHub credential (the OAuth token
 > from GitHub sign-in or a classic PAT saved in Settings, see
