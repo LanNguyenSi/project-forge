@@ -73,7 +73,7 @@ services:
   # SHA), fetched by the Docker daemon at build time. No sibling checkout is
   # needed, so a clean clone builds and a rollback rebuilds the same toolchain.
   # The ref is the ONLY place the planforge version is set: to update
-  # planforge, change the `#v0.6.0` below (see docs/deployment.md). For local
+  # planforge, change the commit SHA after `#` below (see docs/deployment.md). For local
   # development against an agent-planforge checkout, set PLANFORGE_CONTEXT
   # (for example PLANFORGE_CONTEXT=../agent-planforge in .env); it is never the
   # default. The image ships the planforge CLI, the TypeScript HTTP layer, AND
@@ -86,7 +86,7 @@ services:
   # auth on /api/*.
   planforge:
     build:
-      context: ${PLANFORGE_CONTEXT:-https://github.com/LanNguyenSi/agent-planforge.git#v0.6.0}
+      context: ${PLANFORGE_CONTEXT:-https://github.com/LanNguyenSi/agent-planforge.git#2438f9a47da23de378b0943e8f073a41decdb00a}
       dockerfile: server/Dockerfile
     environment:
       PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN:?set PLANFORGE_SERVICE_TOKEN in .env (openssl rand -hex 32)}

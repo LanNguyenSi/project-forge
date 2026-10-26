@@ -36,7 +36,7 @@ load the override.
 The `planforge` image is built from a git URL build context pinned to an
 explicit ref, in one place: the default of `PLANFORGE_CONTEXT` on the
 `planforge` service in `docker-compose.yml`
-(`https://github.com/LanNguyenSi/agent-planforge.git#v0.6.0`). No sibling
+(`https://github.com/LanNguyenSi/agent-planforge.git#2438f9a47da23de378b0943e8f073a41decdb00a`, the agent-planforge main commit after v0.6.0 that bumps scaffoldkit to v0.4.3, which production built from before the pin). No sibling
 checkout is needed; the Docker daemon that runs the build fetches the ref from
 GitHub, so that host needs outbound HTTPS to github.com and a BuildKit-enabled
 Docker (the default in current Docker and Compose). A rollback rebuilds the
