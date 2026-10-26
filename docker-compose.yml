@@ -68,10 +68,17 @@ services:
 
   # ── agent-planforge HTTP service (ADR-0002) ───────────────────────────
   #
-  # Built from the agent-planforge repo checked out as a sibling
-  # (context: ../agent-planforge below). The image ships the planforge CLI,
-  # the TypeScript HTTP layer, AND a pinned scaffoldkit venv that runs
-  # scaffoldkit server-side, see `agent-planforge/server/Dockerfile`.
+  # Built from a pinned revision of the public agent-planforge repo: the build
+  # context is a git URL with an explicit ref (a release tag or a full commit
+  # SHA), fetched by the Docker daemon at build time. No sibling checkout is
+  # needed, so a clean clone builds and a rollback rebuilds the same toolchain.
+  # The ref is the ONLY place the planforge version is set: to update
+  # planforge, change the commit SHA after `#` below (see docs/deployment.md). For local
+  # development against an agent-planforge checkout, set PLANFORGE_CONTEXT
+  # (for example PLANFORGE_CONTEXT=../agent-planforge in .env); it is never the
+  # default. The image ships the planforge CLI, the TypeScript HTTP layer, AND
+  # a pinned scaffoldkit venv that runs scaffoldkit server-side, see
+  # `server/Dockerfile` in that repo.
   #
   # Intentionally NOT Traefik-exposed. Access is scoped to the shared
   # `traefik` docker network, where project-forge reaches it via the
@@ -79,7 +86,7 @@ services:
   # auth on /api/*.
   planforge:
     build:
-      context: ../agent-planforge
+      context: ${PLANFORGE_CONTEXT:-https://github.com/LanNguyenSi/agent-planforge.git#2438f9a47da23de378b0943e8f073a41decdb00a}
       dockerfile: server/Dockerfile
     environment:
       PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN:?set PLANFORGE_SERVICE_TOKEN in .env (openssl rand -hex 32)}

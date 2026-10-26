@@ -22,7 +22,35 @@ describe("docker-compose.yml defaults", () => {
 
   it("finds both service blocks", () => {
     expect(app).toContain("build: .");
-    expect(planforge).toContain("../agent-planforge");
+    expect(planforge).toContain("dockerfile: server/Dockerfile");
+  });
+
+  // The planforge image is built from a pinned git revision, not from a
+  // sibling checkout whose contents depend on the host.
+  const contextLine = /^ {6}context: (.+)$/m.exec(planforge)?.[1] ?? "";
+  const defaultContext = /^\$\{PLANFORGE_CONTEXT:-([^}]+)\}$/.exec(contextLine)?.[1] ?? "";
+
+  it("builds planforge from a git URL pinned to a tag or a full commit SHA", () => {
+    expect(defaultContext).toMatch(
+      /^https:\/\/github\.com\/LanNguyenSi\/agent-planforge\.git#(v\d+\.\d+\.\d+|[0-9a-f]{40})$/,
+    );
+  });
+
+  it("lets PLANFORGE_CONTEXT override the context, and only through that variable", () => {
+    expect(contextLine).toMatch(/^\$\{PLANFORGE_CONTEXT:-[^}]+\}$/);
+  });
+
+  it("has no sibling-checkout path in the default compose outside comments", () => {
+    const code = read("docker-compose.yml")
+      .split("\n")
+      .filter((l) => !l.trimStart().startsWith("#"))
+      .join("\n");
+    expect(code).not.toMatch(/\.\.\/agent-planforge/);
+    expect(code).not.toMatch(/context:\s*\.\.?\//);
+  });
+
+  it("keeps the planforge ref in exactly one place", () => {
+    expect(read("docker-compose.yml").match(/agent-planforge\.git#/g)).toHaveLength(1);
   });
 
   it("gives the app a healthcheck against the health route", () => {
