@@ -8,6 +8,8 @@
 # DATABASE_URL; a relative `file:` path resolves against prisma/, like Prisma):
 #
 #   file missing, or file without any table   -> migrate deploy (creates it)
+#   _prisma_migrations present, a migration is recorded as failed
+#                                             -> abort, nothing changed, no copy
 #   _prisma_migrations present, up to date    -> migrate deploy (no-op), no copy
 #   _prisma_migrations present, status != 0   -> copy, then migrate deploy
 #   tables but no _prisma_migrations (a database that `db push` created):
@@ -19,6 +21,14 @@
 # with `sqlite3 .backup` (consistent even with a journal left by a crash). Any
 # failure of the copy, the check, the resolve or the deploy aborts with a
 # non-zero status and the server command is not started.
+#
+# A migration that fails halfway stays in _prisma_migrations as failed (no
+# finished_at, no rolled_back_at), and SQLite does not undo the statements that
+# ran before the error. The next start finds that row first and stops without
+# touching the file: a new copy would be a copy of the damaged database and
+# would look like a restore point. The message names the newest pre-migrate
+# copy that is older than the failed migration's start, which is the one to
+# restore.
 #
 # Tested in tests/integration/start-script.test.ts with stub `prisma` and `sqlite3`
 # binaries (PRISMA_BIN, SQLITE3_BIN) and with the real ones.
@@ -55,12 +65,22 @@ case "$db" in
   *"'"*) die "database path must not contain a single quote: $db" ;;
 esac
 
+# The start reads the database state and takes the copy with sqlite3. Checked
+# once, before anything else, so that no later step depends on it by accident.
+command -v "$SQLITE3" >/dev/null 2>&1 || die "sqlite3 not found (looked for $SQLITE3): it is needed to read the state of $db and to take the pre-migrate copy. Nothing was changed."
+
 copy_note=""
 
-# Runs one sqlite3 query and prints a number. A failure exits the script (also
-# when called inside $( ), where the caller adds `|| exit 1`).
-count() {
+# Runs one sqlite3 query and prints its output. A failure exits the script
+# (also when called inside $( ), where the caller adds `|| exit 1`).
+query() {
   out=$("$SQLITE3" "$db" "$1") || die "cannot read the SQLite database at $db (not a database, locked or unreadable). Nothing was changed."
+  printf '%s\n' "$out"
+}
+
+# Same, for a query that must answer with a number.
+count() {
+  out=$(query "$1") || exit 1
   case "$out" in
     ''|*[!0-9]*) die "unexpected answer from sqlite3 for [$1]: $out" ;;
   esac
@@ -68,7 +88,6 @@ count() {
 }
 
 pre_migrate_copy() {
-  command -v "$SQLITE3" >/dev/null 2>&1 || die "sqlite3 not found: cannot take the pre-migrate copy of $db. Nothing was changed."
   stamp=$(date -u +%Y%m%dT%H%M%SZ) || die "cannot read the clock for the copy name"
   target="$db.pre-migrate-$stamp"
   n=0
@@ -97,10 +116,48 @@ pre_migrate_copy() {
   copy_note="pre-migrate copy: $target"
 }
 
+# Stops the start when _prisma_migrations holds a migration that began and
+# neither finished nor was marked rolled back. Prisma does not undo the
+# statements of a failed SQLite migration, so the file may be half migrated.
+# Nothing is copied here (a copy of the damaged file is not a restore point)
+# and `migrate deploy` is not run (it refuses on that row anyway).
+refuse_failed_migration() {
+  row=$(query "SELECT COALESCE(migration_name, '') || '|' || COALESCE(started_at, '') || '|' || COALESCE(CASE typeof(started_at) WHEN 'integer' THEN strftime('%Y%m%dT%H%M%SZ', started_at / 1000, 'unixepoch') ELSE strftime('%Y%m%dT%H%M%SZ', started_at) END, '') FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL ORDER BY started_at, migration_name LIMIT 1") || exit 1
+  [ -n "$row" ] || return 0
+  name=${row%%|*}
+  rest=${row#*|}
+  started_stamp=${rest#*|}
+  started_raw=${rest%%|*}
+  case "$started_stamp" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+    *) die "cannot read the start time ($started_raw) of the failed migration $name in $db. Nothing was changed. See $DOCS." ;;
+  esac
+  started_num=$(printf '%s' "$started_stamp" | tr -d TZ)
+  best=""
+  # Names sort oldest first (UTC stamp, then the -N suffix), so the last one
+  # that is not newer than the failed migration's start wins.
+  for f in "$db".pre-migrate-*; do
+    [ -f "$f" ] || continue
+    stamp=${f##*.pre-migrate-}
+    stamp=${stamp%%-*}
+    case "$stamp" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+      *) continue ;;
+    esac
+    [ "$(printf '%s' "$stamp" | tr -d TZ)" -le "$started_num" ] && best=$f
+  done
+  if [ -n "$best" ]; then
+    advice="Stop the container, restore $best (the newest pre-migrate copy taken before that migration started) and remove $db-journal, $db-wal and $db-shm, then deploy a fixed migration or the previous release."
+  else
+    advice="There is no pre-migrate copy older than that start next to $db (looked for $db.pre-migrate-*): restore your own backup of the database."
+  fi
+  die "migration $name failed halfway (recorded in _prisma_migrations since ${started_stamp}, UTC) and was never rolled back. SQLite keeps the statements that ran before the error, so $db may be partly migrated. The server was not started, no new copy was taken and migrate deploy was not run. $advice See $DOCS."
+}
+
 deploy() {
   log "prisma migrate deploy"
   if ! "$PRISMA" migrate deploy; then
-    die "prisma migrate deploy failed (output above). The server was not started. ${copy_note:-No copy was taken.} See $DOCS."
+    die "prisma migrate deploy failed (output above). The server was not started. ${copy_note:-No copy was taken.} If a migration failed halfway, the next start names the copy to restore. See $DOCS."
   fi
 }
 
@@ -128,6 +185,7 @@ else
   [ -f "$db" ] || die "$db exists but is not a regular file. Nothing was changed."
   history=$(count "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = '_prisma_migrations'") || exit 1
   if [ "$history" -gt 0 ]; then
+    refuse_failed_migration
     st=0
     "$PRISMA" migrate status || st=$?
     if [ "$st" -eq 0 ]; then
