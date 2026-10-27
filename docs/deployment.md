@@ -183,8 +183,9 @@ database path is the one in `DATABASE_URL` (default
 |---|---|
 | File missing, or no table in it | `prisma migrate deploy` creates the schema. No copy. |
 | Has `_prisma_migrations` and a migration recorded as failed (started, never finished, not rolled back) | Abort before anything else: no copy, no `migrate deploy`, nothing changed. The message names the migration, its start time and the copy to restore. See [A migration failed halfway](#a-migration-failed-halfway). |
+| Has `_prisma_migrations` and `prisma/migrations/` holds a dot-directory, a symlink or a directory without `migration.sql` | Abort before the pending check: no copy, no `migrate deploy`, nothing changed. The message names the entry; remove it or add the missing file. |
 | Has `_prisma_migrations`, nothing pending | `migrate deploy` (a no-op). No copy. |
-| Has `_prisma_migrations`, a migration is pending | A new copy of the file, then `migrate deploy`. |
+| Has `_prisma_migrations`, a migration is pending | A new copy of the file, then `migrate deploy`, unless three copies are already newer than the newest applied migration (see [Pre-migrate copy](#pre-migrate-copy)): then abort, no copy, no `migrate deploy`. |
 | Has tables but no `_prisma_migrations` (created by the old `db push` start) and equals `prisma/schema.prisma` | A new copy of the file, mark the baseline migration as applied (`migrate resolve --applied`), then `migrate deploy`. |
 | Has tables but no `_prisma_migrations` and differs from `prisma/schema.prisma`, or the comparison fails | Abort. Nothing is changed, the server does not start. |
 
@@ -195,11 +196,23 @@ reads this with `sqlite3` and does not ask `prisma migrate status`: prisma 5.22
 reports a migration marked rolled back as up to date and `migrate deploy` then
 applies it again. So a migration marked rolled back (`migrate resolve
 --rolled-back`), one that finished and was marked rolled back later, and one
-that sorts before the newest applied migration are all pending, the same set
-`migrate deploy` applies (checked with prisma 5.22 for each of these states).
+that sorts before the newest applied migration are all pending, which is what
+`migrate deploy` applies for each of these states (checked with prisma 5.22).
 Rows of migrations the image does not have, such as the ones a newer release
 applied before the code was rolled back, are not looked at: `migrate deploy`
 ignores them, and an older release would otherwise copy the file on every start.
+
+The set matches what `migrate deploy` applies only while every entry of
+`prisma/migrations/` is either a regular file (`migration_lock.toml`) or a
+plain directory with a `migration.sql`. Prisma 5.22 reads every directory entry,
+dot-directories included (it applies a `.name/migration.sql`), leaves symlinks
+out, and fails with `P3015` on a directory without `migration.sql`; the script
+globs the directory without dot entries and follows symlinks. So a start
+with a dot-directory, a symlink or a directory without `migration.sql` in
+`prisma/migrations/` stops before it computes anything ("nothing was changed"),
+rather than risk a deploy that applies a migration the script did not copy for.
+The committed migrations never look like that; it can only come from a
+hand-edited image or volume mount.
 
 Any failure of the copy, the check, the resolve or the deploy ends the start
 with a non-zero exit and the server is not started. Nothing falls back to
@@ -264,10 +277,38 @@ same volume: check the free space before a large deploy. If the copy cannot be
 written, the start aborts before anything is changed.
 
 A start with nothing pending makes no copy. A start that finds a failed
-migration makes none either (see below), so the restart loop after a failure
-does not add copies. Otherwise there is no deduplication: every deploy that
-applies a migration leaves its own copy, also when the file has not changed
-since the last one.
+migration makes none either (see below), so the restart loop after a migration
+that fails halfway does not add copies. Otherwise there is no deduplication:
+every start with a pending migration copies, also when the file has not changed
+since the last one, and also when the `migrate deploy` that follows then fails
+without recording anything.
+
+That last case is bounded. A deploy can fail before prisma writes a row: the
+database is write-locked by another process, prisma rejects an entry in
+`prisma/migrations/`, or prisma dies early. There is no failed row for the next
+start to find, so every restart would write another full copy. Before a copy,
+the script counts the stamped copies whose stamp second is later than the
+newest `finished_at` of an applied row in `_prisma_migrations` (applied: set
+`finished_at`, empty `rolled_back_at`; with no applied row at all, every stamped
+copy counts). Three or more end the start without a copy, without
+`migrate deploy` and with nothing changed:
+
+```
+[db-start] ERROR: deploy keeps failing before it records a migration (3 copies since the last applied migration); nothing was changed. No new copy was taken and migrate deploy was not run. Find the cause in the output of the earlier starts (for example a locked database or a migration prisma rejects), fix it, remove the surplus copies /data/project-forge.db.pre-migrate-* (keep the oldest) and start again. See docs/deployment.md, section "Database migrations".
+```
+
+So the container takes at most three copies before it stops (a full-size copy
+each: the free space for three is the worst case), and the restart loop after
+that costs no disk. To clear the stop, read the output of the earlier starts
+(`docker compose logs app`) and fix the cause, then remove the surplus copies,
+for example every stamped copy but the oldest, with the `rm` command below; the
+copies normally hold the same state, because a deploy that records nothing
+has not changed the file. The count also drops to zero when a migration is applied: its
+`finished_at` is later than the copies. A copy in the same second as that
+`finished_at` is not counted. The failed-migration stop comes first: with a
+failed row, the start reports that and never looks at the count. Copies you
+keep for another reason still count while their stamp is later than the newest
+applied migration; move them to a name outside the prefix to take them out.
 
 Finding the right copy: the stamp is the UTC time the start took it, right
 before its `migrate deploy`. The copy from before a migration is the newest one
