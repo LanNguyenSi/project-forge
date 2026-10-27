@@ -112,7 +112,8 @@ Check the effective value with
 
 The `app` service has a compose healthcheck against `GET /api/health`, a
 public route that answers `{"ok":true}` without touching the database. It
-gives the container 60 seconds to run `prisma db push` and start, then probes
+gives the container 60 seconds to run `scripts/start.sh` (`prisma migrate deploy`,
+plus the pre-migrate copy when a migration is pending) and start, then probes
 every 15 seconds; five failures in a row mark it `unhealthy`
 (`docker compose ps`). Because the check reads the route, a server that
 refuses to serve (see above) is `unhealthy` too. Docker does not restart an
@@ -168,6 +169,174 @@ As a host crontab entry (hourly, from the checkout that holds
 0 * * * * cd /path/to/project-forge && docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} +
 ```
 
+## Database migrations
+
+The schema changes through committed Prisma migrations in `prisma/migrations/`
+(SQLite, `migration_lock.toml` says `provider = "sqlite"`). The container does
+not run `prisma db push` any more. Its start command is
+`sh scripts/start.sh node_modules/.bin/next start`; the script brings the
+database file to the committed schema and only then starts the server. The
+database path is the one in `DATABASE_URL` (default
+`file:/data/project-forge.db` on the `forge_db` volume).
+
+| State of the database file | What start does |
+|---|---|
+| File missing, or no table in it | `prisma migrate deploy` creates the schema. No copy. |
+| Has `_prisma_migrations`, nothing pending | `migrate deploy` (a no-op). No copy. |
+| Has `_prisma_migrations`, a migration is pending (or `migrate status` fails) | Copy the file, then `migrate deploy`. |
+| Has tables but no `_prisma_migrations` (created by the old `db push` start) and equals `prisma/schema.prisma` | Copy the file, mark the baseline migration as applied (`migrate resolve --applied`), then `migrate deploy`. |
+| Has tables but no `_prisma_migrations` and differs from `prisma/schema.prisma`, or the comparison fails | Abort. Nothing is changed, the server does not start. |
+
+Any failure of the copy, the check, the resolve or the deploy ends the start
+with a non-zero exit and the server is not started. Nothing falls back to
+`db push`. Compose restarts the container (`restart: unless-stopped`), so a
+failure shows up as a restart loop and an `unhealthy` container; read it with
+`docker compose logs app`. A deploy tool that rolls back on a failed health
+check (`rollback: true` in `.relay.yml`) puts the previous code back; see
+[Rollback](#rollback) for what that does not undo.
+
+### Auto-baseline and the abort message
+
+A database that the old start command created has the right tables but no
+migration history, so `prisma migrate deploy` alone refuses it (`P3005`). The
+first start of this release compares the file with `prisma/schema.prisma`
+(`prisma migrate diff ... --exit-code`, read-only). Only an exact match is
+baselined. If the file differs, the log shows what differs and then:
+
+```
+[db-start] ERROR: the existing database /data/project-forge.db differs from prisma/schema.prisma (differences above), so it was NOT baselined and nothing was changed. The server was not started and no 'prisma db push' is run. Bring the database in line with the schema, or baseline it by hand once you have verified the differences: see docs/deployment.md, section "Database migrations".
+```
+
+Recovery (the database file is untouched, the container keeps restarting until
+you act):
+
+1. Stop the restart loop: `docker compose stop app`.
+2. Take your own copy of the file: `docker compose run --rm --no-deps app sh -c 'cp /data/project-forge.db /data/project-forge.db.manual-$(date -u +%Y%m%dT%H%M%SZ)'` (adjust the path if `FORGE_DATABASE_URL` is set).
+3. See the SQL that would turn the database into the schema (read-only):
+   `docker compose run --rm --no-deps app sh -c 'node_modules/.bin/prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script'`
+4. Choose one:
+   - Bring the database to the schema: review the script, apply the statements
+     you accept (for example with `sqlite3` in the same one-off container), and
+     repeat step 3 until it prints `-- This is an empty migration.`. The next
+     start then baselines on its own.
+   - The differences are harmless and you want to keep the file as it is: record
+     the baseline by hand with
+     `docker compose run --rm --no-deps app node_modules/.bin/prisma migrate resolve --applied 20261027000000_baseline`.
+     This marks the migration as applied without running it, so the differences
+     stay in the database. Do this only after reading the diff.
+5. `docker compose up -d app`.
+
+The comparison is against `prisma/schema.prisma` of the image being started.
+That is exact for the first start after the `db push` era, which is what
+auto-baseline is for. Once a release adds a migration after the baseline, a
+legacy file that was never started on migrations still has the old shape and
+is refused too. Then the differences are exactly what the later migrations
+create: baseline by hand (the second choice in step 4) and let the start apply
+those migrations. Do not apply the SQL yourself in that case, the migration
+would fail on the second run.
+
+### Pre-migrate copy
+
+Before the baseline is recorded, and before `migrate deploy` when a migration
+is pending, the start script copies the database to
+`<database file>.pre-migrate-<UTC timestamp>` in the same directory, which is
+`/data/project-forge.db.pre-migrate-20261027T132758Z` on the `forge_db` volume
+by default. The copy is made with `sqlite3 .backup` (the runner image installs
+`sqlite3`), so it is consistent, and the file mode is `600` because the
+database holds password hashes and GitHub tokens. It is a full-size copy on the
+same volume: check the free space before a large deploy. If the copy cannot be
+written, the start aborts before anything is changed.
+
+A start with no pending migration makes no copy. A restart loop does not pile
+up copies: when the database is byte-identical to the newest copy, that copy is
+kept and no new one is written.
+
+Nothing deletes the copies. List and remove them once the new version has run
+well:
+
+```
+docker compose run --rm --no-deps app sh -c 'ls -l /data/*.pre-migrate-*'
+docker compose run --rm --no-deps app sh -c 'rm /data/project-forge.db.pre-migrate-<timestamp>'
+```
+
+To go back to a copy: `docker compose stop app`, then replace
+`/data/project-forge.db` with the copy (`cp` it over the file in a one-off
+container) and remove any `project-forge.db-journal` next to it.
+
+### Rollback
+
+`rollback: true` in `.relay.yml` and a manual `docker compose up` of an older
+checkout both change the code only. They do not undo a migration: the database
+keeps the schema the newer release gave it. An older image that still ran
+`prisma db push` at start (0.8.0 and earlier) accepts the database as long as
+the schema did not change in between (checked: `db push` reports it is already
+in sync and leaves `_prisma_migrations` alone), but once a migration changed the
+schema, the older code can fail or, with `db push`, refuse the new shape. To
+return to the schema of the older release, restore the pre-migrate copy as
+described above, then start the older release.
+
+### Writing migrations (expand and contract)
+
+- Create the migration with the schema change: `npx prisma migrate dev --name <what changed>`,
+  review the SQL, commit `prisma/migrations/<timestamp>_<name>/`. CI runs
+  `sh scripts/check-migrations.sh` and fails when the schema and the migrations
+  disagree.
+- Migrations run in order at the next container start, with no operator step
+  in between. A migration that drops or rewrites data therefore runs on that
+  deploy, whatever else you planned.
+- For a change that needs a data transform (SQLite has no HMAC or SHA-256, so
+  the 0.7.0 token hashing was done in Node), split it over two releases:
+  1. **Expand** release: a migration that only adds (new nullable column, new
+     table), code that works with both shapes, and a backfill script run
+     out of band as in [Upgrading to 0.7.0](#upgrading-to-070).
+  2. **Contract** release, after the backfill is verified: the migration that
+     drops the old column or adds `NOT NULL`. If the data does not fit, the
+     migration fails and the start aborts; the pre-migrate copy is the way
+     back.
+- A migration that fails halfway leaves a failed entry in `_prisma_migrations`;
+  every later start then stops with `P3009`. Restore the pre-migrate copy (or
+  repair the database by hand), then mark the migration with
+  `prisma migrate resolve --rolled-back <name>` or `--applied <name>` as
+  appropriate before starting again.
+
+## Upgrading to committed migrations
+
+The release that adds `prisma/migrations/` replaces the container's
+`prisma db push` with `scripts/start.sh` (see [Database migrations](#database-migrations)).
+What the next deploy does, with the database at `file:/data/project-forge.db`:
+
+1. The image is rebuilt; it now contains `sqlite3`, `scripts/start.sh` and the
+   baseline migration.
+2. The container starts, finds tables but no `_prisma_migrations`, and compares
+   the file with `prisma/schema.prisma`.
+3. If they are equal: it writes
+   `/data/project-forge.db.pre-migrate-<UTC timestamp>` (a full copy on the
+   `forge_db` volume), records `20261027000000_baseline` as applied, runs
+   `migrate deploy` (nothing to apply), and starts the server. The log shows
+   `[db-start] pre-migrate copy written: ...`.
+4. If they differ, or the copy cannot be written: the container exits with
+   `[db-start] ERROR: ...`, the database file is untouched, and the health
+   check fails; with `rollback: true` the relay restores the previous code (the
+   old image's `db push` accepts the untouched file). Recover as described under
+   [Auto-baseline and the abort message](#auto-baseline-and-the-abort-message).
+
+Before deploying, check which of 3 and 4 applies, read-only, in the running
+container (its `prisma/schema.prisma` is the schema the new image compares
+against, as long as the release does not change the schema):
+
+```
+docker compose exec app sh -c 'node_modules/.bin/prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code'
+```
+
+Exit 0 and `No difference detected.` means step 3. Exit 2 lists the
+differences: fix them first (recovery step 4) or accept the abort. Also check
+that the volume has room for a copy of the database file.
+
+One-time manual step: none when the check passes. For local development,
+`npm run db:push` is gone: use `npx prisma migrate deploy` for a fresh database
+(see `CONTRIBUTING.md` for a database that `db push` created). Delete the
+pre-migrate copy once the new version has run well.
+
 ## Service Token Rotation (manual, v1)
 
 ```bash
@@ -221,6 +390,16 @@ before the next deploy (`make deploy` and `make pull` now rebuild with
   If you use `.relay.yml`, its `health: /` check is unchanged.
 
 ## Upgrading to 0.7.0
+
+This section predates committed migrations: at 0.7.0 the container ran
+`prisma db push` at start, and the steps below (including "its `db push` is now
+a clean no-op") describe that. The expand and contract scripts are plain SQL
+and still work. When you upgrade from a version before 0.7.0 straight to a
+release with migrations, do these steps first: a database that still has the
+plaintext `token` column differs from `prisma/schema.prisma`, so the new start
+aborts (see [Database migrations](#database-migrations)) instead of baselining
+it. After step 5 the start script's check passes and baselines the file in
+place of step 6's `db push`.
 
 0.7.0 stores API tokens hashed: `ApiToken.token` is replaced by
 `tokenHash` and `tokenPrefix`. The container's start command runs

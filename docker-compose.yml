@@ -50,8 +50,11 @@ services:
         condition: service_healthy
     healthcheck:
       # Inline Node so the probe needs no curl/wget in the image. /api/health
-      # is public and does no database work. The start period covers the
-      # `prisma db push` that runs before `next start`.
+      # is public and does no database work. The start period covers what
+      # scripts/start.sh does before `next start`: `prisma migrate deploy` and,
+      # when a migration is pending or a legacy database is baselined, the
+      # pre-migrate copy of the SQLite file (measured start: about one second
+      # with a small database; the copy takes longer on a large one).
       test:
         - CMD
         - node

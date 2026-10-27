@@ -199,10 +199,12 @@ required.
 ### 5. Persistence
 
 Prisma over **SQLite** (`prisma/schema.prisma`, `provider = "sqlite"`). The
-client is a cached singleton in `lib/db.ts`. The schema syncs via
-`npx prisma db push` (there is no `prisma/migrations` directory). Core models:
-`User`, `ApiToken`, and `UsageLog` (one row per project published through the
-v1 API, also the basis for rate limiting).
+client is a cached singleton in `lib/db.ts`. The schema is changed through
+committed migrations in `prisma/migrations/`; the container applies them at
+start with `prisma migrate deploy` through `scripts/start.sh` (see
+[Database migrations](deployment.md#database-migrations)). Core models: `User`,
+`ApiToken`, and `UsageLog` (one row per project published through the v1 API,
+also the basis for rate limiting).
 
 ### 6. Rate limiting
 
@@ -244,13 +246,21 @@ The pipelines run on GitHub Actions in three workflows:
   1. `npm ci --legacy-peer-deps`
   2. `npx prisma generate`
   3. `npx tsc --noEmit --skipLibCheck` (typecheck)
-  4. `npm run lint` (ESLint)
-  5. `Forbid next/font/google` (a grep guard that fails when `next/font/google`
+  4. `Migrations match schema.prisma` (`sh scripts/check-migrations.sh`:
+     applies `prisma/migrations` to a fresh SQLite file and fails when
+     `prisma migrate diff` finds a difference to `prisma/schema.prisma`)
+  5. `npm run lint` (ESLint)
+  6. `Forbid next/font/google` (a grep guard that fails when `next/font/google`
      is imported; fonts are vendored in `app/fonts` and loaded with
      `next/font/local`)
-  6. `npm run build` (`next build`)
-  7. `npm run test:coverage` (`vitest run --coverage`, with the coverage
-     thresholds from `vitest.config.ts`)
+  7. `npm run build` (`next build`)
+  8. `sqlite3 --version` (the `scripts/start.sh` tests use the real binary)
+  9. `npm run test:coverage` (`vitest run --coverage`, with the coverage
+     thresholds from `vitest.config.ts`; includes the `scripts/start.sh`
+     tests)
+
+  A second job, `docker-build`, builds the image (no push) and checks that it
+  carries `scripts/start.sh`, the migrations and `sqlite3`.
 
 - `audit.yml` (PRs and pushes to `main`): npm audit gate. HIGH or CRITICAL
   advisories fail unless an entry in `.github/audit-allowlist.json` (GHSA id,

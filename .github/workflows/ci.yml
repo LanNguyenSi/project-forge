@@ -19,6 +19,10 @@ jobs:
       - run: npm ci --legacy-peer-deps --no-audit --no-fund
       - run: npx prisma generate
       - run: npx tsc --noEmit --skipLibCheck
+      - name: Migrations match schema.prisma
+        # Applies prisma/migrations to a fresh SQLite file and diffs the result
+        # against the schema: a schema change without a migration fails here.
+        run: sh scripts/check-migrations.sh
       - run: npm run lint
       - name: Forbid next/font/google
         # Fonts are vendored in app/fonts and loaded via next/font/local;
@@ -42,6 +46,8 @@ jobs:
             exit 1
           fi
       - run: npm run build
+      - name: sqlite3 present (scripts/start.sh tests use the real binary)
+        run: sqlite3 --version
       - run: npm run test:coverage
 
   docker-build:
@@ -51,3 +57,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: docker build -t project-forge:ci .
+      - name: Image carries the start script, the migrations and sqlite3
+        # The container CMD runs scripts/start.sh, which needs all three.
+        run: >-
+          docker run --rm --entrypoint sh project-forge:ci -c
+          'sqlite3 --version && test -f scripts/start.sh && test -f prisma/migrations/migration_lock.toml && node_modules/.bin/prisma --version'
