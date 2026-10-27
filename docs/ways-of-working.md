@@ -64,9 +64,15 @@ These rules govern the HTTP surface. All contributors must follow them.
 ## Database
 
 - Prisma over SQLite (`prisma/schema.prisma`, `provider = "sqlite"`).
-- After a schema change: `npx prisma generate`, then `npx prisma db push` to
-  sync the local SQLite database. This project uses `db push`, not migration
-  files; there is no `prisma/migrations` directory.
+- After a schema change: `npx prisma migrate dev --name <what changed>`
+  (creates the migration under `prisma/migrations/`, applies it to the local
+  SQLite database and regenerates the client), and commit the migration with the
+  schema change. The container applies the committed migrations at start with
+  `prisma migrate deploy`; CI fails when the schema has a change that no
+  migration creates (`scripts/check-migrations.sh`). Do not use `prisma db push`
+  against a database you keep: it changes the schema without a migration.
+  See [Database migrations](deployment.md#database-migrations) for the deploy
+  side (auto-baseline, pre-migrate copy, rollback).
 
 ## Versioning
 

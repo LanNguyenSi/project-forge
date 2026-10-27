@@ -13,7 +13,7 @@
 - [ ] `npm run lint`
 - [ ] `npm run build`
 - [ ] `npm test`
-- [ ] For Prisma schema changes: `npx prisma db push` run locally; any data change that needs a manual deploy step is described (see docs/deployment.md)
+- [ ] For Prisma schema changes: a migration created with `npx prisma migrate dev --name <change>` is committed under `prisma/migrations/` (`npm run db:check-migrations` passes); any data change that needs a manual deploy step is described (see docs/deployment.md, Database migrations)
 - [ ] Manual smoke check: <!-- command or scenario -->
 
 ## Notes for reviewer

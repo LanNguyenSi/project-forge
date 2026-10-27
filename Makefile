@@ -26,9 +26,12 @@ dev-setup:
 	npm install
 	npx prisma generate
 
-# Push schema to local SQLite DB (creates file if missing)
+# Apply the committed migrations to the local SQLite DB (creates file if missing).
+# A DB made earlier by `prisma db push` is refused (P3005): delete it, or run
+# `npx prisma migrate resolve --applied 20261027000000_baseline` if it still
+# matches the schema.
 dev-db:
-	npx prisma db push
+	npx prisma migrate deploy
 
 # Create .env from example if it doesn't exist yet
 dev-env:
