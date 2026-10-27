@@ -218,7 +218,9 @@ refuse_copy_loop() {
   if [ "${1:-}" = no-history ]; then
     # No _prisma_migrations yet (the baseline branch): every stamped copy counts.
     last=0
+    since="copies, no migration applied yet"
   else
+    since="copies since the last applied migration"
     last=$(query "SELECT COALESCE(max(CAST($FINISHED_DIGITS AS INTEGER)), 0) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL") || exit 1
   fi
   case "$last" in
@@ -231,7 +233,7 @@ refuse_copy_loop() {
     [ "${key% *}" -gt "$last" ] || continue
     newer=$((newer + 1))
   done
-  [ "$newer" -lt "$COPY_LOOP_LIMIT" ] || die "deploy keeps failing before it records a migration ($newer copies since the last applied migration); nothing was changed. No new copy was taken and migrate deploy was not run. Find the cause in the output of the earlier starts (for example a locked database or a migration prisma rejects), fix it, then remove all but one of the copies stamped after the newest applied migration (older copies do not count) and start again. A database restored from an older copy leaves the later copies counting: move them to a name outside the $COPY_INFIX prefix. See $DOCS."
+  [ "$newer" -lt "$COPY_LOOP_LIMIT" ] || die "deploy keeps failing before it records a migration ($newer $since); nothing was changed. No new copy was taken and migrate deploy was not run. Find the cause in the output of the earlier starts (for example a locked database or a migration prisma rejects), fix it, then remove all but one of the copies stamped after the newest applied migration (older copies do not count) and start again. A database restored from an older copy leaves the later copies counting: move them to a name outside the $COPY_INFIX prefix. See $DOCS."
 }
 
 # Stops the start when _prisma_migrations holds a migration that began and

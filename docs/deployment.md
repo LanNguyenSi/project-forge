@@ -207,9 +207,8 @@ The set matches what `migrate deploy` applies only while every entry of
 plain directory with a `migration.sql`. Prisma 5.22 reads every directory entry,
 dot-directories included (it applies a `.name/migration.sql`), leaves symlinks
 out, and fails with `P3015` on a directory without `migration.sql`; the script
-globs the directory without dot entries and follows symlinks. So a start on a database with migration history
-with a dot-directory, a symlink or a directory without `migration.sql` in
-`prisma/migrations/` stops before it computes anything ("nothing was changed"),
+globs the directory without dot entries and follows symlinks. So a start on a database with migration history with a dot-directory, a
+symlink or a directory without `migration.sql` in `prisma/migrations/` stops before it computes anything ("nothing was changed"),
 rather than risk a deploy that applies a migration the script did not copy for.
 The committed migrations never look like that; it can only come from a
 hand-edited image or volume mount.

@@ -946,7 +946,7 @@ describe("scripts/start.sh with a stub prisma", () => {
         const r = w.run({ STUB_DIFF_RC: "0", STUB_RESOLVE_RC: "1" });
         expect(r.status).not.toBe(0);
         if (i >= 3) {
-          expect(r.stderr).toContain("deploy keeps failing before it records a migration (3 copies");
+          expect(r.stderr).toContain("deploy keeps failing before it records a migration (3 copies, no migration applied yet)");
           expect(r.stderr).toContain("move them to a name outside the");
         }
       }
