@@ -570,25 +570,25 @@ describe("scripts/start.sh with a stub prisma", () => {
     const OTHER = "20261099000000_newer_release";
     const cases: Array<{ state: string; local: string[]; rows: Row[]; pending: string[] }> = [
       {
-        state: "S1 marked rolled back only (the shape `resolve --rolled-back` leaves)",
+        state: "marked rolled back only (the shape `resolve --rolled-back` leaves)",
         local: [NEXT],
         rows: [[NEXT, { rolledBack: true }]],
         pending: [NEXT],
       },
       {
-        state: "S2 finished, then marked rolled back",
+        state: "finished, then marked rolled back",
         local: [NEXT],
         rows: [[NEXT, { finished: true, rolledBack: true }]],
         pending: [NEXT],
       },
       {
-        state: "S6 a shipped migration older than the newest applied one",
+        state: "a shipped migration older than the newest applied one",
         local: ["20261027500000_early", NEXT],
         rows: [[NEXT, { finished: true }]],
         pending: ["20261027500000_early"],
       },
       {
-        state: "S9 marked rolled back, plus a later applied row the image does not ship",
+        state: "marked rolled back, plus a later applied row the image does not ship",
         local: [NEXT],
         rows: [
           [NEXT, { rolledBack: true }],
