@@ -184,9 +184,22 @@ database path is the one in `DATABASE_URL` (default
 | File missing, or no table in it | `prisma migrate deploy` creates the schema. No copy. |
 | Has `_prisma_migrations` and a migration recorded as failed (started, never finished, not rolled back) | Abort before anything else: no copy, no `migrate deploy`, nothing changed. The message names the migration, its start time and the copy to restore. See [A migration failed halfway](#a-migration-failed-halfway). |
 | Has `_prisma_migrations`, nothing pending | `migrate deploy` (a no-op). No copy. |
-| Has `_prisma_migrations`, a migration is pending (or `migrate status` fails) | Copy the file, then `migrate deploy`. |
-| Has tables but no `_prisma_migrations` (created by the old `db push` start) and equals `prisma/schema.prisma` | Copy the file, mark the baseline migration as applied (`migrate resolve --applied`), then `migrate deploy`. |
+| Has `_prisma_migrations`, a migration is pending | A new copy of the file, then `migrate deploy`. |
+| Has tables but no `_prisma_migrations` (created by the old `db push` start) and equals `prisma/schema.prisma` | A new copy of the file, mark the baseline migration as applied (`migrate resolve --applied`), then `migrate deploy`. |
 | Has tables but no `_prisma_migrations` and differs from `prisma/schema.prisma`, or the comparison fails | Abort. Nothing is changed, the server does not start. |
+
+Pending means: a directory in `prisma/migrations/` of the image being started
+(with a `migration.sql`) that has no applied row in `_prisma_migrations`;
+applied is a row with `finished_at` set and `rolled_back_at` empty. The script
+reads this with `sqlite3` and does not ask `prisma migrate status`: prisma 5.22
+reports a migration marked rolled back as up to date and `migrate deploy` then
+applies it again. So a migration marked rolled back (`migrate resolve
+--rolled-back`), one that finished and was marked rolled back later, and one
+that sorts before the newest applied migration are all pending, the same set
+`migrate deploy` applies (checked with prisma 5.22 for each of these states).
+Rows of migrations the image does not have, such as the ones a newer release
+applied before the code was rolled back, are not looked at: `migrate deploy`
+ignores them, and an older release would otherwise copy the file on every start.
 
 Any failure of the copy, the check, the resolve or the deploy ends the start
 with a non-zero exit and the server is not started. Nothing falls back to
@@ -238,20 +251,34 @@ would fail on the second run.
 
 ### Pre-migrate copy
 
-Before the baseline is recorded, and before `migrate deploy` when a migration
-is pending, the start script copies the database to
+Every start that is about to change an existing database file writes a new
+copy of it first: before `migrate deploy` whenever a migration is pending, and
+before the baseline is recorded. The copy is
 `<database file>.pre-migrate-<UTC timestamp>` in the same directory, which is
 `/data/project-forge.db.pre-migrate-20261027T132758Z` on the `forge_db` volume
-by default. The copy is made with `sqlite3 .backup` (the runner image installs
+by default; a second copy within the same second gets `-1`, the next `-2`, and
+so on. The copy is made with `sqlite3 .backup` (the runner image installs
 `sqlite3`), so it is consistent, and the file mode is `600` because the
 database holds password hashes and GitHub tokens. It is a full-size copy on the
 same volume: check the free space before a large deploy. If the copy cannot be
 written, the start aborts before anything is changed.
 
-A start with no pending migration makes no copy, and neither does a start that
-finds a failed migration (see below). A restart loop does not pile up copies:
-when the database is byte-identical to the newest copy, that copy is kept and
-no new one is written.
+A start with nothing pending makes no copy. A start that finds a failed
+migration makes none either (see below), so the restart loop after a failure
+does not add copies. Otherwise there is no deduplication: every deploy that
+applies a migration leaves its own copy, also when the file has not changed
+since the last one.
+
+Finding the right copy: the stamp is the UTC time the start took it, right
+before its `migrate deploy`. The copy from before a migration is the newest one
+whose stamp is not later than that migration's `started_at` in
+`_prisma_migrations`; after a failure the start finds and names it for you.
+The start only counts names of exactly the form
+`<database file>.pre-migrate-YYYYMMDDTHHMMSSZ`, optionally followed by `-<n>`.
+Do not use the `.pre-migrate-` prefix for copies of your own: the start
+ignores them when it picks the copy to restore, and among the real copies they
+are easy to mistake for one. Use another name, such as
+`/data/project-forge.db.manual-<timestamp>`.
 
 Nothing deletes the copies. List and remove them once the new version has run
 well:
@@ -261,13 +288,16 @@ docker compose run --rm --no-deps app sh -c 'ls -l /data/*.pre-migrate-*'
 docker compose run --rm --no-deps app sh -c 'rm /data/project-forge.db.pre-migrate-<timestamp>'
 ```
 
-To go back to a copy: `docker compose stop app`, then replace
-`/data/project-forge.db` with the copy and remove the `-journal`, `-wal` and
-`-shm` files next to the database. A leftover one belongs to the file you are
-replacing and would be applied to the copy:
+To go back to a copy: `docker compose stop app`, then copy it next to the
+database under a temporary name, remove the `-journal`, `-wal` and `-shm` files
+of the database (a leftover one belongs to the file you are replacing and would
+be applied to the copy), and move the temporary file into place. If the copy
+fails, for example on a full disk, nothing has been removed yet. The file you
+replace is gone afterwards; copy it away first, under a name outside the
+prefix, if you want to keep it.
 
 ```
-docker compose run --rm --no-deps app sh -c 'rm -f /data/project-forge.db /data/project-forge.db-journal /data/project-forge.db-wal /data/project-forge.db-shm && cp /data/project-forge.db.pre-migrate-<timestamp> /data/project-forge.db'
+docker compose run --rm --no-deps app sh -c 'set -e; cp /data/project-forge.db.pre-migrate-<timestamp> /data/project-forge.db.restore; rm -f /data/project-forge.db-journal /data/project-forge.db-wal /data/project-forge.db-shm; mv /data/project-forge.db.restore /data/project-forge.db'
 ```
 
 ### A migration failed halfway
@@ -285,8 +315,8 @@ What the start does:
 1. The first start with the pending migration takes the pre-migrate copy (the
    file as it was before the migration), runs `migrate deploy`, which fails, and
    exits with `prisma migrate deploy failed` naming that copy.
-2. Every later start (the restart loop) finds the failed row before
-   `migrate status` and before any copy, and stops. It takes no new copy,
+2. Every later start (the restart loop) finds the failed row before it looks
+   for pending migrations and before any copy, and stops. It takes no new copy,
    because a copy of the half-migrated file would look like a restore point and
    is not one, and it does not run `migrate deploy`. The log names the
    migration, its start time (UTC) and the newest pre-migrate copy that is not
@@ -296,17 +326,33 @@ What the start does:
 [db-start] ERROR: migration 20261028000000_add_nick failed halfway (recorded in _prisma_migrations since 20261027T140939Z, UTC) and was never rolled back. SQLite keeps the statements that ran before the error, so /data/project-forge.db may be partly migrated. The server was not started, no new copy was taken and migrate deploy was not run. Stop the container, restore /data/project-forge.db.pre-migrate-20261027T140938Z (the newest pre-migrate copy taken before that migration started) and remove /data/project-forge.db-journal, /data/project-forge.db-wal and /data/project-forge.db-shm, then deploy a fixed migration or the previous release. See docs/deployment.md, section "Database migrations".
 ```
 
-If no copy older than the start exists (the migration ran outside this start
-script, or the copies were deleted), the message says so and you restore your
-own backup.
+When other rows of `_prisma_migrations` started after that copy (in its
+second or later), the message adds `Warning: _prisma_migrations also has rows
+that started after that copy was taken (<names>), so the copy may predate later
+changes.` A migration that the same start applied before the one that failed
+is applied again by the next start after the restore. A migration applied or
+resolved by hand after the copy is undone by the restore. Look at the rows
+before you restore:
+`docker compose run --rm --no-deps app sqlite3 /data/project-forge.db 'SELECT migration_name, started_at, finished_at, rolled_back_at FROM _prisma_migrations ORDER BY started_at'`
+(`started_at` is in milliseconds since 1970, UTC).
+
+When no copy is older than the start, the message says so. If the start that
+ran the failed migration created the database (there was no database file, or
+one without tables, so that start took no copy), stop the container, delete
+the database file with its `-journal`, `-wal` and `-shm` files and fix the
+migration: the next start creates the database again. Otherwise (the migration
+ran outside this start script, or the copies were deleted) restore your own
+backup.
 
 Recovery:
 
 1. `docker compose stop app`.
 2. Restore the copy the message names, with the command under
-   [Pre-migrate copy](#pre-migrate-copy). The copy was taken by the start that
-   ran the failed migration, before the server of that start ran, so it holds
-   everything the previous release wrote.
+   [Pre-migrate copy](#pre-migrate-copy). When the failed migration ran in a
+   start of this script, that start took the copy right before its
+   `migrate deploy`, and no server ran in between, so the copy holds
+   everything written before that start. If the message carries the warning,
+   check the rows it names first.
 3. Fix the migration (or deploy the previous release). The restored file has no
    failed row, so nothing needs `prisma migrate resolve`: the next start sees
    the migration as pending and applies it, with the usual copy step.
@@ -316,10 +362,13 @@ Repairing in place instead of restoring is possible when you know exactly what
 the failed migration did: undo or finish its statements by hand, then run
 `prisma migrate resolve --rolled-back <name>` (the migration is applied again
 at the next start) or `--applied <name>` (it is marked as done and nothing is
-run). Take your own copy of the file first. The start script's copy does not
-cover this path: prisma 5.22 reports `Database schema is up to date!` for a
-rolled-back migration that is waiting to be applied again, so the next start
-takes no copy before applying it.
+run). Take your own copy of the file before the hand repair, under a name
+outside the prefix:
+`docker compose run --rm --no-deps app sh -c 'umask 077; sqlite3 /data/project-forge.db ".backup /data/project-forge.db.manual-<timestamp>"'`.
+After `--rolled-back` the migration is pending again, so the next start writes
+a new pre-migrate copy before it applies the migration, and if the migration
+fails once more, the restart names that new copy (checked with prisma 5.22,
+whose `migrate status` calls this state up to date).
 
 ### Rollback
 
@@ -475,11 +524,18 @@ start never changes a table). Between step 5 and step 6, do one of these:
 
 - Apply the difference with the new image. Read it first:
   `docker compose run --rm --no-deps app sh -c 'node_modules/.bin/prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script'`
-  (a `RedefineTables` script for `ApiToken`), then apply it:
-  `docker compose run --rm --no-deps app sh -c 'node_modules/.bin/prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script | sqlite3 /data/project-forge.db'`
-  (adjust the path if `FORGE_DATABASE_URL` is set). A second `migrate diff
-  --exit-code` then prints `No difference detected.` (checked: rows and
-  `UsageLog` kept).
+  (a `RedefineTables` script for `ApiToken`). Then take a copy under a name
+  outside the `.pre-migrate-` prefix and apply the script in one transaction,
+  so that a row the new table rejects leaves the database as it was:
+  `docker compose run --rm --no-deps app sh -c 'set -e; umask 077; sqlite3 /data/project-forge.db ".backup /data/project-forge.db.before-tighten"; node_modules/.bin/prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script > /tmp/tighten.sql; { echo "PRAGMA foreign_keys=OFF;"; echo "BEGIN;"; cat /tmp/tighten.sql; echo "COMMIT;"; } | sqlite3 -bail /data/project-forge.db'`
+  (adjust the path if `FORGE_DATABASE_URL` is set). Exit 0 and a second
+  `migrate diff --exit-code` printing `No difference detected.` means done
+  (checked in the image: rows and `UsageLog` kept). A non-zero exit, such as
+  `NOT NULL constraint failed: new_ApiToken.tokenPrefix` for a token without a
+  prefix, leaves `ApiToken` as it was (checked in the image: exit 1, rows kept,
+  no `new_ApiToken` left): fix that row and run the command again.
+  `/data/project-forge.db.before-tighten` is the way back; delete it once the
+  new version has run well.
 - Or start a 0.7.0 or 0.8.0 image (an older checkout) once against the same
   volume: its `db push` redefines `ApiToken` (checked: exit 0, rows kept).
 
