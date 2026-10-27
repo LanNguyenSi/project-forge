@@ -10,14 +10,25 @@
 #   file missing, or file without any table   -> migrate deploy (creates it)
 #   _prisma_migrations present, a migration is recorded as failed
 #                                             -> abort, nothing changed, no copy
-#   _prisma_migrations present, up to date    -> migrate deploy (no-op), no copy
-#   _prisma_migrations present, status != 0   -> copy, then migrate deploy
+#   _prisma_migrations present, nothing pending
+#                                             -> migrate deploy (no-op), no copy
+#   _prisma_migrations present, a migration pending
+#                                             -> copy, then migrate deploy
 #   tables but no _prisma_migrations (a database that `db push` created):
 #       schema equals prisma/schema.prisma    -> copy, mark the baseline migration
 #                                                as applied, migrate deploy
 #       schema differs, or the check fails    -> abort, nothing changed
 #
-# The copy is `<db>.pre-migrate-<UTC timestamp>` next to the database file, made
+# "Pending" is computed here with sqlite3, not asked from `prisma migrate
+# status` (prisma 5.22 reports a migration marked rolled back as up to date and
+# then `migrate deploy` applies it): every migration in prisma/migrations
+# (a directory with a migration.sql) that has no applied row in
+# _prisma_migrations, applied meaning finished_at set and rolled_back_at empty.
+# Rows of migrations the image does not ship are not looked at.
+#
+# Every start that is about to change an existing database (a pending
+# migration, or the baseline record on a `db push` database) first writes a new
+# copy `<db>.pre-migrate-<UTC timestamp>[-<n>]` next to the database file, made
 # with `sqlite3 .backup` (consistent even with a journal left by a crash). Any
 # failure of the copy, the check, the resolve or the deploy aborts with a
 # non-zero status and the server command is not started.
@@ -25,10 +36,10 @@
 # A migration that fails halfway stays in _prisma_migrations as failed (no
 # finished_at, no rolled_back_at), and SQLite does not undo the statements that
 # ran before the error. The next start finds that row first and stops without
-# touching the file: a new copy would be a copy of the damaged database and
-# would look like a restore point. The message names the newest pre-migrate
-# copy that is older than the failed migration's start, which is the one to
-# restore.
+# touching the file, so a restart loop takes no copy of the damaged file. The
+# message names the newest pre-migrate copy whose stamp is not newer than the
+# failed migration's start, which is the one to restore, and warns when other
+# history rows started after that copy.
 #
 # Tested in tests/integration/start-script.test.ts with stub `prisma` and `sqlite3`
 # binaries (PRISMA_BIN, SQLITE3_BIN) and with the real ones.
@@ -41,7 +52,14 @@ BASELINE="20261027000000_baseline"
 PRISMA="${PRISMA_BIN:-node_modules/.bin/prisma}"
 SQLITE3="${SQLITE3_BIN:-sqlite3}"
 SCHEMA="prisma/schema.prisma"
+MIGRATIONS="prisma/migrations"
 DOCS='docs/deployment.md, section "Database migrations"'
+# Infix of the pre-migrate copy names. Only names that copy_key accepts count.
+COPY_INFIX=".pre-migrate-"
+# _prisma_migrations.started_at as 14 digits (YYYYMMDDHHMMSS, UTC). prisma 5.22
+# writes milliseconds since the epoch; a text date (the column default) works too.
+# NULL when the value cannot be read.
+STARTED_DIGITS="CASE WHEN typeof(started_at) IN ('integer', 'real') THEN strftime('%Y%m%d%H%M%S', started_at / 1000, 'unixepoch') ELSE strftime('%Y%m%d%H%M%S', started_at) END"
 
 log() { printf '[db-start] %s\n' "$*"; }
 die() { printf '[db-start] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -69,7 +87,9 @@ esac
 # once, before anything else, so that no later step depends on it by accident.
 command -v "$SQLITE3" >/dev/null 2>&1 || die "sqlite3 not found (looked for $SQLITE3): it is needed to read the state of $db and to take the pre-migrate copy. Nothing was changed."
 
-copy_note=""
+# Said when `migrate deploy` fails. Each branch below sets it.
+deploy_note="No copy was taken."
+copy_path=""
 
 # Runs one sqlite3 query and prints its output. A failure exits the script
 # (also when called inside $( ), where the caller adds `|| exit 1`).
@@ -87,14 +107,40 @@ count() {
   printf '%s\n' "$out"
 }
 
+# The one parser of pre-migrate copy names, used by the copy step for the name
+# it writes and by the restore-point search for the names it finds. A name
+# counts only in exactly the form `<db>.pre-migrate-YYYYMMDDTHHMMSSZ`, with an
+# optional `-<n>` (a second copy in the same second); for that it prints
+# "<14 digits> <n>" (n is 0 without a suffix). Anything else under the prefix,
+# such as an operator's own `<db>.pre-migrate-manual`, fails and is ignored.
+copy_key() {
+  ck_rest=${1#"$db$COPY_INFIX"}
+  [ "$ck_rest" != "$1" ] || return 1
+  ck_stamp=${ck_rest%%-*}
+  case "$ck_stamp" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+    *) return 1 ;;
+  esac
+  ck_n=0
+  if [ "$ck_rest" != "$ck_stamp" ]; then
+    ck_n=${ck_rest#"$ck_stamp"-}
+    case "$ck_n" in
+      ''|*[!0-9]*|??????????*) return 1 ;;
+    esac
+  fi
+  printf '%s %s\n' "$(printf '%s' "$ck_stamp" | tr -d TZ)" "$ck_n"
+}
+
 pre_migrate_copy() {
-  stamp=$(date -u +%Y%m%dT%H%M%SZ) || die "cannot read the clock for the copy name"
-  target="$db.pre-migrate-$stamp"
+  now=$(date -u +%Y%m%dT%H%M%SZ) || die "cannot read the clock for the copy name"
+  target="$db$COPY_INFIX$now"
   n=0
   while [ -e "$target" ]; do
     n=$((n + 1))
-    target="$db.pre-migrate-$stamp-$n"
+    target="$db$COPY_INFIX$now-$n"
   done
+  # A name the restore-point search would not recognise is no restore point.
+  copy_key "$target" >/dev/null || die "the pre-migrate copy name $target is not of the form $db${COPY_INFIX}YYYYMMDDTHHMMSSZ[-<n>] (clock output: $now). Nothing was changed."
   tmp="$db.tmp-pre-migrate.$$"
   # umask 077: the database holds password hashes and GitHub tokens.
   if ! (umask 077 && "$SQLITE3" "$db" ".backup '$tmp'"); then
@@ -102,18 +148,29 @@ pre_migrate_copy() {
     die "could not copy $db before migrating (disk full or read-only volume?). Nothing was changed."
   fi
   [ -s "$tmp" ] || { rm -f "$tmp"; die "pre-migrate copy of $db is empty. Nothing was changed."; }
-  # A restart loop must not pile up identical copies: keep the newest one when
-  # the database has not changed since.
-  latest=$(ls -1 "$db".pre-migrate-* 2>/dev/null | tail -n 1)
-  if [ -n "$latest" ] && cmp -s "$tmp" "$latest"; then
-    rm -f "$tmp"
-    log "database unchanged since $latest, keeping that copy"
-    copy_note="pre-migrate copy: $latest"
-    return 0
-  fi
   mv "$tmp" "$target" || { rm -f "$tmp"; die "could not move the pre-migrate copy into place at $target. Nothing was changed."; }
   log "pre-migrate copy written: $target"
-  copy_note="pre-migrate copy: $target"
+  copy_path=$target
+  deploy_note="pre-migrate copy: $target. If a migration failed halfway, the next start names the copy to restore."
+}
+
+# Prints, one per line, every migration the image ships (a directory under
+# prisma/migrations with a migration.sql) that _prisma_migrations does not
+# record as applied (finished_at set, rolled_back_at empty). That is what
+# `migrate deploy` applies: a migration marked rolled back, one that finished
+# and was marked rolled back later, and one older than the newest applied
+# migration all count. Rows of migrations the image does not ship (written by a
+# newer release before a rollback of the code) are not looked at: deploy
+# ignores them, and an older release must not copy the file on every start.
+pending_migrations() {
+  for sql in "$MIGRATIONS"/*/migration.sql; do
+    [ -f "$sql" ] || continue
+    name=${sql#"$MIGRATIONS"/}
+    name=${name%/migration.sql}
+    esc=$(printf '%s' "$name" | sed "s/'/''/g")
+    applied=$(count "SELECT count(*) FROM _prisma_migrations WHERE migration_name = '$esc' AND finished_at IS NOT NULL AND rolled_back_at IS NULL") || exit 1
+    [ "$applied" -gt 0 ] || printf '%s\n' "$name"
+  done
 }
 
 # Stops the start when _prisma_migrations holds a migration that began and
@@ -122,47 +179,57 @@ pre_migrate_copy() {
 # Nothing is copied here (a copy of the damaged file is not a restore point)
 # and `migrate deploy` is not run (it refuses on that row anyway).
 refuse_failed_migration() {
-  row=$(query "SELECT COALESCE(migration_name, '') || '|' || COALESCE(started_at, '') || '|' || COALESCE(CASE typeof(started_at) WHEN 'integer' THEN strftime('%Y%m%dT%H%M%SZ', started_at / 1000, 'unixepoch') ELSE strftime('%Y%m%dT%H%M%SZ', started_at) END, '') FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL ORDER BY started_at, migration_name LIMIT 1") || exit 1
+  row=$(query "SELECT rowid || '|' || COALESCE($STARTED_DIGITS, '') || '|' || COALESCE(started_at, '') || '|' || COALESCE(migration_name, '') FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL ORDER BY started_at, migration_name LIMIT 1") || exit 1
   [ -n "$row" ] || return 0
-  name=${row%%|*}
+  rid=${row%%|*}
   rest=${row#*|}
-  started_stamp=${rest#*|}
+  started=${rest%%|*}
+  rest=${rest#*|}
   started_raw=${rest%%|*}
-  case "$started_stamp" in
-    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+  name=${rest#*|}
+  case "$started" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
     *) die "cannot read the start time ($started_raw) of the failed migration $name in $db. Nothing was changed. See $DOCS." ;;
   esac
-  started_num=$(printf '%s' "$started_stamp" | tr -d TZ)
+  started_text="${started%??????}T${started#????????}Z"
   best=""
-  # Names sort oldest first (UTC stamp, then the -N suffix), so the last one
-  # that is not newer than the failed migration's start wins.
-  for f in "$db".pre-migrate-*; do
+  best_stamp=0
+  best_n=0
+  for f in "$db$COPY_INFIX"*; do
     [ -f "$f" ] || continue
-    stamp=${f##*.pre-migrate-}
-    stamp=${stamp%%-*}
-    case "$stamp" in
-      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
-      *) continue ;;
-    esac
-    [ "$(printf '%s' "$stamp" | tr -d TZ)" -le "$started_num" ] && best=$f
+    key=$(copy_key "$f") || continue
+    k_stamp=${key% *}
+    k_n=${key#* }
+    [ "$k_stamp" -le "$started" ] || continue
+    if [ -z "$best" ] || [ "$k_stamp" -gt "$best_stamp" ] || { [ "$k_stamp" -eq "$best_stamp" ] && [ "$k_n" -gt "$best_n" ]; }; then
+      best=$f
+      best_stamp=$k_stamp
+      best_n=$k_n
+    fi
   done
   if [ -n "$best" ]; then
     advice="Stop the container, restore $best (the newest pre-migrate copy taken before that migration started) and remove $db-journal, $db-wal and $db-shm, then deploy a fixed migration or the previous release."
+    # Rows started in the copy's second or later, other than the failed one.
+    # A start time that cannot be read counts as later.
+    later=$(query "SELECT group_concat(migration_name, ', ') FROM (SELECT migration_name FROM _prisma_migrations WHERE rowid <> $rid AND COALESCE(CAST($STARTED_DIGITS AS INTEGER), $best_stamp) >= $best_stamp ORDER BY started_at, migration_name)") || exit 1
+    if [ -n "$later" ]; then
+      advice="$advice Warning: _prisma_migrations also has rows that started after that copy was taken ($later), so the copy may predate later changes. A migration that the same start applied before the failure is applied again after the restore; anything done after the copy outside this start script (a migration applied or resolved by hand) is undone by the restore. Check those rows before you restore."
+    fi
   else
-    advice="There is no pre-migrate copy older than that start next to $db (looked for $db.pre-migrate-*): restore your own backup of the database."
+    advice="There is no pre-migrate copy older than that start next to $db (looked for $db${COPY_INFIX}YYYYMMDDTHHMMSSZ). If the start that ran the failed migration created $db (no database file or no table before it, so it took no copy), stop the container, delete $db, $db-journal, $db-wal and $db-shm and fix the migration. Otherwise restore your own backup of the database."
   fi
-  die "migration $name failed halfway (recorded in _prisma_migrations since ${started_stamp}, UTC) and was never rolled back. SQLite keeps the statements that ran before the error, so $db may be partly migrated. The server was not started, no new copy was taken and migrate deploy was not run. $advice See $DOCS."
+  die "migration $name failed halfway (recorded in _prisma_migrations since ${started_text}, UTC) and was never rolled back. SQLite keeps the statements that ran before the error, so $db may be partly migrated. The server was not started, no new copy was taken and migrate deploy was not run. $advice See $DOCS."
 }
 
 deploy() {
   log "prisma migrate deploy"
   if ! "$PRISMA" migrate deploy; then
-    die "prisma migrate deploy failed (output above). The server was not started. ${copy_note:-No copy was taken.} If a migration failed halfway, the next start names the copy to restore. See $DOCS."
+    die "prisma migrate deploy failed (output above). The server was not started. $deploy_note See $DOCS."
   fi
 }
 
 baseline_legacy_database() {
-  [ -d "prisma/migrations/$BASELINE" ] || die "baseline migration prisma/migrations/$BASELINE is missing from the image. Nothing was changed."
+  [ -d "$MIGRATIONS/$BASELINE" ] || die "baseline migration $MIGRATIONS/$BASELINE is missing from the image. Nothing was changed."
   log "$db has tables but no _prisma_migrations: checking it against $SCHEMA"
   rc=0
   "$PRISMA" migrate diff --from-url "file:$db" --to-schema-datamodel "$SCHEMA" --exit-code || rc=$?
@@ -174,24 +241,30 @@ baseline_legacy_database() {
   log "schema matches: recording $BASELINE as applied"
   pre_migrate_copy
   if ! "$PRISMA" migrate resolve --applied "$BASELINE"; then
-    die "prisma migrate resolve --applied $BASELINE failed (output above). $copy_note. The server was not started. See $DOCS."
+    die "prisma migrate resolve --applied $BASELINE failed (output above). pre-migrate copy: $copy_path. The server was not started. See $DOCS."
   fi
+}
+
+# Said when the database had nothing to keep before this start.
+new_database_note() {
+  deploy_note="$db $1 before this start, so no copy was taken. If a migration failed halfway, stop the container, delete $db, $db-journal, $db-wal and $db-shm and fix the migration."
 }
 
 if [ ! -e "$db" ]; then
   log "no database file at $db: migrate deploy creates it"
+  new_database_note "did not exist"
   deploy
 else
   [ -f "$db" ] || die "$db exists but is not a regular file. Nothing was changed."
   history=$(count "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = '_prisma_migrations'") || exit 1
   if [ "$history" -gt 0 ]; then
     refuse_failed_migration
-    st=0
-    "$PRISMA" migrate status || st=$?
-    if [ "$st" -eq 0 ]; then
-      log "migrations up to date: no copy needed"
+    pending=$(pending_migrations) || exit 1
+    if [ -z "$pending" ]; then
+      log "every migration in $MIGRATIONS is applied: no copy needed"
+      deploy_note="No copy was taken: no migration was pending."
     else
-      log "migrations pending or in an unknown state (prisma migrate status exit $st)"
+      log "migrations to apply: $(printf '%s' "$pending" | tr '\n' ' ')"
       pre_migrate_copy
     fi
     deploy
@@ -199,6 +272,7 @@ else
     tables=$(count "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite!_%' ESCAPE '!'") || exit 1
     if [ "$tables" -eq 0 ]; then
       log "database $db has no tables: migrate deploy initialises it"
+      new_database_note "had no tables"
       deploy
     else
       baseline_legacy_database
