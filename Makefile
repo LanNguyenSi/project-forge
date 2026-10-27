@@ -1,4 +1,4 @@
-.PHONY: deploy logs restart pull dev dev-setup dev-db dev-env
+.PHONY: deploy logs restart pull backup dev dev-setup dev-db dev-env
 
 # ── Production (Docker) ──────────────────────────────────────
 
@@ -14,6 +14,11 @@ restart:
 
 pull:
 	git pull && docker compose up -d --build
+
+# Host backup of the SQLite database to $FORGE_BACKUP_DIR (default
+# $HOME/project-forge-backups). See docs/deployment.md, "Backup and restore".
+backup:
+	sh scripts/backup.sh
 
 # ── Local Development ────────────────────────────────────────
 
