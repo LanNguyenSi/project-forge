@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
@@ -321,9 +321,12 @@ describe("scripts/start.sh with a stub prisma", () => {
     const env = fakeClock(w, "20260101T000000Z");
     expect(w.run(env).status).toBe(0);
     expect(w.run(env).status).toBe(0);
+    // A third start in the same second must skip the -1 that exists too.
+    expect(w.run(env).status).toBe(0);
     expect(w.copies().map((c) => path.basename(c)).sort()).toEqual([
       "project-forge.db.pre-migrate-20260101T000000Z",
       "project-forge.db.pre-migrate-20260101T000000Z-1",
+      "project-forge.db.pre-migrate-20260101T000000Z-2",
     ]);
   });
 
@@ -638,15 +641,6 @@ describe("scripts/start.sh with a stub prisma", () => {
       }
     }
 
-    it("a directory without migration.sql is not a migration: no copy, deploy decides", () => {
-      const w = newWork();
-      seedHistory(w);
-      mkdirSync(path.join(w.dir, "prisma", "migrations", "20261029000000_no_sql"));
-      const r = w.run();
-      expect(r.status).toBe(0);
-      expect(w.calls()).toEqual(["prisma migrate deploy [copies=0]"]);
-    });
-
     it("a migration name with a single quote is matched exactly", () => {
       const w = newWork();
       seedHistory(w);
@@ -661,6 +655,298 @@ describe("scripts/start.sh with a stub prisma", () => {
 
     it("the script never runs `prisma migrate status`", () => {
       expect(SCRIPT_TEXT).not.toMatch(/"\$PRISMA" +migrate +status/);
+    });
+  });
+
+  describe("prisma/migrations holds an entry that prisma and this script read differently", () => {
+    // prisma 5.22 lists every directory entry (dot-directories too), leaves out
+    // symlinks and fails on a directory without migration.sql (P3015).
+    const stops: Array<[string, (w: Work) => void]> = [
+      ["a directory without migration.sql", (w) => mkdirSync(path.join(w.dir, "prisma", "migrations", "20261029000000_no_sql"))],
+      ["an empty dot-directory", (w) => mkdirSync(path.join(w.dir, "prisma", "migrations", ".hidden"))],
+      ["a dot-directory that has a migration.sql", (w) => addLocalMigration(w.dir, ".20261029000000_dot")],
+      ["a directory named with two leading dots", (w) => addLocalMigration(w.dir, "..20261029000000_dots")],
+      [
+        "a symlink to a valid migration directory",
+        (w) => symlinkSync(path.join(w.dir, "prisma", "migrations", BASELINE), path.join(w.dir, "prisma", "migrations", "20261029000000_link")),
+      ],
+      [
+        "a dangling symlink",
+        (w) => symlinkSync(path.join(w.dir, "nowhere"), path.join(w.dir, "prisma", "migrations", "20261029000000_dangling")),
+      ],
+    ];
+    for (const [what, make] of stops) {
+      it(`${what}: stop, no copy, no prisma call, database unchanged`, () => {
+        const w = newWork();
+        seedHistory(w);
+        addLocalMigration(w.dir, NEXT);
+        make(w);
+        const before = readFileSync(w.db);
+        const r = w.run();
+        expect(r.status).not.toBe(0);
+        expect(r.stderr).toContain("Nothing was changed");
+        expect(r.stderr).toContain("Database migrations");
+        expect(w.calls()).toEqual([]);
+        expect(w.copies()).toEqual([]);
+        expect(Buffer.compare(readFileSync(w.db), before)).toBe(0);
+        expect(started(w)).toBe(false);
+      });
+    }
+
+    it("the stop also applies when nothing is pending", () => {
+      const w = newWork();
+      seedHistory(w);
+      mkdirSync(path.join(w.dir, "prisma", "migrations", ".hidden"));
+      const r = w.run();
+      expect(r.status).not.toBe(0);
+      expect(w.calls()).toEqual([]);
+      expect(started(w)).toBe(false);
+    });
+
+    it("names the entry", () => {
+      const w = newWork();
+      seedHistory(w);
+      mkdirSync(path.join(w.dir, "prisma", "migrations", "20261029000000_no_sql"));
+      expect(w.run().stderr).toContain("prisma/migrations/20261029000000_no_sql has no migration.sql");
+      const v = newWork();
+      seedHistory(v);
+      mkdirSync(path.join(v.dir, "prisma", "migrations", ".hidden"));
+      expect(v.run().stderr).toContain("prisma/migrations/.hidden is a directory whose name starts with a dot");
+      const x = newWork();
+      seedHistory(x);
+      symlinkSync(path.join(x.dir, "nowhere"), path.join(x.dir, "prisma", "migrations", "ln"));
+      expect(x.run().stderr).toContain("prisma/migrations/ln is a symlink");
+    });
+
+    it("regular files are ignored (the lock file, a readme, a dot file), also a pending migration next to them", () => {
+      const w = newWork();
+      seedHistory(w);
+      addLocalMigration(w.dir, NEXT);
+      writeFileSync(path.join(w.dir, "prisma", "migrations", "migration_lock.toml"), 'provider = "sqlite"\n');
+      writeFileSync(path.join(w.dir, "prisma", "migrations", "README.md"), "notes\n");
+      writeFileSync(path.join(w.dir, "prisma", "migrations", ".DS_Store"), "x");
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(["prisma migrate deploy [copies=1]"]);
+      expect(started(w)).toBe(true);
+    });
+
+    it("a failed migration row is reported before the directory problem", () => {
+      const w = newWork();
+      seedHistory(w);
+      addMigrationRow(w, NEXT, Date.UTC(2026, 2, 10, 12, 0, 0, 500));
+      mkdirSync(path.join(w.dir, "prisma", "migrations", ".hidden"));
+      const r = w.run();
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(`migration ${NEXT} failed halfway`);
+      expect(r.stderr).not.toContain("starts with a dot");
+    });
+  });
+
+  describe("a deploy that fails before prisma records a row does not add a copy on every restart", () => {
+    const OTHER = "20261099000000_newer_release";
+    // The newest applied migration finished at 20260310T120000Z (500 ms into the second).
+    const FINISHED = Date.UTC(2026, 2, 10, 12, 0, 0, 500);
+    const setup = (finished: number | string = FINISHED) => {
+      const w = newWork();
+      seedHistory(w);
+      addLocalMigration(w.dir, NEXT);
+      addLocalMigration(w.dir, OTHER);
+      addMigrationRow(w, OTHER, finished, { finished: true });
+      return w;
+    };
+    const message = (n: number) =>
+      `deploy keeps failing before it records a migration (${n} copies since the last applied migration); nothing was changed.`;
+
+    it("deploy fails without a row, five restarts: three copies, the fourth and fifth start stop without a copy or a prisma call", () => {
+      const w = newWork();
+      seedHistory(w);
+      addLocalMigration(w.dir, NEXT);
+      for (let n = 1; n <= 3; n++) {
+        const r = w.run({ STUB_DEPLOY_RC: "1" });
+        expect(r.status, `start ${n}`).not.toBe(0);
+        expect(r.stderr, `start ${n}`).toContain("prisma migrate deploy failed");
+        expect(w.copies(), `start ${n}`).toHaveLength(n);
+      }
+      const dbBefore = readFileSync(w.db);
+      const copiesBefore = w.copies().sort();
+      const callsBefore = w.calls();
+      expect(callsBefore).toHaveLength(3);
+      for (const n of [4, 5]) {
+        const r = w.run({ STUB_DEPLOY_RC: "1" });
+        expect(r.status, `start ${n}`).not.toBe(0);
+        expect(r.stderr, `start ${n}`).toContain(message(3));
+        expect(r.stderr, `start ${n}`).toContain("Database migrations");
+        expect(r.stdout, `start ${n}`).not.toContain("pre-migrate copy written");
+        expect(w.copies().sort(), `start ${n}`).toEqual(copiesBefore);
+        expect(w.calls(), `start ${n}`).toEqual(callsBefore);
+        expect(Buffer.compare(readFileSync(w.db), dbBefore), `start ${n}`).toBe(0);
+        expect(started(w), `start ${n}`).toBe(false);
+      }
+    });
+
+    it("the stop names how to clear it: fix the cause, remove the surplus copies", () => {
+      const w = newWork();
+      seedHistory(w);
+      addLocalMigration(w.dir, NEXT);
+      for (let n = 1; n <= 3; n++) w.run({ STUB_DEPLOY_RC: "1" });
+      const r = w.run({ STUB_DEPLOY_RC: "1" });
+      expect(r.stderr).toContain(`remove the surplus copies ${w.db}.pre-migrate-*`);
+      // Removing copies clears the stop: two left, the next start copies again.
+      const [oldest, ...surplus] = w.copies().sort();
+      expect(oldest).toBeDefined();
+      rmSync(surplus[0]);
+      const again = w.run();
+      expect(again.status, again.stderr).toBe(0);
+      expect(w.copies()).toHaveLength(3);
+    });
+
+    it("a later applied migration (newer than the copies) resets the count", () => {
+      const w = newWork();
+      seedHistory(w);
+      addLocalMigration(w.dir, NEXT);
+      for (let n = 1; n <= 3; n++) w.run({ STUB_DEPLOY_RC: "1" });
+      expect(w.run({ STUB_DEPLOY_RC: "1" }).stderr).toContain(message(3));
+      // A migration applies (a later release, a repaired deploy): its finished_at is after the copies.
+      addLocalMigration(w.dir, OTHER);
+      addMigrationRow(w, OTHER, Date.now() + 5_000, { finished: true });
+      const r = w.run({ STUB_DEPLOY_RC: "1" });
+      expect(r.stderr).not.toContain("keeps failing");
+      expect(r.stdout).toContain("pre-migrate copy written");
+      expect(w.copies()).toHaveLength(4);
+    });
+
+    // Copies are given explicit stamps so that the cases do not depend on the clock.
+    const cases: Array<{ what: string; finished?: number | string; stamps: string[]; stops: number | null }> = [
+      { what: "two copies newer than the newest applied migration", stamps: ["20260310T120001Z", "20260310T120002Z"], stops: null },
+      { what: "three copies newer than it", stamps: ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z"], stops: 3 },
+      { what: "four copies newer than it (the message counts them)", stamps: ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z", "20260310T120004Z"], stops: 4 },
+      {
+        what: "three copies of which one is in the second the migration finished (not newer)",
+        stamps: ["20260310T120000Z", "20260310T120001Z", "20260310T120002Z"],
+        stops: null,
+      },
+      {
+        what: "three copies of which one is older than it",
+        stamps: ["20260310T115959Z", "20260310T120001Z", "20260310T120002Z"],
+        stops: null,
+      },
+      { what: "three copies, all older than it", stamps: ["20260310T115957Z", "20260310T115958Z", "20260310T115959Z"], stops: null },
+      {
+        what: "a second copy in the same second (-1) counts like any other",
+        stamps: ["20260310T120001Z", "20260310T120001Z-1", "20260310T120001Z-2"],
+        stops: 3,
+      },
+      {
+        what: "two stamped copies and an unstamped one next to them",
+        stamps: ["20260310T120001Z", "20260310T120002Z", "manual"],
+        stops: null,
+      },
+      {
+        what: "an applied migration with a text finished_at (the column's text form)",
+        finished: "2026-03-10 12:00:00",
+        stamps: ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z"],
+        stops: 3,
+      },
+      {
+        what: "an applied migration with a text finished_at, copies older than it",
+        finished: "2026-03-10 12:00:10",
+        stamps: ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z"],
+        stops: null,
+      },
+    ];
+    for (const c of cases) {
+      it(`${c.what}: ${c.stops ? "stop, no copy, no prisma call" : "copy, deploy, server"}`, () => {
+        const w = setup(c.finished ?? FINISHED);
+        for (const stamp of c.stamps) addCopy(w, stamp);
+        const before = readFileSync(w.db);
+        const r = w.run();
+        if (c.stops) {
+          expect(r.status).not.toBe(0);
+          expect(r.stderr).toContain(message(c.stops));
+          expect(w.copies()).toHaveLength(c.stamps.length);
+          expect(w.calls()).toEqual([]);
+          expect(Buffer.compare(readFileSync(w.db), before)).toBe(0);
+          expect(started(w)).toBe(false);
+        } else {
+          expect(r.status, r.stderr).toBe(0);
+          expect(w.copies()).toHaveLength(c.stamps.length + 1);
+          expect(w.calls()).toEqual([`prisma migrate deploy [copies=${c.stamps.length + 1}]`]);
+          expect(started(w)).toBe(true);
+        }
+      });
+    }
+
+    it("the newest applied migration decides, not an older one", () => {
+      const w = setup();
+      // An older applied row (seedHistory's baseline, 1970) and a newer one (FINISHED): three copies between them.
+      for (const stamp of ["20260101T000001Z", "20260101T000002Z", "20260101T000003Z"]) addCopy(w, stamp);
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.copies()).toHaveLength(4);
+    });
+
+    it("a migration marked rolled back is not an applied one: it does not reset the count", () => {
+      const w = newWork();
+      seedHistory(w);
+      addLocalMigration(w.dir, NEXT);
+      // finished_at set but rolled back, far in the future: not applied.
+      addMigrationRow(w, NEXT, Date.UTC(2099, 0, 1), { finished: true, rolledBack: true });
+      for (const stamp of ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z"]) addCopy(w, stamp);
+      const r = w.run();
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(message(3));
+      expect(w.copies()).toHaveLength(3);
+    });
+
+    it("no applied row at all: every stamped copy counts", () => {
+      // The history table exists but holds nothing applied (the only row is rolled back).
+      const stage = (copies: number) => {
+        const w = newWork();
+        w.sql(w.db, `${MIGRATIONS_DDL} CREATE TABLE "User" ("id" TEXT PRIMARY KEY);`);
+        addLocalMigration(w.dir, NEXT);
+        addMigrationRow(w, NEXT, 1_000, { rolledBack: true });
+        for (const stamp of ["19990101T000000Z", "20150101T000000Z", "20260101T000000Z"].slice(0, copies)) addCopy(w, stamp);
+        return w;
+      };
+      const two = stage(2);
+      expect(two.run().status).toBe(0);
+      expect(two.copies()).toHaveLength(3);
+      const three = stage(3);
+      const r = three.run();
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(message(3));
+      expect(three.calls()).toEqual([]);
+    });
+
+    it("nothing pending: a start with many old copies still runs the (no-op) deploy and starts", () => {
+      const w = newWork();
+      seedHistory(w);
+      for (const stamp of ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z", "20260310T120004Z"]) addCopy(w, stamp);
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(["prisma migrate deploy [copies=4]"]);
+      expect(started(w)).toBe(true);
+    });
+
+    it("the baseline of a db-push database keeps its single copy whatever copies exist", () => {
+      const w = newWork();
+      seedLegacy(w);
+      for (const stamp of ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z", "20260310T120004Z"]) addCopy(w, stamp);
+      const r = w.run({ STUB_DIFF_RC: "0" });
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.copies()).toHaveLength(5);
+      expect(started(w)).toBe(true);
+    });
+
+    it("a failed migration row is reported before the copy bound", () => {
+      const w = setup();
+      addMigrationRow(w, NEXT, Date.UTC(2026, 2, 10, 12, 0, 5, 0));
+      for (const stamp of ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z"]) addCopy(w, stamp);
+      const r = w.run();
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(`migration ${NEXT} failed halfway`);
+      expect(r.stderr).not.toContain("keeps failing");
     });
   });
 
@@ -1148,4 +1434,65 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     expect(siblings(db, "pre-migrate-")).toHaveLength(2);
     expect(existsSync(`${db}.started`)).toBe(false);
   }, 240_000);
+
+  it("a deploy that fails without recording a row (database write-locked): three copies, then the start stops; clearing the cause and the surplus copies lets it migrate", async () => {
+    const { dir, db, run } = scratchApp("pf-start-locked-");
+    expect(run().status).toBe(0);
+    rmSync(`${db}.started`);
+    // A copy in the second the last migration finished is not newer than it; start the loop in the next second.
+    const finishedAt = Number(sql(db, "SELECT max(finished_at) FROM _prisma_migrations"));
+    const nextSecond = Math.floor(finishedAt / 1000) * 1000 + 1000;
+    if (Date.now() < nextSecond) await new Promise((r) => setTimeout(r, nextSecond - Date.now() + 50));
+    sql(db, "INSERT INTO User (id, updatedAt) VALUES ('u1', 0)");
+    const next = "20261028000000_add_nick";
+    addLocalMigration(dir, next, 'ALTER TABLE "User" ADD COLUMN "nick" TEXT;\n');
+
+    // Another connection holds the write lock (readers and `.backup` still work, the migration cannot write).
+    const holder = spawn(SQLITE3, [db], { stdio: ["pipe", "ignore", "ignore"] });
+    try {
+      holder.stdin.write("BEGIN IMMEDIATE;\nINSERT INTO User (id, updatedAt) VALUES ('u-held', 0);\n");
+      let locked = false;
+      for (let i = 0; i < 100 && !locked; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        locked = spawnSync(SQLITE3, [db, "PRAGMA busy_timeout = 0; BEGIN IMMEDIATE; ROLLBACK;"], { encoding: "utf-8" }).status !== 0;
+      }
+      expect(locked, "the second connection holds the write lock").toBe(true);
+
+      for (const n of [1, 2, 3]) {
+        const r = run();
+        expect(r.status, `start ${n}`).not.toBe(0);
+        expect(r.stderr + r.stdout, `start ${n}`).toMatch(/database is locked|SQLITE_BUSY|timed out/i);
+        expect(siblings(db, "pre-migrate-"), `start ${n}`).toHaveLength(n);
+      }
+      // No row was written: this is the loop the failed-row stop cannot see.
+      expect(sql(db, "SELECT count(*) FROM _prisma_migrations")).toBe("1");
+      const copies = siblings(db, "pre-migrate-").sort();
+      for (const n of [4, 5]) {
+        const r = run();
+        expect(r.status, `start ${n}`).not.toBe(0);
+        expect(r.stderr, `start ${n}`).toContain("deploy keeps failing before it records a migration (3 copies since the last applied migration)");
+        expect(r.stdout, `start ${n}`).not.toContain("prisma migrate deploy");
+        expect(siblings(db, "pre-migrate-").sort(), `start ${n}`).toEqual(copies);
+      }
+    } finally {
+      holder.kill("SIGKILL");
+      await new Promise((r) => (holder.exitCode !== null || holder.signalCode !== null ? r(undefined) : holder.once("exit", () => r(undefined))));
+    }
+
+    // The cause is gone (lock released); remove the surplus copies, keep the oldest.
+    for (const f of siblings(db, "pre-migrate-").sort().slice(1)) rmSync(path.join(path.dirname(db), f));
+    for (const f of [`${db}-journal`]) rmSync(f, { force: true });
+    const fixed = run();
+    expect(fixed.status, fixed.stderr + fixed.stdout).toBe(0);
+    expect(sql(db, "SELECT count(*) FROM pragma_table_info('User') WHERE name = 'nick'")).toBe("1");
+    expect(sql(db, "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL")).toBe("2");
+    expect(siblings(db, "pre-migrate-")).toHaveLength(2);
+    expect(existsSync(`${db}.started`)).toBe(true);
+    // The applied migration resets the bound: a later pending migration copies again.
+    rmSync(`${db}.started`);
+    addLocalMigration(dir, "20261029000000_add_nick2", 'ALTER TABLE "User" ADD COLUMN "nick2" TEXT;\n');
+    const later = run();
+    expect(later.status, later.stderr + later.stdout).toBe(0);
+    expect(siblings(db, "pre-migrate-")).toHaveLength(3);
+  }, 300_000);
 });

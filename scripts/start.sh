@@ -13,7 +13,12 @@
 #   _prisma_migrations present, nothing pending
 #                                             -> migrate deploy (no-op), no copy
 #   _prisma_migrations present, a migration pending
-#                                             -> copy, then migrate deploy
+#                                             -> copy, then migrate deploy;
+#                                                abort without a copy once 3 copies are newer
+#                                                than the newest applied migration
+#   _prisma_migrations present, prisma/migrations holds a dot-directory, a
+#   symlink or a directory without migration.sql
+#                                             -> abort, nothing changed, no copy
 #   tables but no _prisma_migrations (a database that `db push` created):
 #       schema equals prisma/schema.prisma    -> copy, mark the baseline migration
 #                                                as applied, migrate deploy
@@ -41,6 +46,15 @@
 # failed migration's start, which is the one to restore, and warns when other
 # history rows started after that copy.
 #
+# A deploy can also fail before prisma records a row (the database is locked
+# for writing, prisma rejects an entry in prisma/migrations, prisma dies early).
+# That leaves no failed row, so each restart would write another full copy.
+# Before a copy, the script counts the stamped copies newer than the newest
+# applied migration (the newest finished_at of a row that is not rolled back; no
+# such row: every stamped copy counts) and aborts without a copy or a deploy
+# once there are COPY_LOOP_LIMIT of them. The operator fixes the cause and
+# removes the surplus copies; an applied migration resets the count.
+#
 # Tested in tests/integration/start-script.test.ts with stub `prisma` and `sqlite3`
 # binaries (PRISMA_BIN, SQLITE3_BIN) and with the real ones.
 set -eu
@@ -54,12 +68,16 @@ SQLITE3="${SQLITE3_BIN:-sqlite3}"
 SCHEMA="prisma/schema.prisma"
 MIGRATIONS="prisma/migrations"
 DOCS='docs/deployment.md, section "Database migrations"'
+# Stamped copies newer than the newest applied migration at which a start stops.
+COPY_LOOP_LIMIT=3
 # Infix of the pre-migrate copy names. Only names that copy_key accepts count.
 COPY_INFIX=".pre-migrate-"
 # _prisma_migrations.started_at as 14 digits (YYYYMMDDHHMMSS, UTC). prisma 5.22
 # writes milliseconds since the epoch; a text date (the column default) works too.
 # NULL when the value cannot be read.
 STARTED_DIGITS="CASE WHEN typeof(started_at) IN ('integer', 'real') THEN strftime('%Y%m%d%H%M%S', started_at / 1000, 'unixepoch') ELSE strftime('%Y%m%d%H%M%S', started_at) END"
+# The same for finished_at.
+FINISHED_DIGITS="CASE WHEN typeof(finished_at) IN ('integer', 'real') THEN strftime('%Y%m%d%H%M%S', finished_at / 1000, 'unixepoch') ELSE strftime('%Y%m%d%H%M%S', finished_at) END"
 
 log() { printf '[db-start] %s\n' "$*"; }
 die() { printf '[db-start] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -173,6 +191,44 @@ pending_migrations() {
   done
 }
 
+# Stops the start when prisma/migrations holds an entry that this script and
+# prisma 5.22 read differently, before any pending set is computed: prisma lists
+# every directory entry including dot-directories, leaves out symlinks and fails
+# with P3015 on a directory without migration.sql, while the pending set below
+# follows the shell glob (no dot entries, symlinks followed). Regular files such
+# as migration_lock.toml are fine.
+check_migrations_dir() {
+  for e in "$MIGRATIONS"/* "$MIGRATIONS"/.[!.]* "$MIGRATIONS"/..?*; do
+    if [ -L "$e" ]; then
+      die "$e is a symlink: prisma leaves it out and this start would count it as a migration. Remove it. Nothing was changed. See $DOCS."
+    fi
+    [ -d "$e" ] || continue
+    case ${e##*/} in
+      .*) die "$e is a directory whose name starts with a dot: prisma treats it as a migration, this start would not. Remove it. Nothing was changed. See $DOCS." ;;
+    esac
+    [ -f "$e/migration.sql" ] || die "$e has no migration.sql (prisma fails on it with P3015). Remove it or add the file. Nothing was changed. See $DOCS."
+  done
+}
+
+# Stops the start, before a new copy, when COPY_LOOP_LIMIT stamped copies are
+# newer (by stamp second) than the newest applied migration. A deploy that fails
+# before prisma writes a row leaves no failed migration for
+# refuse_failed_migration to find, so without this every restart adds a full copy.
+refuse_copy_loop() {
+  last=$(query "SELECT COALESCE(max(CAST($FINISHED_DIGITS AS INTEGER)), 0) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL") || exit 1
+  case "$last" in
+    ''|*[!0-9]*) die "cannot read the finish time of the newest applied migration in $db. Nothing was changed. See $DOCS." ;;
+  esac
+  newer=0
+  for f in "$db$COPY_INFIX"*; do
+    [ -f "$f" ] || continue
+    key=$(copy_key "$f") || continue
+    [ "${key% *}" -gt "$last" ] || continue
+    newer=$((newer + 1))
+  done
+  [ "$newer" -lt "$COPY_LOOP_LIMIT" ] || die "deploy keeps failing before it records a migration ($newer copies since the last applied migration); nothing was changed. No new copy was taken and migrate deploy was not run. Find the cause in the output of the earlier starts (for example a locked database or a migration prisma rejects), fix it, remove the surplus copies $db${COPY_INFIX}* (keep the oldest) and start again. See $DOCS."
+}
+
 # Stops the start when _prisma_migrations holds a migration that began and
 # neither finished nor was marked rolled back. Prisma does not undo the
 # statements of a failed SQLite migration, so the file may be half migrated.
@@ -259,11 +315,13 @@ else
   history=$(count "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = '_prisma_migrations'") || exit 1
   if [ "$history" -gt 0 ]; then
     refuse_failed_migration
+    check_migrations_dir
     pending=$(pending_migrations) || exit 1
     if [ -z "$pending" ]; then
       log "every migration in $MIGRATIONS is applied: no copy needed"
       deploy_note="No copy was taken: no migration was pending."
     else
+      refuse_copy_loop
       log "migrations to apply: $(printf '%s' "$pending" | tr '\n' ' ')"
       pre_migrate_copy
     fi
