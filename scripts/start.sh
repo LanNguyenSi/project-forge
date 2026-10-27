@@ -215,7 +215,12 @@ check_migrations_dir() {
 # before prisma writes a row leaves no failed migration for
 # refuse_failed_migration to find, so without this every restart adds a full copy.
 refuse_copy_loop() {
-  last=$(query "SELECT COALESCE(max(CAST($FINISHED_DIGITS AS INTEGER)), 0) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL") || exit 1
+  if [ "${1:-}" = no-history ]; then
+    # No _prisma_migrations yet (the baseline branch): every stamped copy counts.
+    last=0
+  else
+    last=$(query "SELECT COALESCE(max(CAST($FINISHED_DIGITS AS INTEGER)), 0) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL") || exit 1
+  fi
   case "$last" in
     ''|*[!0-9]*) die "cannot read the finish time of the newest applied migration in $db. Nothing was changed. See $DOCS." ;;
   esac
@@ -226,7 +231,7 @@ refuse_copy_loop() {
     [ "${key% *}" -gt "$last" ] || continue
     newer=$((newer + 1))
   done
-  [ "$newer" -lt "$COPY_LOOP_LIMIT" ] || die "deploy keeps failing before it records a migration ($newer copies since the last applied migration); nothing was changed. No new copy was taken and migrate deploy was not run. Find the cause in the output of the earlier starts (for example a locked database or a migration prisma rejects), fix it, remove the surplus copies $db${COPY_INFIX}* (keep the oldest) and start again. See $DOCS."
+  [ "$newer" -lt "$COPY_LOOP_LIMIT" ] || die "deploy keeps failing before it records a migration ($newer copies since the last applied migration); nothing was changed. No new copy was taken and migrate deploy was not run. Find the cause in the output of the earlier starts (for example a locked database or a migration prisma rejects), fix it, then remove all but one of the copies stamped after the newest applied migration (older copies do not count) and start again. A database restored from an older copy leaves the later copies counting: move them to a name outside the $COPY_INFIX prefix. See $DOCS."
 }
 
 # Stops the start when _prisma_migrations holds a migration that began and
@@ -295,6 +300,7 @@ baseline_legacy_database() {
     *) die "could not compare the existing database $db with $SCHEMA (prisma exit $rc, output above). Nothing was changed. See $DOCS." ;;
   esac
   log "schema matches: recording $BASELINE as applied"
+  refuse_copy_loop no-history
   pre_migrate_copy
   if ! "$PRISMA" migrate resolve --applied "$BASELINE"; then
     die "prisma migrate resolve --applied $BASELINE failed (output above). pre-migrate copy: $copy_path. The server was not started. See $DOCS."

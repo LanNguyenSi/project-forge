@@ -791,7 +791,7 @@ describe("scripts/start.sh with a stub prisma", () => {
       addLocalMigration(w.dir, NEXT);
       for (let n = 1; n <= 3; n++) w.run({ STUB_DEPLOY_RC: "1" });
       const r = w.run({ STUB_DEPLOY_RC: "1" });
-      expect(r.stderr).toContain(`remove the surplus copies ${w.db}.pre-migrate-*`);
+      expect(r.stderr).toContain("remove all but one of the copies stamped after the newest applied migration");
       // Removing copies clears the stop: two left, the next start copies again.
       const [oldest, ...surplus] = w.copies().sort();
       expect(oldest).toBeDefined();
@@ -929,14 +929,29 @@ describe("scripts/start.sh with a stub prisma", () => {
       expect(started(w)).toBe(true);
     });
 
-    it("the baseline of a db-push database keeps its single copy whatever copies exist", () => {
+    it("the baseline of a db-push database copies once while fewer than three stamped copies exist", () => {
       const w = newWork();
       seedLegacy(w);
-      for (const stamp of ["20260310T120001Z", "20260310T120002Z", "20260310T120003Z", "20260310T120004Z"]) addCopy(w, stamp);
+      for (const stamp of ["20260310T120001Z", "20260310T120002Z"]) addCopy(w, stamp);
       const r = w.run({ STUB_DIFF_RC: "0" });
       expect(r.status, r.stderr).toBe(0);
-      expect(w.copies()).toHaveLength(5);
+      expect(w.copies()).toHaveLength(3);
       expect(started(w)).toBe(true);
+    });
+
+    it("a baseline whose resolve keeps failing stops after three copies, without a copy or a resolve", () => {
+      const w = newWork();
+      seedLegacy(w);
+      for (let i = 0; i < 5; i++) {
+        const r = w.run({ STUB_DIFF_RC: "0", STUB_RESOLVE_RC: "1" });
+        expect(r.status).not.toBe(0);
+        if (i >= 3) {
+          expect(r.stderr).toContain("deploy keeps failing before it records a migration (3 copies");
+          expect(r.stderr).toContain("move them to a name outside the");
+        }
+      }
+      expect(w.copies()).toHaveLength(3);
+      expect(started(w)).toBe(false);
     });
 
     it("a failed migration row is reported before the copy bound", () => {

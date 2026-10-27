@@ -207,7 +207,7 @@ The set matches what `migrate deploy` applies only while every entry of
 plain directory with a `migration.sql`. Prisma 5.22 reads every directory entry,
 dot-directories included (it applies a `.name/migration.sql`), leaves symlinks
 out, and fails with `P3015` on a directory without `migration.sql`; the script
-globs the directory without dot entries and follows symlinks. So a start
+globs the directory without dot entries and follows symlinks. So a start on a database with migration history
 with a dot-directory, a symlink or a directory without `migration.sql` in
 `prisma/migrations/` stops before it computes anything ("nothing was changed"),
 rather than risk a deploy that applies a migration the script did not copy for.
@@ -294,14 +294,15 @@ copy counts). Three or more end the start without a copy, without
 `migrate deploy` and with nothing changed:
 
 ```
-[db-start] ERROR: deploy keeps failing before it records a migration (3 copies since the last applied migration); nothing was changed. No new copy was taken and migrate deploy was not run. Find the cause in the output of the earlier starts (for example a locked database or a migration prisma rejects), fix it, remove the surplus copies /data/project-forge.db.pre-migrate-* (keep the oldest) and start again. See docs/deployment.md, section "Database migrations".
+[db-start] ERROR: deploy keeps failing before it records a migration (3 copies since the last applied migration); nothing was changed. No new copy was taken and migrate deploy was not run. Find the cause in the output of the earlier starts (for example a locked database or a migration prisma rejects), fix it, then remove all but one of the copies stamped after the newest applied migration (older copies do not count) and start again. A database restored from an older copy leaves the later copies counting: move them to a name outside the .pre-migrate- prefix. See docs/deployment.md, section "Database migrations".
 ```
 
-So the container takes at most three copies before it stops (a full-size copy
+So the container takes at most three copies before it stops, in the history branch and in the baseline of a `db push` database alike (there every stamped copy counts, since no migration is applied yet; a `migrate resolve` that keeps failing on a write-locked file ends the same way). A database restored from an older copy has later copies stamped after its newest applied migration, so they count too: move them to a name outside the prefix before the next start (a full-size copy
 each: the free space for three is the worst case), and the restart loop after
 that costs no disk. To clear the stop, read the output of the earlier starts
-(`docker compose logs app`) and fix the cause, then remove the surplus copies,
-for example every stamped copy but the oldest, with the `rm` command below; the
+(`docker compose logs app`) and fix the cause, then remove all but one of the copies stamped after the newest applied
+migration (the ones the message counts; older copies, restore points of earlier
+deploys, do not count and can stay) with the `rm` command below; the
 copies normally hold the same state, because a deploy that records nothing
 has not changed the file. The count also drops to zero when a migration is applied: its
 `finished_at` is later than the copies. A copy in the same second as that
