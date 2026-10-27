@@ -93,9 +93,15 @@ including the one-shot create endpoint and the publish rate limit.
 cp .env.example .env   # set NEXTAUTH_SECRET, NEXTAUTH_URL=http://localhost:3000, PLANFORGE_URL, PLANFORGE_SERVICE_TOKEN
 npm install
 npx prisma generate
-npx prisma db push
+npx prisma migrate deploy
 npm run dev
 ```
+
+`migrate deploy` applies the committed migrations in `prisma/migrations/`. A
+local database that an earlier checkout created with `prisma db push` is
+refused (`P3005`): delete it, or run
+`npx prisma migrate resolve --applied 20261027000000_baseline` when it still
+matches the schema.
 
 Or run `make dev`, which creates `.env` from `.env.example` when it does not
 exist yet, then installs dependencies, generates the Prisma client, creates the

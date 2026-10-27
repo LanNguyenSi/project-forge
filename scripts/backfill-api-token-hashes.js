@@ -7,17 +7,19 @@
  * present in the DB at migration time, so no user/agent integration needs
  * to be re-issued a new token or gets locked out.
  *
- * This project manages its schema via `prisma db push`, not `prisma
- * migrate` (see docs/ways-of-working.md) — there is no SQL migration file
- * that could carry a data transform, and SQLite has no built-in HMAC/
- * SHA-256 function to do the hashing inside SQL anyway. This script is the
- * out-of-band equivalent: plain Node + raw SQL, so it has no dependency on
+ * This project now manages its schema with committed Prisma migrations
+ * (prisma/migrations, applied by scripts/start.sh at container start; see
+ * docs/deployment.md). At 0.7.0, when this script was written, the container
+ * ran `prisma db push` instead, and the runbook below describes that start.
+ * Either way a SQL migration file cannot carry this data transform: SQLite
+ * has no built-in HMAC/SHA-256 function to do the hashing inside SQL. This
+ * script is the out-of-band equivalent: plain Node + raw SQL, so it has no dependency on
  * `prisma generate` having already run against the new schema, and needs no
  * extra devDependency (no ts-node/tsx) to execute.
  *
  * WHY TWO PHASES: a single-shot script that backfills AND drops the `token`
  * column in one run is only safe to execute while nothing still relies on
- * `token`. This project's deploy runs `npx prisma db push --skip-generate`
+ * `token`. At 0.7.0 the deploy ran `npx prisma db push --skip-generate`
  * (Dockerfile CMD) with NO `--accept-data-loss`, and prisma/schema.prisma no
  * longer declares `token` at all, so — verified locally, see below — `db
  * push` REFUSES outright (exits non-zero, container fails to start) if
@@ -52,8 +54,11 @@
  *   4. node scripts/backfill-api-token-hashes.js --contract  (contract;
  *      safe now that step 3 has confirmed 0 rows remain unhashed — drops
  *      `token` and its legacy unique index for good)
- *   5. Start the NEW container. Its own `npx prisma db push` now sees
- *      `token` already gone and is a clean no-op.
+ *   5. Start the NEW container. At 0.7.0 its own `npx prisma db push` saw
+ *      `token` already gone and was a clean no-op. With migrations, scripts/start.sh
+ *      baselines the file only when it equals prisma/schema.prisma, and after
+ *      step 4 it does not yet (tokenHash/tokenPrefix are still nullable): tighten
+ *      ApiToken first, see "Upgrading to 0.7.0" in docs/deployment.md.
  * Both phases are idempotent — safe to re-run, and each is a no-op once its
  * work is already done (including out of order: contract before expand
  * ever ran is treated as "nothing to contract yet" rather than an error, as
@@ -70,9 +75,9 @@
  * and its index were dropped and all data preserved under
  * tokenHash/tokenPrefix (still nullable at the raw-SQL level from the
  * ADD COLUMN, unlike a fresh push's `NOT NULL`), and ran `prisma db push`
- * again: clean no-op, no data-loss prompt, and this version of `db push`
- * does not attempt to tighten that nullable-vs-schema's-NOT-NULL gap into a
- * migration. Also verified idempotency (re-running expand after contract,
+ * again: no data-loss prompt. (Re-checked with prisma 5.22 when committed
+ * migrations were added: that `db push` also redefines ApiToken with the
+ * schema's `NOT NULL` columns, exit 0, rows kept.) Also verified idempotency (re-running expand after contract,
  * and re-running contract twice, are both no-ops) and the fail-loud path
  * (seeded a row with an empty-string token; expand hashed the good row,
  * then reported the bad one and exited 1 without creating the unique

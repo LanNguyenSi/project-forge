@@ -96,7 +96,7 @@ project-forge/
 - Prisma schema in `prisma/schema.prisma`
 - Client singleton in `lib/db.ts` (cached in `globalThis` for dev hot-reload)
 - Run `npx prisma generate` after schema changes
-- Run `npx prisma db push` to sync schema to SQLite
+- Schema changes ship as committed migrations: `npx prisma migrate dev --name <what changed>` creates one and applies it locally; `npx prisma migrate deploy` applies the committed ones (what the container start does through `scripts/start.sh`, never `prisma db push`). See `docs/deployment.md`, section "Database migrations"
 
 ### External Tools
 

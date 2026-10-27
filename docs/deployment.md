@@ -182,6 +182,7 @@ database path is the one in `DATABASE_URL` (default
 | State of the database file | What start does |
 |---|---|
 | File missing, or no table in it | `prisma migrate deploy` creates the schema. No copy. |
+| Has `_prisma_migrations` and a migration recorded as failed (started, never finished, not rolled back) | Abort before anything else: no copy, no `migrate deploy`, nothing changed. The message names the migration, its start time and the copy to restore. See [A migration failed halfway](#a-migration-failed-halfway). |
 | Has `_prisma_migrations`, nothing pending | `migrate deploy` (a no-op). No copy. |
 | Has `_prisma_migrations`, a migration is pending (or `migrate status` fails) | Copy the file, then `migrate deploy`. |
 | Has tables but no `_prisma_migrations` (created by the old `db push` start) and equals `prisma/schema.prisma` | Copy the file, mark the baseline migration as applied (`migrate resolve --applied`), then `migrate deploy`. |
@@ -247,9 +248,10 @@ database holds password hashes and GitHub tokens. It is a full-size copy on the
 same volume: check the free space before a large deploy. If the copy cannot be
 written, the start aborts before anything is changed.
 
-A start with no pending migration makes no copy. A restart loop does not pile
-up copies: when the database is byte-identical to the newest copy, that copy is
-kept and no new one is written.
+A start with no pending migration makes no copy, and neither does a start that
+finds a failed migration (see below). A restart loop does not pile up copies:
+when the database is byte-identical to the newest copy, that copy is kept and
+no new one is written.
 
 Nothing deletes the copies. List and remove them once the new version has run
 well:
@@ -260,20 +262,90 @@ docker compose run --rm --no-deps app sh -c 'rm /data/project-forge.db.pre-migra
 ```
 
 To go back to a copy: `docker compose stop app`, then replace
-`/data/project-forge.db` with the copy (`cp` it over the file in a one-off
-container) and remove any `project-forge.db-journal` next to it.
+`/data/project-forge.db` with the copy and remove the `-journal`, `-wal` and
+`-shm` files next to the database. A leftover one belongs to the file you are
+replacing and would be applied to the copy:
+
+```
+docker compose run --rm --no-deps app sh -c 'rm -f /data/project-forge.db /data/project-forge.db-journal /data/project-forge.db-wal /data/project-forge.db-shm && cp /data/project-forge.db.pre-migrate-<timestamp> /data/project-forge.db'
+```
+
+### A migration failed halfway
+
+Prisma applies a migration's statements one after the other and, on SQLite,
+does not undo the ones that already ran when a later statement fails. The
+migration then stays in `_prisma_migrations` as failed (no `finished_at`, no
+`rolled_back_at`) and the database is partly migrated. Checked with prisma
+5.22: a migration that adds a column and then fails leaves the column in the
+file, and `migrate deploy` refuses to continue (`P3009`) until the failed
+migration is resolved.
+
+What the start does:
+
+1. The first start with the pending migration takes the pre-migrate copy (the
+   file as it was before the migration), runs `migrate deploy`, which fails, and
+   exits with `prisma migrate deploy failed` naming that copy.
+2. Every later start (the restart loop) finds the failed row before
+   `migrate status` and before any copy, and stops. It takes no new copy,
+   because a copy of the half-migrated file would look like a restore point and
+   is not one, and it does not run `migrate deploy`. The log names the
+   migration, its start time (UTC) and the newest pre-migrate copy that is not
+   newer than that start, which is the copy from step 1:
+
+```
+[db-start] ERROR: migration 20261028000000_add_nick failed halfway (recorded in _prisma_migrations since 20261027T140939Z, UTC) and was never rolled back. SQLite keeps the statements that ran before the error, so /data/project-forge.db may be partly migrated. The server was not started, no new copy was taken and migrate deploy was not run. Stop the container, restore /data/project-forge.db.pre-migrate-20261027T140938Z (the newest pre-migrate copy taken before that migration started) and remove /data/project-forge.db-journal, /data/project-forge.db-wal and /data/project-forge.db-shm, then deploy a fixed migration or the previous release. See docs/deployment.md, section "Database migrations".
+```
+
+If no copy older than the start exists (the migration ran outside this start
+script, or the copies were deleted), the message says so and you restore your
+own backup.
+
+Recovery:
+
+1. `docker compose stop app`.
+2. Restore the copy the message names, with the command under
+   [Pre-migrate copy](#pre-migrate-copy). The copy was taken by the start that
+   ran the failed migration, before the server of that start ran, so it holds
+   everything the previous release wrote.
+3. Fix the migration (or deploy the previous release). The restored file has no
+   failed row, so nothing needs `prisma migrate resolve`: the next start sees
+   the migration as pending and applies it, with the usual copy step.
+4. `docker compose up -d app`.
+
+Repairing in place instead of restoring is possible when you know exactly what
+the failed migration did: undo or finish its statements by hand, then run
+`prisma migrate resolve --rolled-back <name>` (the migration is applied again
+at the next start) or `--applied <name>` (it is marked as done and nothing is
+run). Take your own copy of the file first. The start script's copy does not
+cover this path: prisma 5.22 reports `Database schema is up to date!` for a
+rolled-back migration that is waiting to be applied again, so the next start
+takes no copy before applying it.
 
 ### Rollback
 
 `rollback: true` in `.relay.yml` and a manual `docker compose up` of an older
 checkout both change the code only. They do not undo a migration: the database
-keeps the schema the newer release gave it. An older image that still ran
-`prisma db push` at start (0.8.0 and earlier) accepts the database as long as
-the schema did not change in between (checked: `db push` reports it is already
-in sync and leaves `_prisma_migrations` alone), but once a migration changed the
-schema, the older code can fail or, with `db push`, refuse the new shape. To
-return to the schema of the older release, restore the pre-migrate copy as
-described above, then start the older release.
+keeps the schema the newer release gave it.
+
+- **An older release with migrations** (this one or later) starts on a
+  database that has newer migrations: `migrate deploy` ignores migrations it
+  does not know (checked: baseline-only release on a database with a later
+  column, `Database schema is up to date!`). The older code then runs on the
+  newer schema, which is fine for additive changes and can fail for a
+  contracting one.
+- **Never start a release that still ran `prisma db push` (0.8.0 and earlier)
+  on a database that has any migration after the baseline.** `db push` compares
+  the file with its own, older schema and drops what that schema does not
+  know. Columns, tables and indexes without data are dropped with exit 0 and no
+  prompt (checked with prisma 5.22: a nullable column added by a later migration
+  was gone after `db push`). `_prisma_migrations` still lists the migration,
+  so starting the newer release again says `up to date`, applies nothing and
+  runs on a schema that lacks the column. An object that holds data makes
+  `db push` stop and ask for `--accept-data-loss` instead. Either way, the way
+  back to a `db push` release is the pre-migrate copy from before the first
+  migration after the baseline (restore it as described above), not the current
+  file. A database that has only the baseline matches the old schema, and
+  `db push` leaves it alone.
 
 ### Writing migrations (expand and contract)
 
@@ -293,11 +365,10 @@ described above, then start the older release.
      drops the old column or adds `NOT NULL`. If the data does not fit, the
      migration fails and the start aborts; the pre-migrate copy is the way
      back.
-- A migration that fails halfway leaves a failed entry in `_prisma_migrations`;
-  every later start then stops with `P3009`. Restore the pre-migrate copy (or
-  repair the database by hand), then mark the migration with
-  `prisma migrate resolve --rolled-back <name>` or `--applied <name>` as
-  appropriate before starting again.
+- A migration that fails halfway leaves the statements that ran and a failed
+  entry in `_prisma_migrations`; every later start stops. Recovery is in
+  [A migration failed halfway](#a-migration-failed-halfway): restore the
+  pre-migrate copy the log names, fix the migration, start.
 
 ## Upgrading to committed migrations
 
@@ -394,23 +465,36 @@ before the next deploy (`make deploy` and `make pull` now rebuild with
 This section predates committed migrations: at 0.7.0 the container ran
 `prisma db push` at start, and the steps below (including "its `db push` is now
 a clean no-op") describe that. The expand and contract scripts are plain SQL
-and still work. When you upgrade from a version before 0.7.0 straight to a
-release with migrations, do these steps first: a database that still has the
-plaintext `token` column differs from `prisma/schema.prisma`, so the new start
-aborts (see [Database migrations](#database-migrations)) instead of baselining
-it. After step 5 the start script's check passes and baselines the file in
-place of step 6's `db push`.
+and still work, but step 6 does not hold when you upgrade from a version
+before 0.7.0 straight to a release with migrations. After step 5 the file
+still differs from `prisma/schema.prisma`: expand adds `tokenHash` and
+`tokenPrefix` as nullable columns, the schema says `NOT NULL`, so the new start
+reports `Redefined table ApiToken`, aborts and does not baseline (checked with
+prisma 5.22; the old `db push` start tightened the table on its own, the new
+start never changes a table). Between step 5 and step 6, do one of these:
+
+- Apply the difference with the new image. Read it first:
+  `docker compose run --rm --no-deps app sh -c 'node_modules/.bin/prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script'`
+  (a `RedefineTables` script for `ApiToken`), then apply it:
+  `docker compose run --rm --no-deps app sh -c 'node_modules/.bin/prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script | sqlite3 /data/project-forge.db'`
+  (adjust the path if `FORGE_DATABASE_URL` is set). A second `migrate diff
+  --exit-code` then prints `No difference detected.` (checked: rows and
+  `UsageLog` kept).
+- Or start a 0.7.0 or 0.8.0 image (an older checkout) once against the same
+  volume: its `db push` redefines `ApiToken` (checked: exit 0, rows kept).
+
+Then step 6 starts the new container, which baselines the file in place of the
+old `db push` (see [Database migrations](#database-migrations)).
 
 0.7.0 stores API tokens hashed: `ApiToken.token` is replaced by
-`tokenHash` and `tokenPrefix`. The container's start command runs
+`tokenHash` and `tokenPrefix`. At 0.7.0 the container's start command ran
 `npx prisma db push --skip-generate` without `--accept-data-loss`, so on a
-database that still holds plaintext tokens the new container exits at
-start-up and does not serve requests. A data migration has to run during
-the deploy. The runner image does not ship `scripts/`, and the SQLite file
+database that still held plaintext tokens the new container exited at
+start-up and did not serve requests. A data migration has to run during
+the deploy. The one-off containers below mount the checkout's `scripts/`
+directory because the runner image does not ship the backfill script, and the SQLite file
 lives on the `forge_db` volume (`DATABASE_URL=file:/data/project-forge.db`,
-the default in `docker-compose.yml`), so the script is run in a one-off
-container that mounts the checkout's `scripts/` directory next to the
-volume.
+the default in `docker-compose.yml`).
 
 Run everything from the checkout that holds `docker-compose.yml`,
 `docker-compose.override.yml` and `.env`, after pulling 0.7.0. The one-off
@@ -431,12 +515,15 @@ makes the hash key below match.
    `docker compose run --rm --no-deps -v ./scripts:/app/scripts app node scripts/backfill-api-token-hashes.js`
 5. Contract (drops the plaintext `token` column and its index):
    `docker compose run --rm --no-deps -v ./scripts:/app/scripts app node scripts/backfill-api-token-hashes.js --contract`
-6. Start the new container; its `db push` is now a clean no-op:
+6. Start the new container (with migrations: after the tightening above; at
+   0.7.0 its `db push` was a clean no-op):
    `docker compose up -d app`
 
 Steps 4 and 5 are the cutover and must not be reordered around step 3:
 contract while the old container is live breaks every token-authenticated
-request, and starting the new container before contract makes it exit.
+request, and starting the new container before contract makes it exit (the
+`db push` start refused the plaintext column; the migrations start aborts on
+the difference).
 The scripts are idempotent, so a failed run can be repeated.
 
 ### Hash key
