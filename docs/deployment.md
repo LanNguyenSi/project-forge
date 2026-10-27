@@ -437,6 +437,12 @@ keeps the schema the newer release gave it.
   file. A database that has only the baseline matches the old schema, and
   `db push` leaves it alone.
 
+A rollback of the code alone leaves the database where it is. If you want the
+data of an older point too, restore a backup taken at that point with
+[Backup and restore](#backup-and-restore); remember that a restore drops
+everything written since that backup, so for undoing only the last migration
+the pre-migrate copy from just before it is the better restore point.
+
 ### Writing migrations (expand and contract)
 
 - Create the migration with the schema change: `npx prisma migrate dev --name <what changed>`,
@@ -459,6 +465,89 @@ keeps the schema the newer release gave it.
   entry in `_prisma_migrations`; every later start stops. Recovery is in
   [A migration failed halfway](#a-migration-failed-halfway): restore the
   pre-migrate copy the log names, fix the migration, start.
+
+## Backup and restore
+
+`scripts/backup.sh` takes a routine snapshot of the production database to the
+host, outside the `forge_db` volume, and rotates the old snapshots. Run it on
+the deploy host, from the checkout that holds `docker-compose.yml` (so the
+same compose file and `.env` apply):
+
+```bash
+make backup            # or: sh scripts/backup.sh
+```
+
+What it does: it reads the database path from the running `app` container
+(`docker compose exec -T app printenv DATABASE_URL`), never from the compose
+file, so a `FORGE_DATABASE_URL` override or an override-file path is picked up
+automatically; takes a consistent copy inside the container with
+`sqlite3 <db> ".backup <tmp>"` (never a `cp` of the live file, the same method
+as the [pre-migrate copy](#pre-migrate-copy)); checks the copy with
+`PRAGMA integrity_check` and refuses to publish anything unless it says `ok`;
+copies it out with `docker compose cp` and publishes it atomically (temporary
+name, then `mv`) as `project-forge-<UTC stamp>.db` with mode 600, because the
+database holds password hashes and GitHub tokens. Every failure exits
+non-zero and publishes nothing, and the temporary file inside the container
+is removed on every path. This needs an image built after `sqlite3` was added
+to the runner image (the same build `scripts/start.sh` needs): on an older
+image the copy step fails with a non-zero exit and nothing is written.
+
+The output goes to `FORGE_BACKUP_DIR`, default `$HOME/project-forge-backups`,
+which is deliberately outside the checkout (the deploy tree must stay clean).
+Environment knobs, highest first: `FORGE_BACKUP_DIR` (an explicit directory
+wins; unset or empty means the `$HOME` default), `FORGE_BACKUP_KEEP` (how
+many files to keep, default 14; unset or empty means 14, zero or anything
+non-numeric is refused before anything runs) and `COMPOSE_FILE` (passed to
+every `docker compose` call as `-f`, so a non-default compose file is
+selected the usual way). Rotation keeps the newest `FORGE_BACKUP_KEEP` files
+whose name is exactly `project-forge-YYYYMMDDTHHMMSSZ.db` (or with the `-<n>`
+suffix of a second run in the same second) and never touches anything else in
+the directory; the names never use the `.pre-migrate-` prefix that belongs to
+[start.sh](#pre-migrate-copy), so the two mechanisms cannot confuse each
+other.
+
+Schedule it from the deploy host's crontab (nightly at 03:15; cron's `HOME` is
+the crontab owner's, so name the output directory explicitly to be sure where
+backups land, and rotate a copy off-host, see below):
+
+```cron
+15 3 * * * cd /path/to/project-forge && FORGE_BACKUP_DIR=/var/backups/project-forge sh ./scripts/backup.sh >> /var/log/forge-backup.log 2>&1
+```
+
+A backup inside the volume's host is no backup at all: copy the directory to
+another machine as part of your routine, for example
+`rsync -a --delete /var/backups/project-forge/ backuphost:/backups/project-forge/`.
+The files carry the same secrets as the database, keep the mode 600 and the
+destination readable by the operator only.
+
+### Restoring a backup
+
+A restore puts the database back to the moment of the backup: every write
+after it (users, API tokens, sessions, published-project rows) is gone. That
+includes what the app wrote while the backup was being taken. Restore with the
+app stopped, so nothing writes between the check and the swap:
+
+1. Stop the app: `docker compose stop app`.
+2. Copy the backup onto the volume under a temporary name (`docker compose cp`
+   works on the stopped container; adjust both paths if `FORGE_DATABASE_URL`
+   points elsewhere than `/data/project-forge.db`):
+   `docker compose cp /var/backups/project-forge/project-forge-<timestamp>.db app:/data/project-forge.db.restore`
+3. Replace the database with it and drop the journal side files of the file
+   you are replacing (a leftover `-wal` belongs to the old database and would
+   be applied to the restored one). The runner image has no `USER`, the app
+   runs as root, so root ownership with mode 600 is what the app expects:
+   `docker compose run --rm --no-deps app sh -c 'set -e; rm -f /data/project-forge.db-journal /data/project-forge.db-wal /data/project-forge.db-shm; mv /data/project-forge.db.restore /data/project-forge.db; chmod 600 /data/project-forge.db'`
+   If this step fails (for example the `mv`), nothing has been lost yet: the
+   old database is still in place and the restore file is still named `.restore`.
+4. Start the app: `docker compose up -d app`.
+5. Check it came back healthy: `docker compose ps` must show `healthy` (the
+   healthcheck probes `/api/health`; `docker compose logs app` shows the
+   start), and log in or hit a real route to confirm the data.
+
+The restored file carries whatever `_prisma_migrations` held at backup time.
+If the code you are running has newer migrations, the next start applies them
+again with its usual pre-migrate copy. If it is older than the restored
+schema, do not start it (see [Rollback](#rollback)).
 
 ## Upgrading to committed migrations
 
