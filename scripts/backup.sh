@@ -8,9 +8,10 @@
 #   sh scripts/backup.sh
 #
 # Environment:
-#   COMPOSE_FILE       select the compose file; when set it is passed to every
-#                      docker compose call as -f (never hard-coded), when
-#                      unset docker compose uses its own default lookup.
+#   COMPOSE_FILE       select the compose file; it is never re-packed into a
+#                      -f argument here but left in the environment, where the
+#                      compose CLI reads it itself (its own list format with
+#                      COMPOSE_PATH_SEPARATOR included).
 #   FORGE_BACKUP_DIR   output directory on the host; unset or empty means
 #                      $HOME/project-forge-backups, outside the checkout.
 #   FORGE_BACKUP_KEEP  number of backups to keep, default 14 (an empty value
@@ -52,14 +53,11 @@ case "$keep" in
   0 | *[!0-9]*) die "FORGE_BACKUP_KEEP must be a positive integer, got '${FORGE_BACKUP_KEEP:-}' (unset or empty means the default 14). Nothing was written." ;;
 esac
 
-# COMPOSE_FILE is passed through as an explicit -f when set, otherwise the
-# compose CLI applies its own default file lookup.
+# COMPOSE_FILE is left in the environment untouched: the compose CLI reads it
+# there itself, including its list format (split on COMPOSE_PATH_SEPARATOR);
+# a single -f "$COMPOSE_FILE" would break that list.
 compose() {
-  if [ -n "${COMPOSE_FILE:-}" ]; then
-    docker compose -f "$COMPOSE_FILE" "$@"
-  else
-    docker compose "$@"
-  fi
+  docker compose "$@"
 }
 
 container_tmp=""
@@ -109,9 +107,15 @@ mkdir -p "$backup_dir" || die "cannot create the backup directory $backup_dir. N
 # A consistent snapshot inside the container, taken next to the database
 # (same as the pre-migrate copy of scripts/start.sh), then checked there
 # before a single byte of it is copied out.
+# A missing or empty database never reaches .backup: sqlite3 would create an
+# empty file at that path, back it up successfully and publish a valid but
+# empty backup that then counts toward the rotation.
+if ! compose exec -T app test -s "$db"; then
+  die "no non-empty database file at $db in the app container (check DATABASE_URL and the app volume). Nothing was written."
+fi
 container_tmp="$db.tmp-backup.$$"
 if ! compose exec -T app sqlite3 "$db" ".backup '$container_tmp'"; then
-  die "sqlite3 .backup of $db failed in the app container (missing file, locked, or the volume is full). Nothing was written."
+  die "sqlite3 .backup of $db failed in the app container (the database is locked, or the volume is full). Nothing was written."
 fi
 if ! compose exec -T app test -s "$container_tmp"; then
   die "the backup copy $container_tmp is missing or empty in the app container. Nothing was written."

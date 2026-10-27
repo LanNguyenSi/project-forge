@@ -41,6 +41,7 @@ const SQLITE3 = realSqlite3();
 
 const DOCKER_STUB = `#!/bin/sh
 printf 'docker %s\\n' "$*" >> "$STUB_DOCKER_LOG"
+printf '%s\\n' "\${COMPOSE_FILE-}" >> "$STUB_COMPOSE_FILE_LOG"
 [ "\${1:-}" = compose ] || { echo "stub docker: expected compose: $*" >&2; exit 70; }
 shift
 if [ "\${1:-}" = -f ]; then shift 2; fi
@@ -54,6 +55,12 @@ case "\${1:-}" in
       [ -n "\${STUB_PRINTENV_FAIL:-}" ] && exit 1
       printf '%s\\n' "\${STUB_DATABASE_URL:-}"
       exit 0
+    fi
+    if [ "\${1:-}" = test ] && [ "\${2:-}" = -s ] && [ -n "\${STUB_TEST_OK:-}" ]; then exit 0; fi
+    if [ "\${1:-}" = test ] && [ "\${2:-}" = -s ] && [ -n "\${STUB_TEST_FAIL:-}" ]; then
+      case "\${3:-}" in
+        *.tmp-backup.*) echo "stub test: forced failure: $*" >&2; exit 1 ;;
+      esac
     fi
     if [ "\${1:-}" = sqlite3 ] && [ "$#" -ge 3 ]; then
       case "$3" in
@@ -74,7 +81,10 @@ case "\${1:-}" in
     src=\${1#app:}
     [ "$src" != "$1" ] || { echo "stub docker: source must be service:path: $1" >&2; exit 1; }
     [ -f "$src" ] || { echo "stub docker: no such container file: $src" >&2; exit 1; }
-    exec cp "$src" "$2"
+    if [ -n "\${STUB_CP_EMPTY:-}" ]; then : > "$2"; exit 0; fi
+    # docker compose cp keeps the container file's mode (typically 644), so
+    # the host mode only becomes 600 through the script's own chmod.
+    cp "$src" "$2" && chmod 644 "$2" && exit 0
     ;;
 esac
 echo "stub docker: unhandled: $*" >&2
@@ -97,6 +107,7 @@ interface Backup {
   db: string; // the container database this run's DATABASE_URL points at
   run: (env?: Env, dbUrl?: string) => SpawnSyncReturns<string>;
   calls: () => string[];
+  composeFileSeen: () => string[]; // the COMPOSE_FILE values the stub saw in its env
   defaultBackups: () => string[];
   matching: (files: string[]) => string[]; // names of the rotation name shape
   sql: (file: string, statement: string) => string;
@@ -117,6 +128,7 @@ function newBackup(seedDb = true): Backup {
   const db = path.join(dir, "container", "data", "project-forge.db");
   mkdirSync(path.dirname(db), { recursive: true });
   const dockerLog = path.join(dir, "docker.log");
+  const composeFileLog = path.join(dir, "compose-file.log");
   const sql = (file: string, statement: string) => {
     const r = spawnSync(SQLITE3, [file, statement], { encoding: "utf-8" });
     if (r.status !== 0) throw new Error(`sqlite3 failed: ${r.stderr}`);
@@ -146,12 +158,18 @@ function newBackup(seedDb = true): Backup {
           PATH: `${bin}:${process.env.PATH}`,
           HOME: home,
           STUB_DOCKER_LOG: dockerLog,
+          STUB_COMPOSE_FILE_LOG: composeFileLog,
           STUB_DATABASE_URL: dbUrl ?? `file:${db}`,
           ...env,
         }),
       }),
     calls: () =>
       existsSync(dockerLog) ? readFileSync(dockerLog, "utf-8").trim().split("\n").filter(Boolean) : [],
+    composeFileSeen: () => {
+      if (!existsSync(composeFileLog)) return [];
+      const lines = readFileSync(composeFileLog, "utf-8").replace(/\n$/, "").split("\n");
+      return Array.from(new Set(lines));
+    },
     defaultBackups: () => (existsSync(path.join(home, "project-forge-backups")) ? readdirSync(path.join(home, "project-forge-backups")) : []),
     matching: (files) => files.filter((f) => /^project-forge-\d{8}T\d{6}Z(-\d+)?\.db$/.test(f)),
     tmpLeft: () => {
@@ -214,7 +232,9 @@ describe("scripts/backup.sh", () => {
 
   it("a relative file: path resolves against /app/prisma, like Prisma in the container", () => {
     const w = newBackup(false);
-    w.run({}, "file:./db/rel.db");
+    // /app/prisma does not exist on this host, so test -s is stubbed to
+    // succeed and the case stays about which path the .backup call carries.
+    w.run({ STUB_TEST_OK: "1" }, "file:./db/rel.db");
     expect(w.calls().some((c) => c.includes("sqlite3 /app/prisma/db/rel.db .backup "))).toBe(true);
   });
 
@@ -435,23 +455,92 @@ describe("scripts/backup.sh", () => {
     });
   });
 
-  describe("COMPOSE_FILE passes through to every docker compose call (never hard-coded)", () => {
-    it("set: every call carries -f <file>", () => {
+  describe("COMPOSE_FILE passes through untouched (compose reads it from the environment)", () => {
+    it("set to a colon list: every call is plain docker compose and the env value arrives verbatim", () => {
       const w = newBackup();
-      const r = w.run({ COMPOSE_FILE: "docker-compose.staging.yml" });
+      const list = "docker-compose.yml:docker-compose.prod.yml";
+      const r = w.run({ COMPOSE_FILE: list });
       expect(r.status, r.stderr).toBe(0);
       const calls = w.calls();
       expect(calls.length).toBeGreaterThan(3);
-      for (const c of calls) expect(c.startsWith("docker compose -f docker-compose.staging.yml ")).toBe(true);
+      // The script must never re-pack COMPOSE_FILE into a compose-level -f
+      // (that would break compose's own list format); rm -f is legitimate.
+      for (const c of calls) expect(c, c).not.toMatch(/^docker compose -f/);
+      expect(w.composeFileSeen()).toEqual([list]);
     });
 
-    it("unset: no call carries -f", () => {
+    it("unset: the stub sees an empty COMPOSE_FILE and no call carries -f", () => {
       const w = newBackup();
       const r = w.run();
       expect(r.status, r.stderr).toBe(0);
       const calls = w.calls();
       expect(calls.length).toBeGreaterThan(3);
-      for (const c of calls) expect(c, c).not.toMatch(/compose -f/);
+      // rm -f is a legitimate flag; what must never appear is a compose-level
+      // -f file argument (compose reads COMPOSE_FILE from the environment).
+      for (const c of calls) expect(c, c).not.toMatch(/^docker compose -f/);
+      expect(w.composeFileSeen()).toEqual([""]);
     });
+  });
+
+  describe("a missing or empty database file is refused before .backup", () => {
+    it("no file at the resolved path: non-zero, nothing published, no file created there", () => {
+      const w = newBackup(false);
+      expect(existsSync(w.db)).toBe(false);
+      const r = w.run();
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(w.db);
+      expect(r.stderr).toContain("Nothing was written");
+      expect(w.defaultBackups()).toEqual([]);
+      // sqlite3 creates an empty database file when it opens a missing path,
+      // so the check must run before any sqlite3 call reaches that file.
+      expect(existsSync(w.db)).toBe(false);
+      const calls = w.calls();
+      expect(calls.some((c) => c.includes(`exec -T app test -s ${w.db}`))).toBe(true);
+      expect(calls.some((c) => c.includes(".backup"))).toBe(false);
+      expect(w.tmpLeft()).toBe("");
+    });
+
+    it("the file exists but is empty: refused the same way, before .backup", () => {
+      const w = newBackup(false);
+      writeFileSync(w.db, "");
+      const r = w.run();
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(w.db);
+      expect(r.stderr).toContain("Nothing was written");
+      expect(w.calls().some((c) => c.includes(".backup"))).toBe(false);
+      expect(w.defaultBackups()).toEqual([]);
+    });
+  });
+
+  it("a database path containing a single quote is refused before any .backup call", () => {
+    const w = newBackup(false);
+    const r = w.run({}, "file:/data/it's.db");
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("single quote");
+    expect(r.stderr).toContain("Nothing was written");
+    expect(w.calls().some((c) => c.includes(".backup"))).toBe(false);
+    expect(existsSync(w.backupDir)).toBe(false);
+  });
+
+  it("test -s on the container copy fails: non-zero, nothing published, container temp removed", () => {
+    const w = newBackup();
+    const r = w.run({ STUB_TEST_FAIL: "1" });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("backup copy");
+    expect(r.stderr).toContain("Nothing was written");
+    expect(w.defaultBackups()).toEqual([]);
+    expect(w.tmpLeft()).toBe("");
+  });
+
+  it("compose cp yields an empty file: non-zero, nothing published, no .part left in the directory", () => {
+    const w = newBackup();
+    const r = w.run({ STUB_CP_EMPTY: "1" });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("is empty");
+    expect(r.stderr).toContain("Nothing was written");
+    // The cleanup trap must delete the .part file: only the container temp
+    // was on the other side of the cp, the host dir must end up empty.
+    expect(w.defaultBackups()).toEqual([]);
+    expect(w.tmpLeft()).toBe("");
   });
 });

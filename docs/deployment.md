@@ -494,13 +494,14 @@ image the copy step fails with a non-zero exit and nothing is written.
 
 The output goes to `FORGE_BACKUP_DIR`, default `$HOME/project-forge-backups`,
 which is deliberately outside the checkout (the deploy tree must stay clean).
-Environment knobs, highest first: `FORGE_BACKUP_DIR` (an explicit directory
-wins; unset or empty means the `$HOME` default), `FORGE_BACKUP_KEEP` (how
-many files to keep, default 14; unset or empty means 14, zero or anything
-non-numeric is refused before anything runs) and `COMPOSE_FILE` (passed to
-every `docker compose` call as `-f`, so a non-default compose file is
-selected the usual way). Rotation keeps the newest `FORGE_BACKUP_KEEP` files
-whose name is exactly `project-forge-YYYYMMDDTHHMMSSZ.db` (or with the `-<n>`
+Environment knobs: `FORGE_BACKUP_DIR` (an explicit directory wins; unset or
+empty means the `$HOME` default), `FORGE_BACKUP_KEEP` (how many files to keep,
+default 14; unset or empty means 14, zero or anything non-numeric is refused
+before anything runs) and `COMPOSE_FILE` (left in the environment for
+`docker compose` to read itself, its `:` list format included, so a non-default
+compose file is selected the usual way). Rotation keeps the newest
+`FORGE_BACKUP_KEEP` files whose name is exactly
+`project-forge-YYYYMMDDTHHMMSSZ.db` (or with the `-<n>`
 suffix of a second run in the same second) and never touches anything else in
 the directory; the names never use the `.pre-migrate-` prefix that belongs to
 [start.sh](#pre-migrate-copy), so the two mechanisms cannot confuse each
