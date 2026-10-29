@@ -216,13 +216,24 @@ are unmetered.
 
 ### 7. Secret handling
 
-The publish path sanitizes any embedded GitHub PAT (`x-access-token:...@` and
-`https://...@` remote URLs and bare `gho_/ghp_/ghu_/ghs_/github_pat_` token
-shapes) with the shared `lib/scrub-secrets.ts` before the message reaches logs,
-and client-facing publish failures are fixed reason sentences or a generic
-sentence with a reference id (`lib/publish-error.ts`), so git stderr, temp-dir
-paths and remote URLs never reach clients. AI provider keys and the planforge
-service token are read from env only.
+The publish path sanitizes any embedded GitHub PAT with the shared
+`lib/scrub-secrets.ts` before the message reaches logs. It masks the
+`x-access-token:...@` and `https://...@` remote URL forms and the
+`gho_/ghp_/ghu_/ghs_/github_pat_` token shapes even when the token follows a
+word character (`my_ghp_...`, `x_github_pat_...`); the accepted price is
+over-masking a word that ends in a prefix (`highs_...` masks as
+`highs_***`). The unprefixed classic 40-hex PAT is masked only in credential
+context: a `token`, `Authorization`, `bearer`, `password`, `secret`, `pat` or
+`x-access-token` word that needs no word boundary (so it also counts inside
+an env or camelCase name: `GITHUB_TOKEN=`, `db_password=`, `githubPat:`),
+then an optional run of `=`, `:` or space separators with one optional quote
+on each side (`{"token": "<hex>"}` matches), then the hex; so a bare 40-hex
+git commit SHA in push or log output stays readable, while a SHA right after
+a context word is masked as the accepted false positive. Client-facing
+publish failures are fixed reason sentences or a generic sentence with a
+reference id (`lib/publish-error.ts`), so git stderr, temp-dir paths and
+remote URLs never reach clients. AI provider keys and the planforge service
+token are read from env only.
 
 ### 8. Authentication surfaces
 
