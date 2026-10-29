@@ -83,6 +83,16 @@ describe("scrubSecrets context-guarded classic 40-hex PAT", () => {
     expect(scrubSecrets(prose)).toBe(prose);
   });
 
+  it("keeps a SHA after an ordinary word that only contains a context word", () => {
+    // "pat" and "token" must end the word right before the separators, so
+    // words like path, patch or tokens do not turn a following SHA into a
+    // masked value.
+    for (const word of ["path", "patch", "compatible", "dispatch", "update", "tokens"]) {
+      const line = `${word} ${SHA_1}`;
+      expect(scrubSecrets(line)).toBe(line);
+    }
+  });
+
   it("masks a git SHA that follows a context word (accepted, documented false positive)", () => {
     // "secret <sha>" reads like a credential assignment to the pattern, so
     // the SHA is masked; an error log losing a substring to *** is the
