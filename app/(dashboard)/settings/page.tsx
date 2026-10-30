@@ -64,11 +64,6 @@ export default function SettingsPage() {
   const [tokenToRevoke, setTokenToRevoke] = useState<TokenToRevoke | null>(null);
   const [revokingTokenId, setRevokingTokenId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (status === "unauthenticated") router.push("/login");
-    else if (status === "authenticated") loadData();
-  }, [status, router]);
-
   const loadData = async () => {
     try {
       const [res, patRes] = await Promise.all([
@@ -90,6 +85,11 @@ export default function SettingsPage() {
       console.error("Failed to load settings:", err);
     }
   };
+
+  useEffect(() => {
+    if (status === "unauthenticated") router.push("/login");
+    else if (status === "authenticated") loadData();
+  }, [status, router]);
 
   const handleSavePat = async () => {
     setError("");

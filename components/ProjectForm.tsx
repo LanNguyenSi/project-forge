@@ -54,7 +54,13 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
       .catch(() => setMagicEnabled(false));
   }, []);
 
-  useEffect(() => {
+  // Re-seed the fields when the parent hands in a different `initialValues`
+  // object. Adjusting state during render (React's documented alternative to
+  // a syncing effect) avoids a cascading re-render after commit; the fields
+  // are overwritten exactly as before, only when the prop identity changes.
+  const [seededFrom, setSeededFrom] = useState(initialValues);
+  if (initialValues !== seededFrom) {
+    setSeededFrom(initialValues);
     if (initialValues) {
       setName(initialValues.projectName ?? "");
       setSummary(initialValues.summary ?? "");
@@ -62,7 +68,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
       setConstraintsText(initialValues.constraints?.join("\n") ?? "");
       setTargetUsersText(initialValues.targetUsers?.join("\n") ?? "");
     }
-  }, [initialValues]);
+  }
 
   const [formError, setFormError] = useState<string | null>(null);
 

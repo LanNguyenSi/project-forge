@@ -1,17 +1,12 @@
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { FlatCompat } from "@eslint/eslintrc";
+import { defineConfig } from "eslint/config";
+import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
+import nextTypescript from "eslint-config-next/typescript";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// eslint-config-next v15 still ships a legacy `extends`-shaped config, not
-// a native flat-config array. FlatCompat is the official ESLint 9 bridge
-// for that shape; see https://eslint.org/docs/latest/use/configure/migration-guide
-const compat = new FlatCompat({ baseDirectory: __dirname });
-
-const eslintConfig = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
+// eslint-config-next v16 ships native flat-config arrays (and officially
+// supports ESLint 10), so they are spread in directly; no FlatCompat bridge.
+const eslintConfig = defineConfig([
+  ...nextCoreWebVitals,
+  ...nextTypescript,
   {
     ignores: [
       "node_modules/**",
@@ -45,6 +40,19 @@ const eslintConfig = [
       "@typescript-eslint/no-require-imports": "off",
     },
   },
-];
+  {
+    // The settings page fetches its data when the session becomes
+    // authenticated. `loadData` is shared with the save/create/revoke
+    // handlers (it re-reads the page after each mutation), so it stays a
+    // shared function, and the React Compiler rule reports the call as a
+    // synchronous setState although every setState runs after an await.
+    // Only this rule, only this file, as a warning so new sites stay visible;
+    // the rest of react-hooks stays on.
+    files: ["app/(dashboard)/settings/page.tsx"],
+    rules: {
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
+]);
 
 export default eslintConfig;
