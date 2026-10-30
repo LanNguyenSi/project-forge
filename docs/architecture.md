@@ -254,7 +254,7 @@ The pipelines run on GitHub Actions in three workflows:
 - `ci.yml` (pushes to `main` and `release/*`, PRs to `main`, also called by the
   release workflow) on Node 20:
 
-  1. `npm ci --legacy-peer-deps`
+  1. `npm ci --no-audit --no-fund`
   2. `npx prisma generate`
   3. `npx tsc --noEmit --skipLibCheck` (typecheck)
   4. `Migrations match schema.prisma` (`sh scripts/check-migrations.sh`:

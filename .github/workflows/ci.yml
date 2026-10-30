@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npx prisma generate
       - run: npx tsc --noEmit --skipLibCheck
       - name: Migrations match schema.prisma
