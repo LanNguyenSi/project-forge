@@ -52,7 +52,8 @@ jobs:
 
   docker-build:
     # Smoke test only: the image must keep building from the lockfile
-    # (`npm ci`) with the same flags as the build job. No push.
+    # (`npm ci`). The Dockerfile still passes --legacy-peer-deps, the build
+    # job no longer does. No push.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

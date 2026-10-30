@@ -43,13 +43,14 @@ const eslintConfig = defineConfig([
   {
     // The settings page fetches its data when the session becomes
     // authenticated. `loadData` is shared with the save/create/revoke
-    // handlers (it re-reads the page after each mutation), so it cannot move
-    // into the effect, and the React Compiler rule reports the call as a
-    // synchronous setState although every setState runs after an await. Only
-    // this rule, only this file; the rest of react-hooks stays on.
+    // handlers (it re-reads the page after each mutation), so it stays a
+    // shared function, and the React Compiler rule reports the call as a
+    // synchronous setState although every setState runs after an await.
+    // Only this rule, only this file, as a warning so new sites stay visible;
+    // the rest of react-hooks stays on.
     files: ["app/(dashboard)/settings/page.tsx"],
     rules: {
-      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/set-state-in-effect": "warn",
     },
   },
 ]);
