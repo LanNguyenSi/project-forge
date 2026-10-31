@@ -3,7 +3,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y git ca-certificates openssl --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 # Same install as CI: lockfile enforced, same flags.
-RUN npm ci --legacy-peer-deps --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npx prisma generate
 RUN npm run build
@@ -17,7 +17,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y openssl ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund
+RUN npm ci --omit=dev --no-audit --no-fund
 RUN node_modules/.bin/prisma generate
 
 FROM node:20-slim AS runner
