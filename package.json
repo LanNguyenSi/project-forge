@@ -53,6 +53,15 @@
     "uuid": "^14.0.0",
     "postcss": "^8.5.18",
     "js-yaml": "^4.3.2",
-    "sharp": "^0.35.5"
+    "sharp": "^0.35.5",
+    "@swagger-api/apidom-reference": {
+      "minimatch": "^11.0.3"
+    },
+    "eslint": {
+      "minimatch": "^11.0.3"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.3"
+    }
   }
 }
