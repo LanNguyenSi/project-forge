@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { ForgeMark } from "@/components/layout/ForgeMark";
+import { MAIN_CONTENT_ID, SkipLink } from "@/components/layout/SkipLink";
 import { DialogShell } from "@/components/DialogShell";
 
 const mainNavItems = [
@@ -110,7 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {session.user.email?.charAt(0).toUpperCase() ?? "U"}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-forge-mist truncate">
+              <p className="text-sm font-medium text-forge-mist truncate" title={session.user.email}>
                 {session.user.email}
               </p>
             </div>
@@ -157,6 +158,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-forge-void text-forge-mist">
+      {/* Skip link: before the header and the sidebar in the DOM, so it is the
+          first thing a keyboard user lands on (WCAG 2.4.1) */}
+      <SkipLink />
+
       {/* Mobile top bar: a banner landmark (the `region` axe rule); md:hidden
           keeps it out of the accessibility tree on desktop, so never two banners. */}
       <header className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-4 py-3">
@@ -190,8 +195,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {sidebarContent}
       </aside>
 
-      {/* Main content */}
-      <main className="md:pl-56 pt-14 md:pt-0 min-h-screen">
+      {/* Main content: the skip-link target; tabIndex -1 so the browser moves
+          focus here on activation even though main is not tabbable */}
+      <main id={MAIN_CONTENT_ID} tabIndex={-1} className="md:pl-56 pt-14 md:pt-0 min-h-screen">
         {children}
       </main>
     </div>

@@ -4,9 +4,14 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { ForgeMark } from "@/components/layout/ForgeMark";
+import { SkipLink } from "@/components/layout/SkipLink";
 
 /**
  * Shared top-nav for all public pages (landing, login, public docs).
+ *
+ * Rendered before the page `<main>` (the skip-link target), never inside it, so
+ * activating the skip link moves focus past this nav instead of onto the target
+ * that contains it.
  *
  * Session-aware:
  *  - Unauthenticated: shows "Login" text link + "Get Started" primary button
@@ -18,52 +23,57 @@ export function PublicNav() {
   const onLoginPage = usePathname() === "/login";
 
   return (
-    <nav className="sticky top-0 z-30 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-6 py-4">
-      <div className="flex items-center justify-between max-w-7xl mx-auto">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <ForgeMark className="h-6 w-6" />
-          <span className="font-display font-semibold text-lg text-forge-mist tracking-tight group-hover:text-gold transition-colors">
-            project-forge
-          </span>
-        </Link>
-
-        {/* Right-side links */}
-        <div className="flex items-center gap-5 text-sm">
-          <Link
-            href="/docs"
-            className="inline-flex min-h-9 items-center text-forge-ash hover:text-forge-mist transition-colors"
-          >
-            Docs
+    <>
+      {/* Outside the <nav> so the link is not announced inside the navigation
+          landmark it helps the user skip */}
+      <SkipLink />
+      <nav className="sticky top-0 z-30 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-6 py-4">
+        <div className="flex items-center justify-between max-w-7xl mx-auto">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <ForgeMark className="h-6 w-6" />
+            <span className="font-display font-semibold text-lg text-forge-mist tracking-tight group-hover:text-gold transition-colors">
+              project-forge
+            </span>
           </Link>
 
-          {isAuthed ? (
+          {/* Right-side links */}
+          <div className="flex items-center gap-5 text-sm">
             <Link
-              href="/dashboard"
-              className="rounded-btn bg-ember px-4 py-2 text-forge-void font-medium hover:bg-ember-soft transition-colors"
+              href="/docs"
+              className="inline-flex min-h-9 items-center text-forge-ash hover:text-forge-mist transition-colors"
             >
-              Dashboard
+              Docs
             </Link>
-          ) : (
-            !onLoginPage && (
-              <>
-                <Link
-                  href="/login"
-                  className="inline-flex min-h-9 items-center text-forge-ash hover:text-forge-mist transition-colors"
-                >
-                  Login
-                </Link>
-                <Link
-                  href="/login"
-                  className="rounded-btn bg-ember px-4 py-2 text-forge-void font-medium hover:bg-ember-soft transition-colors"
-                >
-                  Get Started
-                </Link>
-              </>
-            )
-          )}
+
+            {isAuthed ? (
+              <Link
+                href="/dashboard"
+                className="rounded-btn bg-ember px-4 py-2 text-forge-void font-medium hover:bg-ember-soft transition-colors"
+              >
+                Dashboard
+              </Link>
+            ) : (
+              !onLoginPage && (
+                <>
+                  <Link
+                    href="/login"
+                    className="inline-flex min-h-9 items-center text-forge-ash hover:text-forge-mist transition-colors"
+                  >
+                    Login
+                  </Link>
+                  <Link
+                    href="/login"
+                    className="rounded-btn bg-ember px-4 py-2 text-forge-void font-medium hover:bg-ember-soft transition-colors"
+                  >
+                    Get Started
+                  </Link>
+                </>
+              )
+            )}
+          </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+    </>
   );
 }
