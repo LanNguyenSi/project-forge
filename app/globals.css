@@ -316,15 +316,15 @@
   color: var(--text) !important;
 }
 
-/* The panel and the generic dark input background are the same colour, so the
-   input is identified by its border; the default border is invisible on the
-   dark panel and takes the muted text tone instead. */
 /* The close X is an svg with a black fill, invisible on the dark panel. */
 .swagger-ui .dialog-ux .close-modal svg,
 .swagger-ui .dialog-ux .close-modal svg path {
   fill: var(--text) !important;
 }
 
+/* The panel and the generic dark input background are the same colour, so the
+   input is identified by its border; the default border is invisible on the
+   dark panel and takes the muted text tone instead. */
 .swagger-ui .dialog-ux .auth-container input {
   background: var(--bg) !important;
   border-color: var(--text-muted) !important;
