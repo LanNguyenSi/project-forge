@@ -71,7 +71,12 @@ function DocsContent() {
           </div>
           <div>
             <h3 className="font-semibold text-forge-mist mb-2">2. Make a Request</h3>
-            <pre tabIndex={0} className="rounded-card bg-forge-iron px-4 py-3 font-mono text-forge-mist overflow-x-auto">
+            <pre
+              tabIndex={0}
+              role="group"
+              aria-label="Example curl request that creates a project"
+              className="rounded-card bg-forge-iron px-4 py-3 font-mono text-forge-mist overflow-x-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
+            >
 {`curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: pf_your_token_here" \\
@@ -88,7 +93,12 @@ function DocsContent() {
             <p className="text-forge-ash mb-2">
               The API returns a GitHub repository URL. Clone it and start developing:
             </p>
-            <pre tabIndex={0} className="rounded-card bg-forge-iron px-4 py-3 font-mono text-forge-mist overflow-x-auto">
+            <pre
+              tabIndex={0}
+              role="group"
+              aria-label="Example git clone command for the generated repository"
+              className="rounded-card bg-forge-iron px-4 py-3 font-mono text-forge-mist overflow-x-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
+            >
               git clone https://github.com/username/my-app.git
             </pre>
           </div>
