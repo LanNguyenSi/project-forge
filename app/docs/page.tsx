@@ -12,10 +12,15 @@ import { PublicNav } from "@/components/layout/PublicNav";
 const SwaggerUI = dynamic(() => import("swagger-ui-react"), { ssr: false });
 
 /**
- * swagger-ui renders its server picker as `<label><select id="servers">` with
- * no text in the label, so the select has no accessible name. The picker is
- * third-party markup that appears after the spec loads (and can be re-created),
- * so name it from an observer instead of patching swagger-ui.
+ * swagger-ui is third-party markup that appears after the spec loads (and can
+ * be re-created), so its accessibility gaps are fixed from an observer instead
+ * of by patching swagger-ui:
+ * - it renders its server picker as `<label><select id="servers">` with no text
+ *   in the label, so the select has no accessible name;
+ * - it renders the API title as a second `h1` and the tag groups as `h3`, so the
+ *   page has two top-level headings and skips the `h2` level. The title is
+ *   announced as a level 2 heading (the page's own `h1` stays the only level 1),
+ *   which leaves the tag headings as the level 3 they already are.
  */
 function SwaggerWithNamedServerSelect() {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -23,13 +28,16 @@ function SwaggerWithNamedServerSelect() {
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const nameServerSelects = () => {
+    const fixSwaggerMarkup = () => {
       root.querySelectorAll<HTMLSelectElement>(".servers select").forEach((select) => {
         if (!select.hasAttribute("aria-label")) select.setAttribute("aria-label", "API server");
       });
+      root.querySelectorAll<HTMLElement>(".info h1.title").forEach((title) => {
+        if (title.getAttribute("aria-level") !== "2") title.setAttribute("aria-level", "2");
+      });
     };
-    nameServerSelects();
-    const observer = new MutationObserver(nameServerSelects);
+    fixSwaggerMarkup();
+    const observer = new MutationObserver(fixSwaggerMarkup);
     observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);

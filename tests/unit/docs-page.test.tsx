@@ -4,8 +4,9 @@ import { mount, unmountAll, waitFor } from "./render-helpers";
 
 vi.mock("swagger-ui-react/swagger-ui.css", () => ({}));
 vi.mock("next/dynamic", () => ({
-  // Stand-in for swagger-ui: a servers container that gets the same unnamed
-  // picker (label wrapping a select with no text) after mount.
+  // Stand-in for swagger-ui: an info block with its h1 title, a tag heading,
+  // and a servers container that gets the same unnamed picker (label wrapping a
+  // select with no text) after mount.
   default: () =>
     function FakeSwagger() {
       const ref = useRef<HTMLDivElement | null>(null);
@@ -16,6 +17,16 @@ vi.mock("next/dynamic", () => ({
           select.id = "servers";
           label.appendChild(select);
           ref.current!.appendChild(label);
+          const info = document.createElement("div");
+          info.className = "info";
+          const title = document.createElement("h1");
+          title.className = "title";
+          title.textContent = "project-forge API";
+          info.appendChild(title);
+          const tag = document.createElement("h3");
+          tag.className = "opblock-tag";
+          tag.textContent = "Projects";
+          ref.current!.append(info, tag);
         }, 0);
         return () => clearTimeout(t);
       }, []);
@@ -116,6 +127,55 @@ describe("API docs page", () => {
     act(() => FakeMutationObserver.instances[0].callback());
 
     expect(other.hasAttribute("aria-label")).toBe(false);
+  });
+
+  it("announces the swagger API title as a level 2 heading and leaves the other headings alone", async () => {
+    const container = await mountWithPicker();
+    const title = container.querySelector(".info h1.title")!;
+    const pageHeading = container.querySelector("main h1")!;
+    const tag = container.querySelector("h3.opblock-tag")!;
+    expect(title.hasAttribute("aria-level")).toBe(false);
+
+    act(() => FakeMutationObserver.instances[0].callback());
+
+    expect(title.getAttribute("aria-level")).toBe("2");
+    expect(pageHeading.hasAttribute("aria-level")).toBe(false);
+    expect(tag.hasAttribute("aria-level")).toBe(false);
+  });
+
+  it("sets the title level once and again on a re-created swagger title", async () => {
+    const container = await mountWithPicker();
+    const observer = FakeMutationObserver.instances[0];
+    act(() => observer.callback());
+
+    const setAttribute = vi.spyOn(Element.prototype, "setAttribute");
+    try {
+      act(() => observer.callback());
+      act(() => observer.callback());
+      expect(setAttribute.mock.calls.filter(([name]) => name === "aria-level")).toHaveLength(0);
+
+      const info = container.querySelector(".info")!;
+      info.replaceChildren();
+      const fresh = document.createElement("h1");
+      fresh.className = "title";
+      info.appendChild(fresh);
+      act(() => observer.callback());
+      expect(fresh.getAttribute("aria-level")).toBe("2");
+      expect(setAttribute.mock.calls.filter(([name]) => name === "aria-level")).toHaveLength(1);
+    } finally {
+      setAttribute.mockRestore();
+    }
+  });
+
+  it("only levels the title inside the swagger info block", async () => {
+    const container = await mountWithPicker();
+    const outside = document.createElement("h1");
+    outside.className = "title";
+    container.querySelector(".servers")!.appendChild(outside);
+
+    act(() => FakeMutationObserver.instances[0].callback());
+
+    expect(outside.hasAttribute("aria-level")).toBe(false);
   });
 
   it("lets both code blocks scroll inside themselves and be reached by keyboard", () => {
