@@ -117,7 +117,7 @@ export default function ApiDocsPage() {
 
   // Public view — standalone layout without sidebar
   return (
-    <main className="min-h-screen bg-forge-void text-forge-mist">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-forge-void text-forge-mist">
       <PublicNav />
 
       <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">

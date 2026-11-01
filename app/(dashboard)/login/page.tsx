@@ -59,7 +59,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-forge-void text-forge-mist">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-forge-void text-forge-mist">
       <PublicNav />
 
       <div className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">

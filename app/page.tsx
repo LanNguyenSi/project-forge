@@ -65,7 +65,7 @@ export default function LandingPage() {
   if (status === "loading" || status === "authenticated") return null;
 
   return (
-    <main className="min-h-screen bg-forge-void text-forge-mist">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-forge-void text-forge-mist">
       <PublicNav />
 
       {/* ── Hero ─────────────────────────────────────────────────────────────── */}

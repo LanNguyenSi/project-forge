@@ -32,6 +32,18 @@ const MOBILE_NAV_ID = "mobile-nav-drawer";
 // Same breakpoint as Tailwind's md: the drawer is hidden and the desktop sidebar shows.
 const DESKTOP_QUERY = "(min-width: 768px)";
 
+// WCAG 2.4.1 bypass link: `<main>` carries this id, and the link is the first
+// focusable element so a keyboard user reaches the page content before the
+// sidebar navigation. PublicNav renders the same link for the public pages;
+// keep the id, label and classes in sync between the two files.
+const MAIN_CONTENT_ID = "main-content";
+// Hidden until focused (sr-only), then a light chip with an ember ring so it
+// stays readable on the dark shell at any z-position on the page.
+const SKIP_LINK_CLASS =
+  "sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] " +
+  "focus:rounded-btn focus:bg-forge-mist focus:px-4 focus:py-2 focus:text-sm focus:font-semibold " +
+  "focus:text-forge-void focus:outline-hidden focus:ring-2 focus:ring-ember focus:ring-offset-2 focus:ring-offset-forge-void";
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -110,7 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {session.user.email?.charAt(0).toUpperCase() ?? "U"}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-forge-mist truncate">
+              <p className="text-sm font-medium text-forge-mist truncate" title={session.user.email}>
                 {session.user.email}
               </p>
             </div>
@@ -157,6 +169,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-forge-void text-forge-mist">
+      {/* Skip link: before the header and the sidebar in the DOM, so it is the
+          first thing a keyboard user lands on (WCAG 2.4.1) */}
+      <a href={`#${MAIN_CONTENT_ID}`} className={SKIP_LINK_CLASS}>
+        Skip to main content
+      </a>
+
       {/* Mobile top bar: a banner landmark (the `region` axe rule); md:hidden
           keeps it out of the accessibility tree on desktop, so never two banners. */}
       <header className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-forge-steel bg-forge-void/95 backdrop-blur-xs px-4 py-3">
@@ -190,8 +208,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {sidebarContent}
       </aside>
 
-      {/* Main content */}
-      <main className="md:pl-56 pt-14 md:pt-0 min-h-screen">
+      {/* Main content: the skip-link target; tabIndex -1 so the browser moves
+          focus here on activation even though main is not tabbable */}
+      <main id={MAIN_CONTENT_ID} tabIndex={-1} className="md:pl-56 pt-14 md:pt-0 min-h-screen">
         {children}
       </main>
     </div>
