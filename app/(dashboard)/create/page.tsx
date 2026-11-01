@@ -212,7 +212,12 @@ export default function CreatePage() {
             </div>
             <h2 className="font-display text-2xl font-semibold text-forge-mist mb-2">Project Created!</h2>
             <div className="flex items-center rounded-card bg-forge-iron px-4 py-3 mb-6">
-              <code className="text-sm text-forge-mist font-mono flex-1 overflow-x-auto">
+              <code
+                tabIndex={0}
+                role="group"
+                aria-label="Git clone command for the new repository"
+                className="text-sm text-forge-mist font-mono flex-1 min-w-0 overflow-x-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
+              >
                 git clone {repoUrl}
               </code>
               <CopyButton text={`git clone ${repoUrl}`} />
