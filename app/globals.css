@@ -147,10 +147,8 @@
 }
 
 .swagger-ui .info .title,
-.swagger-ui .info .title small,
 .swagger-ui .opblock-tag,
 .swagger-ui .opblock-tag a,
-.swagger-ui .opblock-summary-method,
 .swagger-ui .opblock-summary-path,
 .swagger-ui .opblock-summary-description,
 .swagger-ui .tab li,
@@ -168,6 +166,26 @@
 .swagger-ui label,
 .swagger-ui .btn {
   color: var(--text) !important;
+}
+
+/* HTTP method badges and the version pills keep swagger-ui's light chip
+   colours, so their text has to be dark (the page text colour is near white and
+   reads at 1.7 to 3.1:1 on them). The three chips that are dark by default
+   (head, options, query) take white text instead. */
+.swagger-ui .opblock .opblock-summary-method,
+.swagger-ui .info .title small,
+.swagger-ui .info .title small pre {
+  color: var(--bg) !important;
+}
+
+.swagger-ui .opblock.opblock-head .opblock-summary-method,
+.swagger-ui .opblock.opblock-options .opblock-summary-method,
+.swagger-ui .opblock.opblock-query .opblock-summary-method {
+  color: #fff !important;
+}
+
+.swagger-ui .info .title small:not(.version-stamp) {
+  background: var(--text-muted) !important;
 }
 
 .swagger-ui .info .description p,
@@ -256,6 +274,19 @@
 
 .swagger-ui svg.arrow,
 .swagger-ui button.model-box-control svg {
+  fill: var(--text) !important;
+}
+
+/* Padlock on each operation row: swagger-ui paints it with the default black
+   fill and dims the unlocked one to 40 % opacity, which vanishes on the dark
+   background. Both states get a light fill at full opacity (the open and closed
+   padlock shapes still tell them apart), the unlocked one in the muted tone. */
+.swagger-ui .authorization__btn svg {
+  fill: var(--text-muted) !important;
+  opacity: 1 !important;
+}
+
+.swagger-ui .authorization__btn svg.locked {
   fill: var(--text) !important;
 }
 
