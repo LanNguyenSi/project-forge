@@ -116,7 +116,12 @@ export default function LandingPage() {
             <div className="h-3 w-3 rounded-full bg-forge-steel border border-forge-steel" />
             <span className="text-forge-ash text-xs ml-2 font-mono">agent.sh</span>
           </div>
-          <pre className="text-sm font-mono text-forge-mist leading-relaxed overflow-x-auto">{`curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \\
+          <pre
+            tabIndex={0}
+            role="region"
+            aria-label="Example curl request that creates a project"
+            className="text-sm font-mono text-forge-mist leading-relaxed overflow-x-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
+          >{`curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \\
   -H "X-API-Key: $PROJECTFORGE_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{
