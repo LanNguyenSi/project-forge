@@ -118,7 +118,7 @@ export default function LandingPage() {
           </div>
           <pre
             tabIndex={0}
-            role="region"
+            role="group"
             aria-label="Example curl request that creates a project"
             className="text-sm font-mono text-forge-mist leading-relaxed overflow-x-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
           >{`curl -X POST https://project-forge.opentriologue.ai/api/v1/projects \\

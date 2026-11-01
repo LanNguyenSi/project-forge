@@ -29,13 +29,14 @@ import SettingsPage from "@/app/(dashboard)/settings/page";
 
 // A horizontally scrollable code region has to be reachable by keyboard, carry
 // an accessible name and a visible focus ring (axe scrollable-region-focusable).
-// The name needs a role that accepts one, so the region role is required too
-// (axe aria-prohibited-attr rejects aria-label on a bare pre or code).
+// The name needs a role that accepts one, so the group role is required too
+// (axe aria-prohibited-attr rejects aria-label on a bare pre or code); group,
+// unlike region, adds no landmark per code block.
 function expectFocusableCodeRegion(el: Element | null, label: string) {
   expect(el, label).not.toBeNull();
   expect(el!.className).toContain("overflow-x-auto");
   expect(el!.getAttribute("tabindex")).toBe("0");
-  expect(el!.getAttribute("role")).toBe("region");
+  expect(el!.getAttribute("role")).toBe("group");
   expect(el!.getAttribute("aria-label")).toBeTruthy();
   expect(el!.className).toContain("focus-visible:ring-2");
 }
@@ -112,7 +113,7 @@ describe("create page clone command (source guard)", () => {
     expect(content).toBeGreaterThan(-1);
     const opening = source.slice(source.lastIndexOf("<code", content), content);
     expect(opening).toContain("tabIndex={0}");
-    expect(opening).toContain('role="region"');
+    expect(opening).toContain('role="group"');
     expect(opening).toContain("aria-label=");
     expect(opening).toContain("overflow-x-auto");
     // min-w-0 lets the flex item shrink so the region scrolls inside itself.

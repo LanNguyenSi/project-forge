@@ -339,7 +339,7 @@ export default function SettingsPage() {
                 <div className="font-semibold text-forge-mist mb-2">Request Body</div>
                 <pre
                   tabIndex={0}
-                  role="region"
+                  role="group"
                   aria-label="Example API request body"
                   className="rounded-btn bg-forge-steel px-4 py-2.5 font-mono text-forge-mist overflow-x-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
                 >

@@ -214,7 +214,7 @@ export default function CreatePage() {
             <div className="flex items-center rounded-card bg-forge-iron px-4 py-3 mb-6">
               <code
                 tabIndex={0}
-                role="region"
+                role="group"
                 aria-label="Git clone command for the new repository"
                 className="text-sm text-forge-mist font-mono flex-1 min-w-0 overflow-x-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
               >
