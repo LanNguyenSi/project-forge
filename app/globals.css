@@ -290,6 +290,40 @@
   fill: var(--text) !important;
 }
 
+/* Authorization modal ("Available authorizations", opened by the Authorize
+   button): swagger-ui paints it as its own white panel, so the light theme
+   text inherited from .swagger-ui above lands at 1.2:1 on it while the panel's
+   own headings, paragraphs and code chips (a dark gray) turn into near-black
+   blocks on the dark content wrappers inside it.
+   The panel and header take the same dark palette as the rest of the page;
+   the dark headings, paragraphs, code chips and the input border flip to the
+   theme text colour so text stays above 4.5:1 and the control border above
+   3:1 on the dark panel. */
+.swagger-ui .dialog-ux .modal-ux {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-header {
+  border-color: var(--border) !important;
+}
+
+.swagger-ui .dialog-ux h3,
+.swagger-ui .dialog-ux h4,
+.swagger-ui .dialog-ux p,
+.swagger-ui .dialog-ux code {
+  color: var(--text) !important;
+}
+
+/* The panel and the generic dark input background are the same colour, so the
+   input is identified by its border; the default border is invisible on the
+   dark panel and takes the muted text tone instead. */
+.swagger-ui .dialog-ux .auth-container input {
+  background: var(--bg) !important;
+  border-color: var(--text-muted) !important;
+}
+
 /* Tailwind CSS v4 colours placeholders with half-transparent currentColor;
    keep the v3 gray-400 for inputs without an explicit placeholder colour. */
 @layer base {

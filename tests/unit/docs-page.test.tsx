@@ -187,4 +187,20 @@ describe("API docs page", () => {
       expect(pre.getAttribute("tabindex")).toBe("0");
     }
   });
+
+  // A scrollable code region needs an accessible name (axe aria-prohibited-attr
+  // rejects aria-label on a bare pre), so it carries the group role, a
+  // descriptive label and the same focus ring as the other code blocks.
+  it("gives both code blocks an accessible name and a focus ring", () => {
+    const container = mount(<ApiDocsPage />);
+    const pres = Array.from(container.querySelectorAll("pre"));
+    expect(pres.length).toBe(2);
+    for (const pre of pres) {
+      expect(pre.getAttribute("role")).toBe("group");
+      expect(pre.getAttribute("aria-label")).toBeTruthy();
+      expect(pre.className).toContain("focus-visible:ring-2");
+    }
+    expect(pres[0].getAttribute("aria-label")).toBe("Example curl request that creates a project");
+    expect(pres[1].getAttribute("aria-label")).toBe("Example git clone command for the generated repository");
+  });
 });
