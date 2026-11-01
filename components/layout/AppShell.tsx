@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { ForgeMark } from "@/components/layout/ForgeMark";
+import { MAIN_CONTENT_ID, SkipLink } from "@/components/layout/SkipLink";
 import { DialogShell } from "@/components/DialogShell";
 
 const mainNavItems = [
@@ -31,18 +32,6 @@ const mainNavItems = [
 const MOBILE_NAV_ID = "mobile-nav-drawer";
 // Same breakpoint as Tailwind's md: the drawer is hidden and the desktop sidebar shows.
 const DESKTOP_QUERY = "(min-width: 768px)";
-
-// WCAG 2.4.1 bypass link: `<main>` carries this id, and the link is the first
-// focusable element so a keyboard user reaches the page content before the
-// sidebar navigation. PublicNav renders the same link for the public pages;
-// keep the id, label and classes in sync between the two files.
-const MAIN_CONTENT_ID = "main-content";
-// Hidden until focused (sr-only), then a light chip with an ember ring so it
-// stays readable on the dark shell at any z-position on the page.
-const SKIP_LINK_CLASS =
-  "sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] " +
-  "focus:rounded-btn focus:bg-forge-mist focus:px-4 focus:py-2 focus:text-sm focus:font-semibold " +
-  "focus:text-forge-void focus:outline-hidden focus:ring-2 focus:ring-ember focus:ring-offset-2 focus:ring-offset-forge-void";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -171,9 +160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-forge-void text-forge-mist">
       {/* Skip link: before the header and the sidebar in the DOM, so it is the
           first thing a keyboard user lands on (WCAG 2.4.1) */}
-      <a href={`#${MAIN_CONTENT_ID}`} className={SKIP_LINK_CLASS}>
-        Skip to main content
-      </a>
+      <SkipLink />
 
       {/* Mobile top bar: a banner landmark (the `region` axe rule); md:hidden
           keeps it out of the accessibility tree on desktop, so never two banners. */}

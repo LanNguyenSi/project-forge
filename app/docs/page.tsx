@@ -8,6 +8,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { PageShell } from "@/components/ui/PageShell";
 import { Card, CardHeader, Alert } from "@/components/ui/primitives";
 import { PublicNav } from "@/components/layout/PublicNav";
+import { MAIN_CONTENT_ID } from "@/components/layout/SkipLink";
 
 const SwaggerUI = dynamic(() => import("swagger-ui-react"), { ssr: false });
 
@@ -117,18 +118,22 @@ export default function ApiDocsPage() {
 
   // Public view — standalone layout without sidebar
   return (
-    <main id="main-content" tabIndex={-1} className="min-h-screen bg-forge-void text-forge-mist">
+    <div className="min-h-screen bg-forge-void text-forge-mist">
       <PublicNav />
 
-      <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold">API Documentation</h1>
-            <p className="text-forge-ash mt-1 text-sm sm:text-base">Interactive API reference for project-forge</p>
+      {/* The skip-link target: a sibling that follows the nav, so activation
+          lands on the content and the next Tab never goes back to the nav */}
+      <main id={MAIN_CONTENT_ID} tabIndex={-1}>
+        <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+          <div className="mx-auto max-w-7xl">
+            <div className="mb-8">
+              <h1 className="text-2xl sm:text-3xl font-bold">API Documentation</h1>
+              <p className="text-forge-ash mt-1 text-sm sm:text-base">Interactive API reference for project-forge</p>
+            </div>
+            <DocsContent />
           </div>
-          <DocsContent />
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

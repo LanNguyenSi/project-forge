@@ -40,6 +40,8 @@ describe("AppShell skip link", () => {
     // main is not tabbable, so the browser only moves focus to it when it is
     // programmatically focusable
     expect(main.getAttribute("tabindex")).toBe("-1");
+    // a link inside its own target bypasses nothing
+    expect(main.contains(link)).toBe(false);
   });
 
   it("puts the skip link before the sidebar navigation in the focus order", () => {
