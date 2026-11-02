@@ -313,9 +313,7 @@ exists with bytes, with or without tables, is not affected.
 Look at the directory with `ls`, not with `sqlite3`:
 `docker compose run --rm --no-deps app ls -la /data/`. `sqlite3` on a path
 that does not exist creates an empty, 0-byte file there, even when its
-statement fails, and the next start takes that file for an existing database
-without tables and creates the schema in it, with the other files still next
-to it. If `ls -l` shows such a 0-byte file at the database path, delete it
+statement fails. If `ls -l` shows such a 0-byte file at the database path, delete it
 before the next start. If you do not, a start with other database files next
 to the 0-byte file stops as described above; a 0-byte file alone in the
 directory is initialised.

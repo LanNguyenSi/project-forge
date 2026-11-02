@@ -78,8 +78,8 @@
 # A file of 0 bytes at the path counts as missing for that check: the same
 # files next to it stop the start, because sqlite3 run on a wrong path leaves
 # such a file behind and the next start would fill it with an empty schema. A
-# 0-byte file with nothing of a database next to it is a first install (or the
-# documented "delete the file, start again" recovery) and is initialised. A file
+# 0-byte file with nothing of a database next to it is treated as a first
+# install and is initialised. A file
 # with bytes but no table is not looked at by this check. A path whose
 # directory does not exist stops the start the same way (a typo in the
 # directory part of DATABASE_URL); an existing, empty directory (a fresh
