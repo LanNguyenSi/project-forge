@@ -149,18 +149,20 @@ awk -v begin="$BEGIN" -v end="$END" -v blockfile="$work/block" '
   END { if (!done) emit() }
 ' "$work/current" > "$work/next"
 
-if cmp -s "$work/current" "$work/next"; then
-  log "crontab already up to date (nothing to install or remove), crontab not called."
-  exit 0
-fi
 if [ "$mode" = install ]; then
   # Both entries redirect into the log file; a redirection into a directory
   # that does not exist fails before the command starts, so nothing would ever
-  # run. The directories are created here (umask 077), the log file is touched.
+  # run. The directories are created here (umask 077), the log file is touched, also when the
+  # crontab itself is already up to date (a deleted or unmounted directory is
+  # recreated by a re-run).
   mkdir -p "$FORGE_BACKUP_DIR" "$(dirname "$logfile")" \
-    || die "cannot create $FORGE_BACKUP_DIR or the log directory of $logfile. Nothing was changed."
+    || die "cannot create $FORGE_BACKUP_DIR or the log directory of $logfile. The crontab was not changed."
   { : >> "$logfile"; } 2>/dev/null \
-    || die "the log file $logfile cannot be written (is its directory writable for this user?). Nothing was changed."
+    || die "the log file $logfile cannot be written (is its directory writable for this user?). The crontab was not changed."
+fi
+if cmp -s "$work/current" "$work/next"; then
+  log "crontab already up to date (nothing to install or remove), crontab not called."
+  exit 0
 fi
 "$crontab_bin" "$work/next" || die "installing the new crontab failed."
 if [ "$mode" = remove ]; then

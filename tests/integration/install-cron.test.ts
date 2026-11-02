@@ -346,8 +346,21 @@ describe("scripts/install-cron.sh", () => {
     writeFileSync(path.join(d.dir, "blocker"), "file");
     const r = d.run({ FORGE_BACKUP_DIR: path.join(d.dir, "bk"), FORGE_BACKUP_LOG: path.join(d.dir, "blocker", "x.log") });
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain("Nothing was changed");
+    expect(r.stderr).toContain("The crontab was not changed");
     expect(d.content()).toBeNull();
+  });
+
+  it("a re-run with an unchanged block recreates a deleted backup directory and log, crontab only read", () => {
+    const c = newCron();
+    const backupDir = path.join(c.dir, "gone", "bk");
+    expect(c.run({ FORGE_BACKUP_DIR: backupDir }).status).toBe(0);
+    rmSync(path.join(c.dir, "gone"), { recursive: true, force: true });
+    const writesBefore = c.calls().filter((a) => a !== "-l").length;
+    const r = c.run({ FORGE_BACKUP_DIR: backupDir });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain("already up to date");
+    expect(existsSync(path.join(backupDir, "cron.log"))).toBe(true);
+    expect(c.calls().filter((a) => a !== "-l")).toHaveLength(writesBefore);
   });
 
   it("--dry-run and --remove create no directory", () => {
