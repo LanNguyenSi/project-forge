@@ -83,7 +83,7 @@ project-forge/
 - Public API lives under `app/api/v1/` and uses `X-API-Key` header auth
 - Internal routes (used by the web UI) live under `app/api/` and use session auth
 - All routes return `NextResponse.json()` with appropriate status codes
-- Error responses follow the shape `{ ok: false, error: string, details?: string }` (per docs/ways-of-working.md:29)
+- Error responses follow the shape `{ ok: false, error: string, details?: string }` (per `docs/ways-of-working.md`, section "Responses and status codes")
 
 ### Components
 

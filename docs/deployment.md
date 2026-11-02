@@ -91,6 +91,16 @@ Check the effective value with
 (the plain form shows what a manual run would use). On a running stack,
 `docker compose exec app printenv DATABASE_URL` shows what the container has.
 
+`forge_db` is a named volume, so compose prefixes it with the project name, and
+the project name comes from the name of the checkout directory: the relay runs
+`docker compose -f docker-compose.yml` with no `-p`, and `docker-compose.yml`
+has no top-level `name:`. Move the checkout, or re-clone it under another
+directory name, and the first deploy starts on a new, empty volume while the old
+one keeps the data with nothing pointing at it. Check with
+`docker volume ls | grep forge_db` before and after the first deploy from a new
+path: a second `forge_db` under a different prefix means the data did not come
+along.
+
 ### Required secrets
 
 - `PLANFORGE_SERVICE_TOKEN` is read for both services from `.env` or the shell.
@@ -147,6 +157,13 @@ Set `NEXTAUTH_URL` to the same public URL. To run without Traefik, add
 `ports: ["3000:3000"]` under `app` in the override and use
 `http://localhost:3000` as `NEXTAUTH_URL`; the external `traefik` network must
 still exist.
+
+Labels and `ports` set in the override apply only to runs that load it: deploys
+through deploy-panel and agent-relay skip the override entirely (see
+[Docker Compose](#docker-compose)), so such a deploy keeps the `Host(...)` rule
+of `docker-compose.yml` and publishes no host port. Set your own labels in the
+tracked compose file of your fork, or deploy with the override (`make deploy`,
+or plain `docker compose`).
 
 ### Session cleanup
 
@@ -632,7 +649,12 @@ before the next deploy (`make deploy` and `make pull` now rebuild with
   set only in `docker-compose.override.yml` keep working for plain
   `docker compose` runs and are silently absent from deploys that use
   `-f docker-compose.yml`. Move the ones those deploys need into `.env`
-  (`FORGE_DATABASE_URL` for the database path).
+  (`FORGE_DATABASE_URL` for the database path). Override keys with no `.env`
+  counterpart cannot move there: the Traefik labels (the `Host(...)` router
+  rule, the entrypoint, the certificate resolver) and `ports` under `app` stay
+  the ones of `docker-compose.yml` on such deploys, which sets the upstream
+  host rule and publishes no host port. Set your own in the tracked compose
+  file of your fork (see [Routing](#routing)).
 - **`NEXTAUTH_SECRET`.** Must be a real value in `.env` or, for plain compose
   runs, in the override; the placeholder from the example files, or no value,
   makes the production server answer 500 and the container `unhealthy`.
