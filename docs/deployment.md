@@ -14,9 +14,10 @@ The root `docker-compose.yml` ships two services:
   `http://planforge:8223`.
 
 Copy `docker-compose.override.example.yml` to `docker-compose.override.yml`
-before the first manual deploy and replace its `NEXTAUTH_SECRET` placeholder
-with a fresh `openssl rand -hex 32` value (or delete that line and the
-`NEXTAUTH_URL` line from the override so the `.env` values apply). Do not leave
+before the first manual deploy and replace its two placeholders: `NEXTAUTH_SECRET`
+with a fresh `openssl rand -hex 32` value and `NEXTAUTH_URL` with the public
+`https://` URL of your instance (or delete both lines from the override so the
+`.env` values apply). Do not leave
 the placeholder in place: `NEXTAUTH_SECRET` is also the fallback key for
 hashing API tokens when `API_TOKEN_HASH_SECRET` is unset, and the app refuses
 to serve with the placeholder or an empty value (see
@@ -118,6 +119,20 @@ along.
   request returns 500 and the error is logged
   (`Refusing to serve: NEXTAUTH_SECRET ...`), and the healthcheck fails.
   `next dev`, `next build` and the test run are not affected.
+- `NEXTAUTH_URL` is checked the same way when the production server starts. On
+  deploys through agent-relay or deploy-panel (override not loaded) it must be
+  in `.env`, like `NEXTAUTH_SECRET`. The check refuses only what NextAuth
+  cannot use: a missing or empty value, the placeholder host
+  `your-forge.example.com` from `.env.example` and the override example, or a
+  value NextAuth fails to parse (`https://`, a leading space, a trailing
+  `# comment`); the refusal is the same as above
+  (`Refusing to serve: NEXTAUTH_URL ...`). The check tolerates a host without a
+  scheme (`forge.example.com`) and a missing value when `AUTH_TRUST_HOST` or
+  `VERCEL` is set (an empty `VERCEL` counts as set and disables that fallback),
+  so a running instance is not taken down by them. Sign-in still needs the full
+  `https://` URL: the middleware looks for the session cookie under the name
+  NextAuth derives from an `https://` `NEXTAUTH_URL`, so with either of those
+  setups `/dashboard`, `/create` and `/settings` keep redirecting to `/login`.
 
 ### Health check and logs
 

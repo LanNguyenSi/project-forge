@@ -10,7 +10,7 @@ services:
       # The app refuses to serve (every request returns 500) with this
       # placeholder or an empty value.
       NEXTAUTH_SECRET: "your_nextauth_secret_here-generate-with-openssl-rand-hex-32"
-      NEXTAUTH_URL: "https://project-forge.opentriologue.ai"
+      NEXTAUTH_URL: "https://your-forge.example.com"
       # Optional. docker-compose.yml already points DATABASE_URL at the
       # forge_db volume (file:/data/project-forge.db). To use a different file,
       # prefer FORGE_DATABASE_URL in .env: this override is skipped by
