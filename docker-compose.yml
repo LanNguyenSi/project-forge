@@ -9,6 +9,26 @@ x-logging: &default-logging
 services:
   app:
     build: .
+    # Privilege hardening. The app still runs as root (the production forge_db
+    # volume is root-owned, so a non-root USER is a separate migration), but it
+    # needs none of the privileges root is granted by default.
+    #   no-new-privileges: block setuid/setgid and file-capability escalation
+    #     for every process the container starts.
+    #   cap_drop: ALL: remove every capability, none added back. The app writes
+    #     only into the root-owned forge_db and forge_tmp volumes and the
+    #     root-owned image tree (no DAC_OVERRIDE); it never chowns, and it only
+    #     changes or writes files it created itself (no CHOWN / FOWNER; a host
+    #     file copied in with `docker compose cp` keeps the host uid and is
+    #     unreadable to root here, see docs/deployment.md "Restoring a
+    #     backup"). Scaffold extraction works because planforge packs
+    #     root-owned entries from writable directories and tar runs with
+    #     --no-same-owner; watch for the signatures 'Cannot change ownership'
+    #     and 'Cannot open: Permission denied' if planforge changes. It listens on 3000, above
+    #     the privileged-port floor (no NET_BIND_SERVICE).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     env_file:
       - path: .env
         required: false

@@ -78,6 +78,28 @@ describe("docker-compose.yml defaults", () => {
     expect(app).toMatch(/^ {4}logging: \*default-logging$/m);
     expect(planforge).toMatch(/^ {4}logging: \*default-logging$/m);
   });
+
+  // The app runs as root (the production forge_db volume is root-owned) but is
+  // hardened so it keeps none of the privileges root does not need. Pinned by
+  // text, like the rest of this file (no YAML parser is a direct dependency).
+  it("runs the app with no-new-privileges, so no process gains privileges after start", () => {
+    expect(app).toMatch(/^ {4}security_opt:\n {6}- no-new-privileges:true$/m);
+  });
+
+  it("drops every Linux capability from the app", () => {
+    expect(app).toMatch(/^ {4}cap_drop:\n {6}- ALL$/m);
+  });
+
+  it("adds no capability back to the app, because root needs none of the dropped set", () => {
+    expect(app).not.toMatch(/^ {4}cap_add:/m);
+  });
+
+  // planforge builds from an external image whose runtime needs (scaffoldkit,
+  // tar packing as root) cannot be verified from this repo, so it is left
+  // unchanged on purpose.
+  it("leaves planforge without the hardening keys, so the change is scoped to the app", () => {
+    expect(planforge).not.toMatch(/^ {4}(security_opt|cap_drop|cap_add):/m);
+  });
 });
 
 describe("docker-compose.override.example.yml", () => {
@@ -175,5 +197,28 @@ describe("Makefile", () => {
   it("install-cron runs scripts/install-cron.sh (extra arguments via ARGS) and is phony", () => {
     expect(recipe("install-cron")).toContain("sh scripts/install-cron.sh $(ARGS)");
     expect(/^\.PHONY:.*\binstall-cron\b/m.test(read("Makefile"))).toBe(true);
+  });
+});
+
+describe("docs/deployment.md restore procedure", () => {
+  const doc = read("docs/deployment.md");
+  const section = doc.slice(
+    doc.indexOf("### Restoring a backup"),
+    doc.indexOf("## Upgrading to committed migrations"),
+  );
+
+  it("does not copy a host file into the volume with compose cp (the copy keeps the host uid)", () => {
+    expect(section.length).toBeGreaterThan(0);
+    expect(section).not.toMatch(/docker compose cp [^\n`]* app:/);
+    expect(section).toMatch(/cat > \/data\/project-forge\.db\.restore/);
+  });
+
+  it("refuses an empty or foreign restore file before it replaces the live database", () => {
+    expect(section).toMatch(/\[ -s \/data\/project-forge\.db\.restore \]/);
+    expect(section).toMatch(/SELECT count\(\*\) > 0 FROM _prisma_migrations/);
+  });
+
+  it("proves the restored database is writable before calling it healthy", () => {
+    expect(section).toMatch(/CREATE TABLE _write_check/);
   });
 });
