@@ -408,6 +408,15 @@ describe("scripts/backup.sh", () => {
         expect(r.stderr).toContain("older than 26 hours");
       });
 
+      it("a 6-digit hours value is accepted, and 26 is the default spelled out", () => {
+        const w = newBackup();
+        writeStamp(w.backupDir, 25);
+        expect(check(w, {}, "999999").status).toBe(0);
+        expect(check(w, {}, "26").status).toBe(0);
+        ageStamp(stampOf(w), 27);
+        expect(check(w, {}, "26").status).toBe(1);
+      });
+
       it("explicit hours: 2 h old stamp fails at 1, passes at 3", () => {
         const w = newBackup();
         writeStamp(w.backupDir, 2);
@@ -415,7 +424,7 @@ describe("scripts/backup.sh", () => {
         expect(check(w, {}, "3").status).toBe(0);
       });
 
-      for (const bad of ["0", "abc", "-5", "1.5", ""]) {
+      for (const bad of ["0", "abc", "-5", "1.5", "", "08", "010", "1234567", "99999999999999999999"]) {
         it(`hours '${bad}' is refused`, () => {
           const w = newBackup();
           writeStamp(w.backupDir, 1);

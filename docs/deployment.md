@@ -163,8 +163,9 @@ docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin
 ```
 
 `make install-cron` puts this prune (hourly) and the nightly backup into the
-crontab, see [Backup and restore](#backup-and-restore). Without make, the raw
-entry (hourly, from the checkout that holds `docker-compose.yml`) is:
+crontab, see [Backup and restore](#backup-and-restore). The command itself,
+without the log redirection the installer appends (hourly, from the checkout
+that holds `docker-compose.yml`), is:
 
 ```cron
 0 * * * * cd /path/to/project-forge && docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} +
@@ -529,10 +530,21 @@ absolute path (cron's `HOME` is the crontab owner's, so the default of
 quote or a `%` is refused. A hand-made crontab line for the same job is not
 recognised: remove it before installing, or the backup runs twice.
 
-Without make, the raw entries the block holds are:
+`make install-cron` also creates `FORGE_BACKUP_DIR` and the directory of the log
+file (mode 700) and touches the log, because both entries redirect into it and
+a missing directory would make cron skip them silently; it refuses if the log
+cannot be written. Cron runs with a minimal `PATH` (often `/usr/bin:/bin`), and
+both entries call `docker`: if it lives elsewhere, add a `PATH=...` line above
+the block with `crontab -e` (lines outside the block are never touched) or
+make `docker` reachable from `/usr/bin`.
+
+Without make, the raw entries the block writes (with the default time and log,
+`FORGE_BACKUP_DIR=/var/backups/project-forge`) are, after creating that
+directory yourself:
 
 ```cron
-15 3 * * * cd /path/to/project-forge && FORGE_BACKUP_DIR=/var/backups/project-forge sh ./scripts/backup.sh >> /var/log/forge-backup.log 2>&1
+0 * * * * cd '/path/to/project-forge' && docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} + >> '/var/backups/project-forge/cron.log' 2>&1
+15 3 * * * cd '/path/to/project-forge' && FORGE_BACKUP_DIR='/var/backups/project-forge' sh ./scripts/backup.sh >> '/var/backups/project-forge/cron.log' 2>&1
 ```
 
 Whether backups still run: after every successful, verified backup
@@ -541,7 +553,7 @@ Whether backups still run: after every successful, verified backup
 run never writes it, so its modification time is the last real success.
 `sh scripts/backup.sh --check-fresh [hours]` needs no container and exits 0
 when the stamp is younger than that many hours (default 26, a nightly run plus
-slack) and 1 when it is missing, empty or older (the reason goes to stderr), so
+slack; a positive integer without a leading zero, at most 6 digits) and 1 when it is missing, empty or older (the reason goes to stderr), so
 a monitoring probe or a second cron line can call it, for example
 `FORGE_BACKUP_DIR=/var/backups/project-forge sh ./scripts/backup.sh --check-fresh 26`.
 

@@ -27,6 +27,11 @@
 #                      unset).
 #   FORGE_CRONTAB      the crontab program, default `crontab` from PATH.
 #
+# In install mode (not --dry-run) the installer creates FORGE_BACKUP_DIR and the
+# log file's directory (mode 700 via umask 077) and touches the log file, and
+# refuses if the log cannot be written. The cron entries call `docker`, and
+# cron's PATH is minimal: see docs/deployment.md.
+#
 # Paths go into the crontab inside single quotes; a path with a single quote,
 # a newline or a percent sign (cron turns % into a newline) is refused.
 #
@@ -147,6 +152,15 @@ awk -v begin="$BEGIN" -v end="$END" -v blockfile="$work/block" '
 if cmp -s "$work/current" "$work/next"; then
   log "crontab already up to date (nothing to install or remove), crontab not called."
   exit 0
+fi
+if [ "$mode" = install ]; then
+  # Both entries redirect into the log file; a redirection into a directory
+  # that does not exist fails before the command starts, so nothing would ever
+  # run. The directories are created here (umask 077), the log file is touched.
+  mkdir -p "$FORGE_BACKUP_DIR" "$(dirname "$logfile")" \
+    || die "cannot create $FORGE_BACKUP_DIR or the log directory of $logfile. Nothing was changed."
+  { : >> "$logfile"; } 2>/dev/null \
+    || die "the log file $logfile cannot be written (is its directory writable for this user?). Nothing was changed."
 fi
 "$crontab_bin" "$work/next" || die "installing the new crontab failed."
 if [ "$mode" = remove ]; then

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -78,7 +78,10 @@ function newCron(): Cron {
   };
 }
 
-const BACKUP_DIR = "/var/backups/project-forge";
+// The installer creates this directory, so it must be somewhere we may write.
+const BACKUP_ROOT = realpathSync(mkdtempSync(path.join(tmpdir(), "pf-cron-bk-")));
+afterAll(() => rmSync(BACKUP_ROOT, { recursive: true, force: true }));
+const BACKUP_DIR = path.join(BACKUP_ROOT, "backups");
 const lines = (s: string | null) => (s ?? "").split("\n");
 const blockOf = (s: string | null) => {
   const l = lines(s);
@@ -199,8 +202,8 @@ describe("scripts/install-cron.sh", () => {
 
     it("set: used; a relative path or a quote or % in it is refused", () => {
       const c = newCron();
-      expect(c.run({ FORGE_BACKUP_DIR: "/srv/bk" }).status).toBe(0);
-      expect(backupLine(c.content())).toContain("FORGE_BACKUP_DIR='/srv/bk'");
+      expect(c.run({ FORGE_BACKUP_DIR: path.join(BACKUP_ROOT, "bk") }).status).toBe(0);
+      expect(backupLine(c.content())).toContain(`FORGE_BACKUP_DIR='${path.join(BACKUP_ROOT, "bk")}'`);
       for (const bad of ["relative/dir", "/srv/it's", "/srv/100%", "/srv/a\nb"]) {
         const d = newCron();
         const r = d.run({ FORGE_BACKUP_DIR: bad });
@@ -254,9 +257,9 @@ describe("scripts/install-cron.sh", () => {
     });
     it("set: both entries log there", () => {
       const c = newCron();
-      c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, FORGE_BACKUP_LOG: "/var/log/forge.log" });
-      expect(backupLine(c.content())).toContain(">> '/var/log/forge.log' 2>&1");
-      expect(pruneLine(c.content())).toContain(">> '/var/log/forge.log' 2>&1");
+      c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, FORGE_BACKUP_LOG: path.join(BACKUP_ROOT, "forge.log") });
+      expect(backupLine(c.content())).toContain(`>> '${path.join(BACKUP_ROOT, "forge.log")}' 2>&1`);
+      expect(pruneLine(c.content())).toContain(`>> '${path.join(BACKUP_ROOT, "forge.log")}' 2>&1`);
     });
     it("a relative path is refused", () => {
       const c = newCron();
@@ -310,6 +313,49 @@ describe("scripts/install-cron.sh", () => {
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("unknown argument");
     expect(c.calls()).toEqual([]);
+  });
+
+  it("on a fresh host the generated lines run under cron's minimal env: directories and log exist, docker is reached", () => {
+    const c = newCron();
+    const backupDir = path.join(c.dir, "fresh", "backups"); // does not exist yet
+    expect(c.run({ FORGE_BACKUP_DIR: backupDir }).status).toBe(0);
+    expect(existsSync(backupDir)).toBe(true);
+    const dockerLog = path.join(c.dir, "docker.log");
+    const stubBin = path.join(c.dir, "stubbin");
+    mkdirSync(stubBin);
+    writeFileSync(path.join(stubBin, "docker"), `#!/bin/sh\nprintf 'docker %s\\n' "$*" >> '${dockerLog}'\nexit 1\n`);
+    chmodSync(path.join(stubBin, "docker"), 0o755);
+    const entries = blockOf(c.content()).filter((l) => !l.startsWith("#"));
+    expect(entries).toHaveLength(2);
+    for (const entry of entries) {
+      const command = entry.split(/^\S+ \S+ \S+ \S+ \S+ /)[1];
+      const r = spawnSync("env", ["-i", `PATH=${stubBin}:/usr/bin:/bin`, "/bin/sh", "-c", command], { encoding: "utf-8" });
+      expect(r.stderr, entry).not.toContain("No such file or directory");
+    }
+    expect(existsSync(path.join(backupDir, "cron.log"))).toBe(true);
+    expect(readFileSync(dockerLog, "utf-8")).toContain("docker compose exec -T app find /tmp/project-forge");
+    expect(readFileSync(dockerLog, "utf-8").trim().split("\n").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("a custom FORGE_BACKUP_LOG gets its directory created; an unwritable log location is refused", () => {
+    const c = newCron();
+    const log = path.join(c.dir, "logs", "deep", "forge.log");
+    expect(c.run({ FORGE_BACKUP_DIR: path.join(c.dir, "bk"), FORGE_BACKUP_LOG: log }).status).toBe(0);
+    expect(existsSync(log)).toBe(true);
+    const d = newCron();
+    writeFileSync(path.join(d.dir, "blocker"), "file");
+    const r = d.run({ FORGE_BACKUP_DIR: path.join(d.dir, "bk"), FORGE_BACKUP_LOG: path.join(d.dir, "blocker", "x.log") });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("Nothing was changed");
+    expect(d.content()).toBeNull();
+  });
+
+  it("--dry-run and --remove create no directory", () => {
+    const c = newCron();
+    const backupDir = path.join(c.dir, "never");
+    c.run({ FORGE_BACKUP_DIR: backupDir }, ["--dry-run"]);
+    c.run({ FORGE_BACKUP_DIR: backupDir }, ["--remove"]);
+    expect(existsSync(backupDir)).toBe(false);
   });
 
   it("FORGE_CRONTAB names another crontab program", () => {

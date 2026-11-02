@@ -77,7 +77,7 @@ case "${1:-}" in
     hours=26
     if [ "$#" -eq 2 ]; then hours=$2; fi
     case "$hours" in
-      '' | 0 | *[!0-9]*) die "--check-fresh hours must be a positive integer, got '$hours'." ;;
+      '' | 0* | *[!0-9]* | ???????*) die "--check-fresh hours must be a positive integer without a leading zero and at most 6 digits, got '$hours'." ;;
     esac
     resolve_backup_dir || die "FORGE_BACKUP_DIR is unset and HOME is not set: no backup directory to check."
     [ -s "$backup_dir/.last-success" ] || die "no backup stamp at $backup_dir/.last-success: no backup has succeeded there yet."
