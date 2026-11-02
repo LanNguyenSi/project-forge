@@ -92,7 +92,8 @@ Check the effective value with
 `docker compose exec app printenv DATABASE_URL` shows what the container has.
 
 `forge_db` is a named volume, so compose prefixes it with the project name, and
-the project name comes from the name of the checkout directory: the relay runs
+unless `COMPOSE_PROJECT_NAME` is set, the project name comes from the name of
+the checkout directory: the relay runs
 `docker compose -f docker-compose.yml` with no `-p`, and `docker-compose.yml`
 has no top-level `name:`. Move the checkout, or re-clone it under another
 directory name, and the first deploy starts on a new, empty volume while the old
@@ -652,8 +653,8 @@ before the next deploy (`make deploy` and `make pull` now rebuild with
   (`FORGE_DATABASE_URL` for the database path). Override keys with no `.env`
   counterpart cannot move there: the Traefik labels (the `Host(...)` router
   rule, the entrypoint, the certificate resolver) and `ports` under `app` stay
-  the ones of `docker-compose.yml` on such deploys, which sets the upstream
-  host rule and publishes no host port. Set your own in the tracked compose
+  the ones of `docker-compose.yml` on such deploys: the upstream `Host(...)`
+  rule and no published host port. Set your own in the tracked compose
   file of your fork (see [Routing](#routing)).
 - **`NEXTAUTH_SECRET`.** Must be a real value in `.env` or, for plain compose
   runs, in the override; the placeholder from the example files, or no value,
