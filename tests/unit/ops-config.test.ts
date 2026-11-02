@@ -165,4 +165,9 @@ describe("Makefile", () => {
     expect(recipe("deploy")).toContain("docker compose up -d --build");
     expect(recipe("pull")).toContain("docker compose up -d --build");
   });
+
+  it("install-cron runs scripts/install-cron.sh (extra arguments via ARGS) and is phony", () => {
+    expect(recipe("install-cron")).toContain("sh scripts/install-cron.sh $(ARGS)");
+    expect(/^\.PHONY:.*\binstall-cron\b/m.test(read("Makefile"))).toBe(true);
+  });
 });
