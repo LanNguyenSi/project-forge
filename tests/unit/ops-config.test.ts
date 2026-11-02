@@ -84,6 +84,12 @@ describe("docker-compose.override.example.yml", () => {
   it("does not set DATABASE_URL by default, so the compose default applies", () => {
     expect(read("docker-compose.override.example.yml")).not.toMatch(/^\s*DATABASE_URL:/m);
   });
+
+  it("ships the NEXTAUTH_URL placeholder, not a live URL", () => {
+    expect(read("docker-compose.override.example.yml")).toMatch(
+      /^\s*NEXTAUTH_URL: "https:\/\/your-forge\.example\.com"$/m,
+    );
+  });
 });
 
 describe(".env.example", () => {
