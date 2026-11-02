@@ -1461,15 +1461,255 @@ describe("scripts/start.sh with a stub prisma", () => {
       expect(started(w)).toBe(true);
     });
 
-    it("an existing database file without tables, with other database files next to it: plain deploy as before", () => {
+    it("a database file with bytes but without tables (tables dropped), with other database files next to it: plain deploy as before", () => {
       const w = newWork();
-      writeFileSync(w.db, "");
+      w.sql(w.db, "CREATE TABLE t (a); DROP TABLE t;");
+      expect(statSync(w.db).size).toBeGreaterThan(0);
       put(w, "other.db");
       const r = w.run();
       expect(r.status, r.stderr).toBe(0);
       expect(w.calls()).toEqual(deployOnly);
       expect(r.stdout).toContain(`database ${w.db} has no tables: migrate deploy initialises it`);
+      expect(r.stderr).not.toContain("WARNING");
     });
+  });
+
+  describe("a database file of 0 bytes counts as missing for the check on files next to it", () => {
+    const deployOnly = ["prisma migrate deploy [copies=0]"];
+    const put = (w: Work, name: string, content = "x") => {
+      const f = path.join(path.dirname(w.db), name);
+      writeFileSync(f, content);
+      return f;
+    };
+    const emptyDb = (w: Work) => {
+      writeFileSync(w.db, "");
+      expect(statSync(w.db).size).toBe(0);
+    };
+    const stoppedEmpty = (w: Work, r: SpawnSyncReturns<string>, names: string, file = w.db) => {
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(
+        `the database file at ${file} is empty (0 bytes), but ${path.dirname(file)}/ holds files that a database leaves behind: ${names}. No database was created and nothing was changed.`,
+      );
+      expect(r.stderr).toContain("start once with FORGE_ALLOW_NEW_DATABASE=1");
+      expect(r.stderr).toContain("Database migrations");
+      expect(r.stdout).not.toContain("initialises it");
+      expect(w.calls()).toEqual([]);
+      expect(started(w)).toBe(false);
+    };
+
+    it("0 bytes with another database file next to it: stop before any migration, nothing touched", () => {
+      const w = newWork();
+      emptyDb(w);
+      const other = put(w, "other.db", "old data");
+      const r = w.run();
+      stoppedEmpty(w, r, "other.db");
+      expect(statSync(w.db).size).toBe(0);
+      expect(readFileSync(other, "utf-8")).toBe("old data");
+      expect(w.copies()).toEqual([]);
+    });
+
+    it("0 bytes: the database file itself is never listed, every kind of sibling is", () => {
+      const w = newWork();
+      emptyDb(w);
+      put(w, "project-forge.db-journal");
+      put(w, "project-forge.db-wal");
+      put(w, "project-forge.db.restore");
+      put(w, "project-forge.db.pre-migrate-20261027T132758Z");
+      put(w, ".forge.sqlite");
+      stoppedEmpty(
+        w,
+        w.run(),
+        "project-forge.db-journal, project-forge.db-wal, project-forge.db.pre-migrate-20261027T132758Z, project-forge.db.restore, .forge.sqlite",
+      );
+    });
+
+    it("0 bytes behind a symlink, siblings next to the link: stop (the size is read through the link)", () => {
+      const w = newWork();
+      const target = path.join(w.dir, "elsewhere.dat");
+      writeFileSync(target, "");
+      symlinkSync(target, w.db);
+      put(w, "other.db");
+      stoppedEmpty(w, w.run(), "other.db");
+      expect(statSync(target).size).toBe(0);
+    });
+
+    it("a symlink to a file with bytes, siblings next to the link: not looked at, as before", () => {
+      const w = newWork();
+      const target = path.join(w.dir, "elsewhere.db");
+      seedHistory(w, target);
+      symlinkSync(target, w.db);
+      put(w, "other.db");
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(deployOnly);
+    });
+
+    it("0 bytes and nothing of a database next to it: initialised as before, no warning", () => {
+      const w = newWork();
+      emptyDb(w);
+      for (const name of ["README.md", ".DS_Store", "project-forge.dbx"]) put(w, name);
+      mkdirSync(path.join(path.dirname(w.db), "old.db"));
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(deployOnly);
+      expect(r.stdout).toContain(`database ${w.db} has no tables: migrate deploy initialises it`);
+      expect(r.stderr).not.toContain("WARNING");
+      expect(started(w)).toBe(true);
+    });
+
+    it("0 bytes: files in another directory do not count", () => {
+      const w = newWork();
+      emptyDb(w);
+      writeFileSync(path.join(w.dir, "other.db"), "x");
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(deployOnly);
+    });
+
+    // Same inputs as for a missing file: only the exact value 1 allows it.
+    const allowValues: Array<[string, string | undefined]> = [
+      ["unset", undefined],
+      ["empty", ""],
+      ["1", "1"],
+      ["0", "0"],
+      ["true", "true"],
+    ];
+    for (const [label, value] of allowValues) {
+      it(`0 bytes with files next to it, FORGE_ALLOW_NEW_DATABASE ${label}: ${value === "1" ? "warns, then migrate deploy initialises it" : "stop"}`, () => {
+        const w = newWork();
+        emptyDb(w);
+        const other = put(w, "other.db", "old data");
+        const r = w.run({ FORGE_ALLOW_NEW_DATABASE: value });
+        if (value === "1") {
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stderr).toContain(
+            `[db-start] WARNING: the database file at ${w.db} is empty (0 bytes), but ${path.dirname(w.db)}/ holds files that a database leaves behind: other.db. FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy initialises that empty file as a new database.`,
+          );
+          expect(r.stdout).toContain(`database ${w.db} has no tables: migrate deploy initialises it`);
+          expect(w.calls()).toEqual(deployOnly);
+          expect(started(w)).toBe(true);
+        } else {
+          stoppedEmpty(w, r, "other.db");
+          expect(r.stderr).toContain(
+            value ? `(it is '${value}' now, and only the value 1 counts)` : "(it is unset or empty now)",
+          );
+          expect(r.stderr).not.toContain("WARNING");
+        }
+        expect(readFileSync(other, "utf-8")).toBe("old data");
+      });
+    }
+
+    it("the 0-byte file left by a sqlite3 call on a wrong path: delete it and the next start is a missing file (still stopped next to files, same flag)", () => {
+      const w = newWork();
+      emptyDb(w);
+      put(w, "project-forge.db.restore");
+      stoppedEmpty(w, w.run(), "project-forge.db.restore");
+      rmSync(w.db);
+      const again = w.run();
+      expect(again.status).not.toBe(0);
+      expect(again.stderr).toContain(`no database file at ${w.db}, but ${path.dirname(w.db)}/ holds files that a database leaves behind: project-forge.db.restore.`);
+      expect(w.calls()).toEqual([]);
+    });
+  });
+
+  describe("a database path whose directory does not exist", () => {
+    const deployOnly = ["prisma migrate deploy [copies=0]"];
+    const env = (w: Work, rel: string, extra: Env = {}): Env => {
+      const db = path.join(w.dir, rel);
+      return { DATABASE_URL: `file:${db}`, STUB_DB: db, ...extra };
+    };
+    const refused = (w: Work, r: SpawnSyncReturns<string>, dir: string, db: string) => {
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(`the directory ${dir} of the database path ${db} does not exist (or is not a directory). No database was created and nothing was changed.`);
+      expect(r.stderr).toContain("most likely a typo in DATABASE_URL (FORGE_DATABASE_URL");
+      expect(r.stderr).toContain("start once with FORGE_ALLOW_NEW_DATABASE=1");
+      expect(r.stderr).toContain("Database migrations");
+      expect(r.stdout).not.toContain("migrate deploy creates it");
+      expect(w.calls()).toEqual([]);
+      expect(started(w)).toBe(false);
+      expect(existsSync(dir)).toBe(false);
+    };
+
+    it("directory missing: stop before any migration, naming the path, nothing created", () => {
+      const w = newWork();
+      const e = env(w, "dta/project-forge.db");
+      const r = w.run(e);
+      refused(w, r, `${w.dir}/dta/`, `${w.dir}/dta/project-forge.db`);
+    });
+
+    it("several directory levels missing: stop", () => {
+      const w = newWork();
+      const r = w.run(env(w, "a/b/c/project-forge.db"));
+      refused(w, r, `${w.dir}/a/b/c/`, `${w.dir}/a/b/c/project-forge.db`);
+      expect(existsSync(path.join(w.dir, "a"))).toBe(false);
+    });
+
+    it("the 'directory' is a regular file: stop, the file is left alone", () => {
+      const w = newWork();
+      const f = path.join(w.dir, "notadir");
+      writeFileSync(f, "keep");
+      const r = w.run(env(w, "notadir/project-forge.db"));
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(`the directory ${w.dir}/notadir/ of the database path ${w.dir}/notadir/project-forge.db does not exist (or is not a directory).`);
+      expect(w.calls()).toEqual([]);
+      expect(readFileSync(f, "utf-8")).toBe("keep");
+    });
+
+    it("a relative DATABASE_URL resolves against prisma/: a missing subdirectory there stops, prisma/ itself is fine", () => {
+      const w = newWork();
+      const r = w.run({ DATABASE_URL: "file:./sub/fresh.db", STUB_DB: path.join(w.dir, "prisma", "sub", "fresh.db") });
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain("the directory prisma/./sub/ of the database path prisma/./sub/fresh.db does not exist");
+      expect(w.calls()).toEqual([]);
+      expect(existsSync(path.join(w.dir, "prisma", "sub"))).toBe(false);
+      const ok = newWork();
+      const first = ok.run({ DATABASE_URL: "file:./fresh.db", STUB_DB: path.join(ok.dir, "prisma", "fresh.db") });
+      expect(first.status, first.stderr).toBe(0);
+      expect(ok.calls()).toEqual(deployOnly);
+    });
+
+    it("an existing, empty directory (a fresh volume) is a first install: migrate deploy, no warning", () => {
+      const w = newWork();
+      mkdirSync(path.join(w.dir, "vol"));
+      const r = w.run(env(w, "vol/project-forge.db"));
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(deployOnly);
+      expect(r.stdout).toContain(`no database file at ${w.dir}/vol/project-forge.db: migrate deploy creates it`);
+      expect(r.stderr).not.toContain("WARNING");
+      expect(started(w)).toBe(true);
+    });
+
+    // Directory missing: only the exact value 1 allows the new database.
+    const allowValues: Array<[string, string | undefined]> = [
+      ["unset", undefined],
+      ["empty", ""],
+      ["1", "1"],
+      ["0", "0"],
+      ["true", "true"],
+    ];
+    for (const [label, value] of allowValues) {
+      it(`directory missing, FORGE_ALLOW_NEW_DATABASE ${label}: ${value === "1" ? "warns, then migrate deploy runs" : "stop"}`, () => {
+        const w = newWork();
+        const dir = `${w.dir}/dta/`;
+        const db = `${w.dir}/dta/project-forge.db`;
+        const r = w.run(env(w, "dta/project-forge.db", { FORGE_ALLOW_NEW_DATABASE: value }));
+        if (value === "1") {
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stderr).toContain(
+            `[db-start] WARNING: the directory ${dir} of the database path ${db} does not exist. FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates the directory and a new, empty database at ${db}.`,
+          );
+          expect(w.calls()).toEqual(deployOnly);
+          expect(r.stdout).toContain(`no database file at ${db}: migrate deploy creates it`);
+          expect(started(w)).toBe(true);
+        } else {
+          refused(w, r, dir, db);
+          expect(r.stderr).toContain(
+            value ? `(it is '${value}' now, and only the value 1 counts)` : "(it is unset or empty now)",
+          );
+          expect(r.stderr).not.toContain("WARNING");
+        }
+      });
+    }
   });
 
   describe("every start reports the pre-migrate copies next to the database and never deletes one", () => {
@@ -1748,6 +1988,53 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     expect(allowed.stderr).toContain("FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates a new, empty database");
     expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
     expect(readFileSync(other, "utf-8")).toBe("old data");
+    expect(existsSync(`${db}.started`)).toBe(true);
+  }, 120_000);
+
+  it("0-byte file next to another database file: refused, nothing migrated; FORGE_ALLOW_NEW_DATABASE=1 initialises it and keeps that file", () => {
+    const db = scratch();
+    const other = path.join(path.dirname(db), "old.db");
+    writeFileSync(other, "old data");
+    writeFileSync(db, "");
+    const refused = start(db);
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain(
+      `the database file at ${db} is empty (0 bytes), but ${path.dirname(db)}/ holds files that a database leaves behind: old.db. No database was created`,
+    );
+    expect(refused.stdout).not.toContain("prisma migrate deploy");
+    expect(statSync(db).size).toBe(0);
+    expect(existsSync(`${db}.started`)).toBe(false);
+
+    const allowed = start(db, { FORGE_ALLOW_NEW_DATABASE: "1" });
+    expect(allowed.status, allowed.stderr + allowed.stdout).toBe(0);
+    expect(allowed.stderr).toContain("FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy initialises that empty file");
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
+    expect(readFileSync(other, "utf-8")).toBe("old data");
+    expect(existsSync(`${db}.started`)).toBe(true);
+  }, 120_000);
+
+  it("0-byte file with nothing next to it: initialised, then starts", () => {
+    const db = scratch();
+    writeFileSync(db, "");
+    const r = start(db);
+    expect(r.status, r.stderr + r.stdout).toBe(0);
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
+    expect(existsSync(`${db}.started`)).toBe(true);
+  }, 120_000);
+
+  it("directory of the path missing: refused, nothing created; FORGE_ALLOW_NEW_DATABASE=1 lets prisma create the directory and the schema", () => {
+    const base = scratch();
+    const db = path.join(path.dirname(base), "typo", "project-forge.db");
+    const refused = start(db);
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain(`the directory ${path.dirname(db)}/ of the database path ${db} does not exist`);
+    expect(refused.stdout).not.toContain("prisma migrate deploy");
+    expect(existsSync(path.dirname(db))).toBe(false);
+
+    const allowed = start(db, { FORGE_ALLOW_NEW_DATABASE: "1" });
+    expect(allowed.status, allowed.stderr + allowed.stdout).toBe(0);
+    expect(allowed.stderr).toContain("FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates the directory and a new, empty database");
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
     expect(existsSync(`${db}.started`)).toBe(true);
   }, 120_000);
 

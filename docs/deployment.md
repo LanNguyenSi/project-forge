@@ -218,7 +218,10 @@ database path is the one in `DATABASE_URL` (default
 |---|---|
 | File missing, and nothing of a database in its directory | `prisma migrate deploy` creates the schema. No copy. |
 | File missing, but its directory holds files that a database leaves behind (another database file, a `-journal`, `-wal` or `-shm` file, a copy of a database) | Abort before anything else: no new database, no `migrate deploy`, nothing changed. The message names the path and the files it found. Fix the path, or create a new database on purpose with `FORGE_ALLOW_NEW_DATABASE=1`. See [No database file at the path](#no-database-file-at-the-path). |
-| File exists, no table in it | `prisma migrate deploy` creates the schema. No copy. |
+| File missing, and the directory of its path does not exist | Abort before anything else: nothing created, no `migrate deploy`. The message names the path and points at a likely typo in `DATABASE_URL`. Create the directory and a new database on purpose with `FORGE_ALLOW_NEW_DATABASE=1`. An existing, empty directory (a fresh volume) is a first install. See [No database file at the path](#no-database-file-at-the-path). |
+| File of 0 bytes, and its directory holds files that a database leaves behind (the same files as for a missing file) | Treated like a missing file: abort, nothing changed, no `migrate deploy`, unless `FORGE_ALLOW_NEW_DATABASE=1`. See [No database file at the path](#no-database-file-at-the-path). |
+| File of 0 bytes, nothing of a database next to it | `prisma migrate deploy` creates the schema. No copy. |
+| File with bytes, no table in it | `prisma migrate deploy` creates the schema. No copy. |
 | Has `_prisma_migrations` and a migration recorded as failed (started, never finished, not rolled back) | Abort before anything else: no copy, no `migrate deploy`, nothing changed. The message names the migration, its start time and the copy to restore. See [A migration failed halfway](#a-migration-failed-halfway). |
 | Has `_prisma_migrations` and `prisma/migrations/` holds a dot-directory, a symlink or a directory without `migration.sql` | Abort before the pending check: no copy, no `migrate deploy`, nothing changed. The message names the entry; remove it or add the missing file. |
 | Has `_prisma_migrations`, nothing pending | `migrate deploy` (a no-op). No copy. |
@@ -277,10 +280,22 @@ symlinks not) and stops when it finds one of these:
   `scripts/backup.sh` (`*.tmp-backup.*`) leaves behind. Both are only ever
   written from an existing database.
 
-It cannot tell a first install from a path in a directory that does not exist
-yet (prisma creates the missing directories, so a typo in the directory part
-is not caught) or from a new, empty volume: both still look like a first
-install and get an empty database.
+A database file of 0 bytes counts as missing for this check: with one of the
+files above next to it, the start stops the same way (the message then says
+"the database file at ... is empty (0 bytes)") instead of putting an empty
+schema into it. A 0-byte file with nothing of a database next to it is a first
+install and is initialised, and so is a file with bytes but no table. A new,
+empty volume (an existing, empty directory) is a first install too.
+
+A path whose directory does not exist stops the start as well, before the
+check above: a new volume is an existing directory (its mount point), so a
+missing directory is most likely a typo in the directory part of
+`FORGE_DATABASE_URL`, and prisma would otherwise create the directories and an
+empty database in the wrong place. The message names the path:
+
+```
+[db-start] ERROR: the directory /dta/ of the database path /dta/project-forge.db does not exist (or is not a directory). No database was created and nothing was changed. This is most likely a typo in DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack); a new volume is an existing, empty directory and does not look like this. Fix the path, then start again. To create the directory and a new, empty database at /dta/project-forge.db on purpose, start once with FORGE_ALLOW_NEW_DATABASE=1 (it is unset or empty now). See docs/deployment.md, section "Database migrations".
+```
 
 When it finds one of the files above, it creates nothing, runs no
 `migrate deploy`, and names the path and the files:
@@ -293,15 +308,15 @@ Usually the path is wrong: check `FORGE_DATABASE_URL` (see
 [Database location](#database-location)) and the `forge_db` mount, or finish
 the restore, and start again. A directory with none of these files is a first
 install and the start creates the database as before. A database file that
-exists, with or without tables, is not affected.
+exists with bytes, with or without tables, is not affected.
 
 Look at the directory with `ls`, not with `sqlite3`:
 `docker compose run --rm --no-deps app ls -la /data/`. `sqlite3` on a path
 that does not exist creates an empty, 0-byte file there, even when its
-statement fails, and the next start takes that file for an existing database
-without tables and creates the schema in it, with the other files still next
-to it. If `ls -l` shows such a 0-byte file at the database path, delete it
-before the next start.
+statement fails. If `ls -l` shows such a 0-byte file at the database path, delete it
+before the next start. If you do not, a start with other database files next
+to the 0-byte file stops as described above; a 0-byte file alone in the
+directory is initialised.
 
 To create a new, empty database at that path on purpose, set
 `FORGE_ALLOW_NEW_DATABASE=1` for one start. Only the exact value `1` allows
@@ -311,7 +326,8 @@ start.sh moves or deletes none of them, but SQLite discards a `-journal` or
 `-wal` of the same name when it creates the file (checked with sqlite3 3.54 and
 prisma 5.22 `migrate deploy`; prisma leaves its own zero-filled `-journal` (a few KiB, harmless) behind),
 so move those away first if the old database may still need them. The
-variable matters only while the file is missing. The simplest way is a one-off
+variable matters only while the file is missing or has 0 bytes, or while the
+directory of the path is missing. The simplest way is a one-off
 container, which does not keep the setting; stop the restarting `app` first,
 so that no second start works on the same new file:
 

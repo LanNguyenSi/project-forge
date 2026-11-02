@@ -12,7 +12,15 @@
 #   file missing, but its directory holds files a database leaves behind
 #                                             -> abort, nothing created, unless
 #                                                FORGE_ALLOW_NEW_DATABASE=1
-#   file without any table                    -> migrate deploy (initialises it)
+#   file missing, and the directory of its path does not exist
+#                                             -> abort, nothing created, unless
+#                                                FORGE_ALLOW_NEW_DATABASE=1
+#   file of 0 bytes, and its directory holds files a database leaves behind
+#                                             -> abort, nothing changed, unless
+#                                                FORGE_ALLOW_NEW_DATABASE=1
+#   file of 0 bytes, nothing of a database next to it
+#                                             -> migrate deploy (initialises it)
+#   file with bytes but without any table      -> migrate deploy (initialises it)
 #   _prisma_migrations present, a migration is recorded as failed
 #                                             -> abort, nothing changed, no copy
 #   _prisma_migrations present, nothing pending
@@ -67,6 +75,15 @@
 # an empty database created there would start a healthy-looking empty
 # instance. The start stops instead and lists those files, unless
 # FORGE_ALLOW_NEW_DATABASE is exactly 1 (then it warns and creates it).
+# A file of 0 bytes at the path counts as missing for that check: the same
+# files next to it stop the start, because sqlite3 run on a wrong path leaves
+# such a file behind and the next start would fill it with an empty schema. A
+# 0-byte file with nothing of a database next to it is treated as a first
+# install and is initialised. A file
+# with bytes but no table is not looked at by this check. A path whose
+# directory does not exist stops the start the same way (a typo in the
+# directory part of DATABASE_URL); an existing, empty directory (a fresh
+# volume) is a first install.
 #
 # Every start logs how many pre-migrate copies lie in the database's directory
 # and their total size, and warns when there are more than
@@ -403,11 +420,13 @@ report_copies() {
 # that docs/deployment.md uses), and the temporary copies of this script
 # (*.tmp-pre-migrate.*) and of scripts/backup.sh (*.tmp-backup.*), which both
 # are only ever written from an existing database. Dot files count too,
-# directories do not.
+# directories do not. The database file itself is never listed.
 find_db_siblings() {
   siblings=""
   for e in "$db_dir"* "$db_dir".[!.]* "$db_dir"..?*; do
     [ -f "$e" ] || continue
+    # The database file itself (a 0-byte one is checked for siblings) is no sibling.
+    [ "${e##*/}" != "${db##*/}" ] || continue
     case ${e##*/} in
       *.db|*.sqlite|*.sqlite3|*-journal|*-wal|*-shm|*.db.*|*"$COPY_INFIX"*|*.tmp-pre-migrate.*|*.tmp-backup.*)
         siblings="$siblings${siblings:+, }${e##*/}"
@@ -416,36 +435,73 @@ find_db_siblings() {
   done
 }
 
-# A missing database file next to files of a database is no first install: the
-# path may have a typo, the volume may be mounted elsewhere or a restore went
-# to another name, and an empty database created here would start an empty
-# instance that looks healthy. The start stops before any migration, unless
-# FORGE_ALLOW_NEW_DATABASE is exactly 1 (any other value, empty included, does
-# not allow it).
-refuse_new_database_next_to_old_files() {
-  find_db_siblings
-  [ -n "$siblings" ] || return 0
+# Sets $allow to FORGE_ALLOW_NEW_DATABASE and $allow_note to the words the
+# refusals use for its value. Only the exact value 1 allows a new database (any
+# other value, empty included, does not).
+read_allow_new_database() {
   allow=${FORGE_ALLOW_NEW_DATABASE:-}
-  if [ "$allow" = 1 ]; then
-    warn "no database file at $db, but $db_dir holds files that a database leaves behind: $siblings. FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates a new, empty database at $db. Remove FORGE_ALLOW_NEW_DATABASE once it exists."
-    return 0
-  fi
   case "$allow" in
     '') allow_note="it is unset or empty now" ;;
     *) allow_note="it is '$allow' now, and only the value 1 counts" ;;
   esac
-  die "no database file at $db, but $db_dir holds files that a database leaves behind: $siblings. No database was created and nothing was changed. Check DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack): a typo, a volume mounted at another place or a restore under another name looks like this. Fix the path or put the database file back, then start again. To create a new, empty database at $db on purpose, start once with FORGE_ALLOW_NEW_DATABASE=1 ($allow_note); creating it discards a $db-journal or $db-wal left under that name, so move them away first if the old database may need them. See $DOCS."
+}
+
+# A missing database file, or one of 0 bytes, next to files of a database is no
+# first install: the path may have a typo, the volume may be mounted elsewhere
+# or a restore went to another name, and an empty database created here would
+# start an empty instance that looks healthy. The start stops before any
+# migration, unless FORGE_ALLOW_NEW_DATABASE is exactly 1. The argument is
+# "missing" (no file at the path) or "empty" (a file of 0 bytes).
+refuse_new_database_next_to_old_files() {
+  find_db_siblings
+  [ -n "$siblings" ] || return 0
+  read_allow_new_database
+  if [ "${1:-missing}" = empty ]; then
+    what="the database file at $db is empty (0 bytes)"
+    creates="migrate deploy initialises that empty file as a new database"
+    hint="An empty file here is often left by a sqlite3 call on a path that did not exist."
+  else
+    what="no database file at $db"
+    creates="migrate deploy creates a new, empty database at $db"
+    hint=""
+  fi
+  if [ "$allow" = 1 ]; then
+    warn "$what, but $db_dir holds files that a database leaves behind: $siblings. FORGE_ALLOW_NEW_DATABASE=1 is set, so $creates. Remove FORGE_ALLOW_NEW_DATABASE once it exists."
+    return 0
+  fi
+  die "$what, but $db_dir holds files that a database leaves behind: $siblings. No database was created and nothing was changed.${hint:+ $hint} Check DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack): a typo, a volume mounted at another place or a restore under another name looks like this. Fix the path or put the database file back, then start again. To create a new, empty database at $db on purpose, start once with FORGE_ALLOW_NEW_DATABASE=1 ($allow_note); creating it discards a $db-journal or $db-wal left under that name, so move them away first if the old database may need them. See $DOCS."
+}
+
+# A database path whose directory does not exist is no first install either: a
+# fresh volume is an existing, empty directory (its mount point), so a missing
+# directory is far more likely a typo in the directory part of DATABASE_URL than
+# a deliberate new location, and prisma would create the directories and an
+# empty database in the wrong place. Stops before any migration, unless
+# FORGE_ALLOW_NEW_DATABASE is exactly 1 (then it warns; prisma creates the
+# directories).
+refuse_missing_database_directory() {
+  [ ! -d "$db_dir" ] || return 0
+  read_allow_new_database
+  if [ "$allow" = 1 ]; then
+    warn "the directory $db_dir of the database path $db does not exist. FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates the directory and a new, empty database at $db. Remove FORGE_ALLOW_NEW_DATABASE once it exists."
+    return 0
+  fi
+  die "the directory $db_dir of the database path $db does not exist (or is not a directory). No database was created and nothing was changed. This is most likely a typo in DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack); a new volume is an existing, empty directory and does not look like this. Fix the path, then start again. To create the directory and a new, empty database at $db on purpose, start once with FORGE_ALLOW_NEW_DATABASE=1 ($allow_note). See $DOCS."
 }
 
 report_copies
 
 if [ ! -e "$db" ]; then
-  refuse_new_database_next_to_old_files
+  refuse_missing_database_directory
+  refuse_new_database_next_to_old_files missing
   log "no database file at $db: migrate deploy creates it"
   new_database_note "did not exist"
   deploy
 else
   [ -f "$db" ] || die "$db exists but is not a regular file. Nothing was changed."
+  # A file of 0 bytes counts as missing for the check on files next to it. -s
+  # follows a symlink, like -e above.
+  [ -s "$db" ] || refuse_new_database_next_to_old_files empty
   history=$(count "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = '_prisma_migrations'") || exit 1
   if [ "$history" -gt 0 ]; then
     refuse_failed_migration
