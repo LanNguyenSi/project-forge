@@ -201,7 +201,9 @@ database path is the one in `DATABASE_URL` (default
 
 | State of the database file | What start does |
 |---|---|
-| File missing, or no table in it | `prisma migrate deploy` creates the schema. No copy. |
+| File missing, and nothing of a database in its directory | `prisma migrate deploy` creates the schema. No copy. |
+| File missing, but its directory holds files that a database leaves behind (another database file, a `-journal`, `-wal` or `-shm` file, a copy of a database) | Abort before anything else: no new database, no `migrate deploy`, nothing changed. The message names the path and the files it found. Fix the path, or create a new database on purpose with `FORGE_ALLOW_NEW_DATABASE=1`. See [No database file at the path](#no-database-file-at-the-path). |
+| File exists, no table in it | `prisma migrate deploy` creates the schema. No copy. |
 | Has `_prisma_migrations` and a migration recorded as failed (started, never finished, not rolled back) | Abort before anything else: no copy, no `migrate deploy`, nothing changed. The message names the migration, its start time and the copy to restore. See [A migration failed halfway](#a-migration-failed-halfway). |
 | Has `_prisma_migrations` and `prisma/migrations/` holds a dot-directory, a symlink or a directory without `migration.sql` | Abort before the pending check: no copy, no `migrate deploy`, nothing changed. The message names the entry; remove it or add the missing file. |
 | Has `_prisma_migrations`, nothing pending | `migrate deploy` (a no-op). No copy. |
@@ -240,6 +242,74 @@ failure shows up as a restart loop and an `unhealthy` container; read it with
 `docker compose logs app`. A deploy tool that rolls back on a failed health
 check (`rollback: true` in `.relay.yml`) puts the previous code back; see
 [Rollback](#rollback) for what that does not undo.
+
+### No database file at the path
+
+A missing database file is a first install only when nothing of a database
+lies next to it. A typo in `FORGE_DATABASE_URL`, a volume mounted at another
+place or a restore under another name also leaves no file at the path, and an
+empty database created there starts an instance that looks healthy and has no
+data. So before it creates a database, the start looks at the regular files in
+the database's directory (dot files included, subdirectories and dangling
+symlinks not) and stops when it finds one of these:
+
+- another database file: `*.db`, `*.sqlite`, `*.sqlite3`;
+- a SQLite side file: `*-journal`, `*-wal`, `*-shm`;
+- a copy of a database: a pre-migrate copy of any database (`*.pre-migrate-*`,
+  stamped or not), any other `<name>.db.<suffix>` (such as the
+  `.manual-<timestamp>` copy and the `.restore` file this guide uses), and the
+  temporary copies that a killed start (`*.tmp-pre-migrate.*`) or a killed
+  `scripts/backup.sh` (`*.tmp-backup.*`) leaves behind. Both are only ever
+  written from an existing database.
+
+It cannot tell a first install from a path in a directory that does not exist
+yet (prisma creates the missing directories, so a typo in the directory part
+is not caught) or from a new, empty volume: both still look like a first
+install and get an empty database.
+
+When it finds one of the files above, it creates nothing, runs no
+`migrate deploy`, and names the path and the files:
+
+```
+[db-start] ERROR: no database file at /data/project-forge.db, but /data/ holds files that a database leaves behind: project-forge.db.pre-migrate-20261027T132758Z, project-forge.db.restore. No database was created and nothing was changed. Check DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack): a typo, a volume mounted at another place or a restore under another name looks like this. Fix the path or put the database file back, then start again. To create a new, empty database at /data/project-forge.db on purpose, start once with FORGE_ALLOW_NEW_DATABASE=1 (it is unset or empty now); creating it discards a /data/project-forge.db-journal or /data/project-forge.db-wal left under that name, so move them away first if the old database may need them. See docs/deployment.md, section "Database migrations".
+```
+
+Usually the path is wrong: check `FORGE_DATABASE_URL` (see
+[Database location](#database-location)) and the `forge_db` mount, or finish
+the restore, and start again. A directory with none of these files is a first
+install and the start creates the database as before. A database file that
+exists, with or without tables, is not affected.
+
+Look at the directory with `ls`, not with `sqlite3`:
+`docker compose run --rm --no-deps app ls -la /data/`. `sqlite3` on a path
+that does not exist creates an empty, 0-byte file there, even when its
+statement fails, and the next start takes that file for an existing database
+without tables and creates the schema in it, with the other files still next
+to it. If `ls -l` shows such a 0-byte file at the database path, delete it
+before the next start.
+
+To create a new, empty database at that path on purpose, set
+`FORGE_ALLOW_NEW_DATABASE=1` for one start. Only the exact value `1` allows
+it; unset, empty, `0`, `true`, `yes` and every other value do not. The start
+then logs a warning that names the files it found and creates the database.
+start.sh moves or deletes none of them, but SQLite discards a `-journal` or
+`-wal` of the same name when it creates the file (checked with sqlite3 3.54 and
+prisma 5.22 `migrate deploy`; prisma leaves its own zero-filled `-journal` (a few KiB, harmless) behind),
+so move those away first if the old database may still need them. The
+variable matters only while the file is missing. The simplest way is a one-off
+container, which does not keep the setting; stop the restarting `app` first,
+so that no second start works on the same new file:
+
+```
+docker compose stop app
+docker compose run --rm --no-deps -e FORGE_ALLOW_NEW_DATABASE=1 app sh scripts/start.sh true
+docker compose up -d app
+```
+
+The `app` container also reads it from `.env` (`env_file`). If you set it
+there instead, remove the line again once the database exists and recreate the
+container (`docker compose up -d app`), so that a later lost path stops again
+instead of starting empty.
 
 ### Auto-baseline and the abort message
 
@@ -341,8 +411,30 @@ ignores them when it picks the copy to restore, and among the real copies they
 are easy to mistake for one. Use another name, such as
 `/data/project-forge.db.manual-<timestamp>`.
 
-Nothing deletes the copies. List and remove them once the new version has run
-well:
+Nothing deletes the copies. Every start logs, before it looks at the database,
+how many there are and how much space they take:
+
+```
+[db-start] pre-migrate copies in /data/: 3, 1.2 GiB in total
+```
+
+The line counts every file that the `ls` command below lists
+(`*.pre-migrate-*` in the database's directory, stamped or not); a copy whose
+size cannot be read is counted and named in the line, and the start goes on.
+With more than `FORGE_PRE_MIGRATE_COPIES_WARN` copies the start also warns,
+and goes on:
+
+```
+[db-start] WARNING: 6 pre-migrate copies in /data/ (2.4 GiB in total), more than 5 (FORGE_PRE_MIGRATE_COPIES_WARN). Each is a full copy of a database on the same volume and nothing deletes them: remove the ones you no longer need. See docs/deployment.md, section "Database migrations".
+```
+
+`FORGE_PRE_MIGRATE_COPIES_WARN` is read from `.env` (the `app` service loads
+it with `env_file`). Unset or empty means 5, which is above the three copies a
+stopped restart loop leaves (see above), so that alone does not warn; `0`
+warns whenever a copy exists. Any value other than a whole number from 0 to
+999999999 gets a warning that names it, and the default 5 applies; the knob
+never stops a start. Removing copies stays an operator step. List and remove them once the new version has
+run well:
 
 ```
 docker compose run --rm --no-deps app sh -c 'ls -l /data/*.pre-migrate-*'
@@ -401,7 +493,9 @@ When no copy is older than the start, the message says so. If the start that
 ran the failed migration created the database (there was no database file, or
 one without tables, so that start took no copy), stop the container, delete
 the database file with its `-journal`, `-wal` and `-shm` files and fix the
-migration: the next start creates the database again. Otherwise (the migration
+migration: the next start creates the database again, unless other database
+files lie next to it; then start once with `FORGE_ALLOW_NEW_DATABASE=1`, see
+[No database file at the path](#no-database-file-at-the-path). Otherwise (the migration
 ran outside this start script, or the copies were deleted) restore your own
 backup.
 

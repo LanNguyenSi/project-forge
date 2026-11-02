@@ -3,11 +3,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   chmodSync,
+  closeSync,
+  constants as fsConstants,
   copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -1249,6 +1252,410 @@ describe("scripts/start.sh with a stub prisma", () => {
       expect(w.copies()).toEqual([]);
     });
   });
+
+  describe("a missing database file next to files that a database leaves behind", () => {
+    const deployOnly = ["prisma migrate deploy [copies=0]"];
+    const put = (w: Work, name: string, content = "x") => {
+      const f = path.join(path.dirname(w.db), name);
+      writeFileSync(f, content);
+      return f;
+    };
+    const stopped = (w: Work, r: SpawnSyncReturns<string>, names: string) => {
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(
+        `no database file at ${w.db}, but ${path.dirname(w.db)}/ holds files that a database leaves behind: ${names}. No database was created and nothing was changed.`,
+      );
+      expect(r.stderr).toContain("start once with FORGE_ALLOW_NEW_DATABASE=1");
+      expect(r.stderr).toContain("Database migrations");
+      expect(r.stdout).not.toContain("migrate deploy creates it");
+      expect(w.calls()).toEqual([]);
+      expect(existsSync(w.db)).toBe(false);
+      expect(started(w)).toBe(false);
+    };
+
+    // Each name matches exactly one pattern of the check (the last two only
+    // match through the dot-file globs), so every pattern is pinned on its own.
+    const siblings: Array<[string, string]> = [
+      ["another *.db file", "other.db"],
+      ["a *.sqlite file", "forge.sqlite"],
+      ["a *.sqlite3 file", "forge.sqlite3"],
+      ["the database's own -journal", "project-forge.db-journal"],
+      ["the database's own -wal", "project-forge.db-wal"],
+      ["the database's own -shm", "project-forge.db-shm"],
+      ["a -wal of another database", "forge.sqlite-wal"],
+      ["the restore file of the documented restore (another .db suffix)", "project-forge.db.restore"],
+      ["a stamped pre-migrate copy of another database", "forge.sqlite.pre-migrate-20261027T132758Z"],
+      ["an unstamped name under the pre-migrate prefix", "forge.sqlite.pre-migrate-manual"],
+      ["a temporary pre-migrate copy left by a killed start", "forge.sqlite.tmp-pre-migrate.4242"],
+      ["a temporary copy left by a killed scripts/backup.sh", "forge.sqlite.tmp-backup.4242"],
+      ["a dot file", ".forge.db"],
+      ["a name with two leading dots", "..forge.db"],
+    ];
+    for (const [what, name] of siblings) {
+      it(`${what} (${name}): stop before any migration, nothing created, the file named`, () => {
+        const w = newWork();
+        const f = put(w, name, "keep me");
+        const r = w.run();
+        stopped(w, r, name);
+        expect(readFileSync(f, "utf-8")).toBe("keep me");
+      });
+    }
+
+    it("the usual leftovers of the default database: a stamped copy and an operator's manual copy, all listed", () => {
+      const w = newWork();
+      put(w, "project-forge.db.manual-20261027T132758Z");
+      put(w, "project-forge.db.pre-migrate-20261027T132758Z");
+      stopped(w, w.run(), "project-forge.db.manual-20261027T132758Z, project-forge.db.pre-migrate-20261027T132758Z");
+    });
+
+    it("files no database leaves behind, directories and a dangling symlink do not count: first install as before", () => {
+      const w = newWork();
+      const dir = path.dirname(w.db);
+      for (const name of ["README.md", "notes.txt", ".DS_Store", "project-forge.dbx", "backup-wal.txt", "db", "sqlite3"]) put(w, name);
+      for (const name of ["old.db", "lost+found", "x.pre-migrate-1", "project-forge.db-wal"]) mkdirSync(path.join(dir, name));
+      symlinkSync(path.join(w.dir, "nowhere.db"), path.join(dir, "gone.db"));
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(deployOnly);
+      expect(r.stdout).toContain(`no database file at ${w.db}: migrate deploy creates it`);
+      expect(r.stderr).not.toContain("WARNING");
+      expect(started(w)).toBe(true);
+    });
+
+    it("a sibling in another directory does not count", () => {
+      const w = newWork();
+      writeFileSync(path.join(w.dir, "other.db"), "x");
+      mkdirSync(path.join(path.dirname(w.db), "sub"));
+      writeFileSync(path.join(path.dirname(w.db), "sub", "other.db"), "x");
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(deployOnly);
+    });
+
+    // FORGE_ALLOW_NEW_DATABASE: only the exact value 1 allows the new database,
+    // and only matters when the check finds something. One case per input.
+    const values: Array<[string, string | undefined]> = [
+      ["unset", undefined],
+      ["empty", ""],
+      ["1", "1"],
+      ["0", "0"],
+      ["true", "true"],
+      ["yes", "yes"],
+      ["01", "01"],
+      ["' 1'", " 1"],
+    ];
+    for (const [label, value] of values) {
+      it(`nothing of a database next to it, FORGE_ALLOW_NEW_DATABASE ${label}: first install, no warning`, () => {
+        const w = newWork();
+        const r = w.run({ FORGE_ALLOW_NEW_DATABASE: value });
+        expect(r.status, r.stderr).toBe(0);
+        expect(w.calls()).toEqual(deployOnly);
+        expect(r.stdout).toContain(`no database file at ${w.db}: migrate deploy creates it`);
+        expect(r.stderr).not.toContain("WARNING");
+        expect(started(w)).toBe(true);
+      });
+
+      it(`files of a database next to it, FORGE_ALLOW_NEW_DATABASE ${label}: ${value === "1" ? "warns, then migrate deploy creates it" : "stop"}`, () => {
+        const w = newWork();
+        const other = put(w, "other.db", "old data");
+        const wal = put(w, "project-forge.db-wal", "old wal");
+        const r = w.run({ FORGE_ALLOW_NEW_DATABASE: value });
+        if (value === "1") {
+          expect(r.status, r.stderr).toBe(0);
+          expect(r.stderr).toContain(
+            `[db-start] WARNING: no database file at ${w.db}, but ${path.dirname(w.db)}/ holds files that a database leaves behind: other.db, project-forge.db-wal. FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates a new, empty database at ${w.db}.`,
+          );
+          expect(r.stdout).toContain(`no database file at ${w.db}: migrate deploy creates it`);
+          expect(w.calls()).toEqual(deployOnly);
+          expect(started(w)).toBe(true);
+        } else {
+          stopped(w, r, "other.db, project-forge.db-wal");
+          expect(r.stderr).toContain(
+            value ? `(it is '${value}' now, and only the value 1 counts)` : "(it is unset or empty now)",
+          );
+          expect(r.stderr).not.toContain("WARNING");
+        }
+        // Neither path touches the files it found.
+        expect(readFileSync(other, "utf-8")).toBe("old data");
+        expect(readFileSync(wal, "utf-8")).toBe("old wal");
+      });
+    }
+
+    it("names with spaces are listed as they are", () => {
+      const w = newWork();
+      put(w, "old copy.db");
+      put(w, "my restore.db.restore");
+      stopped(w, w.run(), "my restore.db.restore, old copy.db");
+    });
+
+    it("a relative DATABASE_URL looks in prisma/: a sibling there stops, the image's own files there do not", () => {
+      // prisma/ of the scratch image holds schema.prisma and migrations/, nothing of a database.
+      const env = (w: Work): Env => ({ DATABASE_URL: "file:./fresh.db", STUB_DB: path.join(w.dir, "prisma", "fresh.db") });
+      const quiet = newWork();
+      const first = quiet.run(env(quiet));
+      expect(first.status, first.stderr).toBe(0);
+      expect(first.stdout).toContain("[db-start] pre-migrate copies in prisma/./: 0, 0 B in total");
+      expect(first.stdout).toContain("no database file at prisma/./fresh.db: migrate deploy creates it");
+      expect(quiet.calls()).toEqual(deployOnly);
+      const w = newWork();
+      writeFileSync(path.join(w.dir, "prisma", "dev.db"), "x");
+      const r = w.run(env(w));
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(
+        "no database file at prisma/./fresh.db, but prisma/./ holds files that a database leaves behind: dev.db. No database was created",
+      );
+      expect(w.calls()).toEqual([]);
+      expect(existsSync(path.join(w.dir, "prisma", "fresh.db"))).toBe(false);
+    });
+
+    it("FIFOs named like a database file or a pre-migrate copy are neither siblings nor copies, and nothing blocks on them", () => {
+      const w = newWork();
+      const fifos = ["other.db", "project-forge.db.pre-migrate-20260310T120001Z"].map((n) => path.join(path.dirname(w.db), n));
+      for (const f of fifos) expect(spawnSync("mkfifo", [f]).status).toBe(0);
+      try {
+        const r = w.run();
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).toContain(`[db-start] pre-migrate copies in ${path.dirname(w.db)}/: 0, 0 B in total`);
+        expect(r.stdout).toContain(`no database file at ${w.db}: migrate deploy creates it`);
+        // One deploy (the stub's own [copies=] counter uses -e and so counts the FIFO).
+        expect(w.calls()).toHaveLength(1);
+        expect(w.calls()[0]).toMatch(/^prisma migrate deploy /);
+      } finally {
+        // Should a regression open a FIFO, its blocked reader gets EOF here
+        // instead of outliving the test (ENXIO: nobody reads, nothing to release).
+        for (const f of fifos) {
+          try {
+            closeSync(openSync(f, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK));
+          } catch {
+            // no reader
+          }
+        }
+      }
+    });
+
+    it("after a failure on a database the start created, both messages say the next start may need FORGE_ALLOW_NEW_DATABASE=1", () => {
+      const w = newWork();
+      addLocalMigration(w.dir, "20261028000000_bad");
+      const first = w.run({ STUB_DEPLOY_RC: "1", STUB_DEPLOY_FAIL_ROW: "20261028000000_bad" });
+      expect(first.status).not.toBe(0);
+      expect(first.stderr).toContain(
+        "fix the migration. The next start then creates the database again, unless other database files lie next to it: then start once with FORGE_ALLOW_NEW_DATABASE=1. See",
+      );
+      const again = w.run();
+      expect(again.status).not.toBe(0);
+      expect(again.stderr).toContain(
+        "Otherwise restore your own backup of the database. After such a delete the next start creates the database again, unless other database files lie next to it: then start once with FORGE_ALLOW_NEW_DATABASE=1. See",
+      );
+    });
+
+    it("an existing database file with other database files next to it starts as before", () => {
+      const w = newWork();
+      seedHistory(w);
+      put(w, "other.db");
+      put(w, "other.db-wal");
+      put(w, "other.db.pre-migrate-20261027T132758Z");
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(deployOnly);
+      expect(r.stdout).toContain("no copy needed");
+      expect(started(w)).toBe(true);
+    });
+
+    it("an existing database file without tables, with other database files next to it: plain deploy as before", () => {
+      const w = newWork();
+      writeFileSync(w.db, "");
+      put(w, "other.db");
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(deployOnly);
+      expect(r.stdout).toContain(`database ${w.db} has no tables: migrate deploy initialises it`);
+    });
+  });
+
+  describe("every start reports the pre-migrate copies next to the database and never deletes one", () => {
+    const dirOf = (w: Work) => `${path.dirname(w.db)}/`;
+    const line = (w: Work, rest: string) => `[db-start] pre-migrate copies in ${dirOf(w)}: ${rest}\n`;
+    const sized = (w: Work, name: string, bytes: number) => {
+      const f = path.join(path.dirname(w.db), name);
+      writeFileSync(f, Buffer.alloc(bytes, 1));
+      return f;
+    };
+    const stamps = (n: number) => Array.from({ length: n }, (_, i) => `project-forge.db.pre-migrate-20260310T12000${i}Z`);
+    const warning = (w: Work, n: number, size: string, limit: string) =>
+      `[db-start] WARNING: ${n} pre-migrate copies in ${dirOf(w)} (${size} in total), more than ${limit} (FORGE_PRE_MIGRATE_COPIES_WARN).`;
+    /** A fake `wc` first on PATH. */
+    const fakeWc = (w: Work, body: string): Env => {
+      writeFileSync(path.join(w.dir, "bin", "wc"), `#!/bin/sh\n${body}\n`);
+      chmodSync(path.join(w.dir, "bin", "wc"), 0o755);
+      return { PATH: `${path.join(w.dir, "bin")}:${process.env.PATH}` };
+    };
+
+    it("no copy: the line says 0 on a first install", () => {
+      const w = newWork();
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain(line(w, "0, 0 B in total"));
+    });
+
+    it("counts every *.pre-migrate-* file in the directory, stamped or not and of any database, and adds up their sizes", () => {
+      const w = newWork();
+      seedHistory(w);
+      const counted = [
+        sized(w, "project-forge.db.pre-migrate-20260310T120001Z", 1000),
+        sized(w, "project-forge.db.pre-migrate-manual", 524),
+        sized(w, "other.db.pre-migrate-20260310T120001Z", 12),
+      ];
+      // Not counted: what `ls /data/*.pre-migrate-*` does not list as a file.
+      const ignored = [
+        sized(w, ".hidden.pre-migrate-20260310T120001Z", 100_000),
+        sized(w, "project-forge.db.manual-20260310T120001Z", 100_000),
+      ];
+      mkdirSync(path.join(path.dirname(w.db), "dir.pre-migrate-1"));
+      mkdirSync(path.join(path.dirname(w.db), "sub"));
+      ignored.push(sized(w, path.join("sub", "project-forge.db.pre-migrate-20260310T120002Z"), 100_000));
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain(line(w, "3, 1.5 KiB in total"));
+      expect(r.stderr).not.toContain("WARNING");
+      for (const f of [...counted, ...ignored]) expect(existsSync(f), f).toBe(true);
+    });
+
+    it("the line comes before the decision, also on a start that stops", () => {
+      const w = newWork();
+      sized(w, "project-forge.db.pre-migrate-20260310T120001Z", 2048);
+      const r = w.run();
+      expect(r.status).not.toBe(0);
+      expect(r.stdout).toContain(line(w, "1, 2.0 KiB in total"));
+      expect(r.stderr).toContain("holds files that a database leaves behind");
+    });
+
+    it("a start that writes a new copy reports the copies it found before it", () => {
+      const w = newWork();
+      seedHistory(w);
+      addLocalMigration(w.dir, NEXT);
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain(line(w, "0, 0 B in total"));
+      expect(r.stdout.indexOf("pre-migrate copies in")).toBeLessThan(r.stdout.indexOf("pre-migrate copy written"));
+      expect(w.copies()).toHaveLength(1);
+    });
+
+    // FORGE_PRE_MIGRATE_COPIES_WARN: unset or empty means 5; a set value wins.
+    // One case per input; the start always continues.
+    // `limit` is the value as the warning prints it (as configured).
+    const thresholds: Array<{ label: string; value: string | undefined; quiet: number; warns: number; limit: string }> = [
+      { label: "unset (default 5)", value: undefined, quiet: 5, warns: 6, limit: "5" },
+      { label: "empty (default 5)", value: "", quiet: 5, warns: 6, limit: "5" },
+      { label: "2", value: "2", quiet: 2, warns: 3, limit: "2" },
+      { label: "0 (any copy warns)", value: "0", quiet: 0, warns: 1, limit: "0" },
+      { label: "007 (leading zeros, read as 7)", value: "007", quiet: 7, warns: 8, limit: "007" },
+      { label: "999999999 (the largest)", value: "999999999", quiet: 9, warns: -1, limit: "999999999" },
+    ];
+    for (const t of thresholds) {
+      it(`FORGE_PRE_MIGRATE_COPIES_WARN ${t.label}: ${t.quiet} copies are quiet${t.warns >= 0 ? `, ${t.warns} warn` : ""}; the start continues and keeps them`, () => {
+        for (const n of t.warns >= 0 ? [t.quiet, t.warns] : [t.quiet]) {
+          const w = newWork();
+          seedHistory(w);
+          const files = stamps(n).map((name) => sized(w, name, 100));
+          const r = w.run({ FORGE_PRE_MIGRATE_COPIES_WARN: t.value });
+          expect(r.status, `${n}: ${r.stderr}`).toBe(0);
+          expect(r.stdout, `${n}`).toContain(line(w, n ? `${n}, ${n * 100} B in total` : "0, 0 B in total"));
+          if (n === t.warns) {
+            expect(r.stderr, `${n}`).toContain(warning(w, n, `${n * 100} B`, t.limit));
+            expect(r.stderr, `${n}`).toContain("nothing deletes them");
+          } else {
+            expect(r.stderr, `${n}`).not.toContain("WARNING");
+          }
+          expect(started(w), `${n}`).toBe(true);
+          for (const f of files) expect(existsSync(f), f).toBe(true);
+        }
+      });
+    }
+
+    // A malformed value never stops a start (the knob only controls a log
+    // warning): it is named in a warning and the default 5 applies, so 5
+    // copies stay quiet and 6 warn.
+    const malformed = (bad: string) =>
+      `[db-start] WARNING: FORGE_PRE_MIGRATE_COPIES_WARN must be a whole number from 0 to 999999999, got '${bad}'; using the default 5.`;
+    for (const bad of ["abc", "-1", "1.5", " 5", "5 ", "1e3", "0x5", "1000000000"]) {
+      it(`FORGE_PRE_MIGRATE_COPIES_WARN '${bad}': a warning names it, the default 5 applies, the start continues`, () => {
+        for (const n of [5, 6]) {
+          const w = newWork();
+          seedHistory(w);
+          const files = stamps(n).map((name) => sized(w, name, 100));
+          const r = w.run({ FORGE_PRE_MIGRATE_COPIES_WARN: bad });
+          expect(r.status, `${n}: ${r.stderr}`).toBe(0);
+          expect(r.stderr, `${n}`).toContain(malformed(bad));
+          expect(r.stdout, `${n}`).toContain(line(w, `${n}, ${n * 100} B in total`));
+          if (n === 6) expect(r.stderr, `${n}`).toContain(warning(w, 6, "600 B", "5"));
+          else expect(r.stderr, `${n}`).not.toContain("pre-migrate copies in");
+          expect(w.calls(), `${n}`).toEqual([`prisma migrate deploy [copies=${n}]`]);
+          expect(started(w), `${n}`).toBe(true);
+          for (const f of files) expect(existsSync(f), f).toBe(true);
+        }
+      });
+    }
+
+    it("a malformed FORGE_PRE_MIGRATE_COPIES_WARN on a missing database: the warning, then the first install as before", () => {
+      const w = newWork();
+      const r = w.run({ FORGE_PRE_MIGRATE_COPIES_WARN: "many" });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stderr).toContain(malformed("many"));
+      expect(r.stdout).toContain(`no database file at ${w.db}: migrate deploy creates it`);
+      expect(w.calls()).toEqual(["prisma migrate deploy [copies=0]"]);
+      expect(started(w)).toBe(true);
+    });
+
+    const unreadable: Array<[string, string]> = [
+      ["fails without output", "exit 1"],
+      ["answers something that is not a number", "echo 'n/a'"],
+    ];
+    for (const [what, body] of unreadable) {
+      it(`a copy whose size cannot be read (wc ${what}) is counted, reported and not fatal`, () => {
+        const w = newWork();
+        seedHistory(w);
+        sized(w, "project-forge.db.pre-migrate-20260310T120001Z", 100);
+        sized(w, "project-forge.db.pre-migrate-20260310T120002Z", 100);
+        const r = w.run(fakeWc(w, body));
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).toContain(line(w, "2, 0 B in total, the size of 2 could not be read"));
+        expect(started(w)).toBe(true);
+      });
+    }
+
+    describe("human_size", () => {
+      const fn = /^human_size\(\) \{\n[\s\S]*?\n\}$/m.exec(SCRIPT_TEXT)?.[0] ?? "";
+      const human = (bytes: number | bigint) => {
+        const r = spawnSync("sh", ["-c", `${fn}\nhuman_size "$1"`, "x", String(bytes)], { encoding: "utf-8" });
+        expect(r.status, r.stderr).toBe(0);
+        return r.stdout;
+      };
+      const KiB = 1024;
+      const cases: Array<[number | bigint, string]> = [
+        [0, "0 B"],
+        [1, "1 B"],
+        [1023, "1023 B"],
+        [KiB, "1.0 KiB"],
+        [1535, "1.4 KiB"],
+        [1536, "1.5 KiB"],
+        [KiB ** 2 - 1, "1023.9 KiB"],
+        [KiB ** 2, "1.0 MiB"],
+        [5.5 * KiB ** 2, "5.5 MiB"],
+        [KiB ** 3, "1.0 GiB"],
+        [12.25 * KiB ** 3, "12.2 GiB"],
+        [KiB ** 4, "1.0 TiB"],
+        [3n * 1024n ** 5n, "3072.0 TiB"],
+      ];
+      it("is found in the script", () => {
+        expect(fn).toContain("hs_tenths");
+      });
+      for (const [bytes, text] of cases) {
+        it(`${bytes} bytes: ${text}`, () => {
+          expect(human(bytes)).toBe(`${text}\n`);
+        });
+      }
+    });
+  });
 });
 
 describe("scripts/start.sh with the repo's own prisma and real SQLite files", () => {
@@ -1258,13 +1665,13 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     HOME: process.env.HOME,
     DATABASE_URL: `file:${db}`,
   });
-  const start = (db: string) =>
+  const start = (db: string, env: Env = {}) =>
     spawnSync("sh", ["scripts/start.sh", "sh", "-c", `echo STARTED > "${db}.started"`], {
       cwd: ROOT,
       encoding: "utf-8",
       timeout: 120_000,
       killSignal: "SIGKILL",
-      env: realEnv(db) as NodeJS.ProcessEnv,
+      env: { ...realEnv(db), ...env } as NodeJS.ProcessEnv,
     });
   const scratch = () => {
     const dir = mkdtempSync(path.join(tmpdir(), "pf-start-real-"));
@@ -1321,6 +1728,27 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     const again = start(db);
     expect(again.status, again.stderr).toBe(0);
     expect(siblings(db, "pre-migrate-")).toEqual([]);
+  }, 120_000);
+
+  it("missing file next to another database file: refused, nothing created; FORGE_ALLOW_NEW_DATABASE=1 creates the schema and keeps that file", () => {
+    const db = scratch();
+    const other = path.join(path.dirname(db), "old.db");
+    writeFileSync(other, "old data");
+    const refused = start(db);
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain(
+      `no database file at ${db}, but ${path.dirname(db)}/ holds files that a database leaves behind: old.db. No database was created`,
+    );
+    expect(refused.stdout).not.toContain("prisma migrate deploy");
+    expect(existsSync(db)).toBe(false);
+    expect(existsSync(`${db}.started`)).toBe(false);
+
+    const allowed = start(db, { FORGE_ALLOW_NEW_DATABASE: "1" });
+    expect(allowed.status, allowed.stderr + allowed.stdout).toBe(0);
+    expect(allowed.stderr).toContain("FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates a new, empty database");
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
+    expect(readFileSync(other, "utf-8")).toBe("old data");
+    expect(existsSync(`${db}.started`)).toBe(true);
   }, 120_000);
 
   it("db-push database equal to the schema: copied, baselined, data kept", () => {
