@@ -700,21 +700,41 @@ includes what the app wrote while the backup was being taken. Restore with the
 app stopped, so nothing writes between the check and the swap:
 
 1. Stop the app: `docker compose stop app`.
-2. Copy the backup onto the volume under a temporary name (`docker compose cp`
-   works on the stopped container; adjust both paths if `FORGE_DATABASE_URL`
-   points elsewhere than `/data/project-forge.db`):
-   `docker compose cp /var/backups/project-forge/project-forge-<timestamp>.db app:/data/project-forge.db.restore`
-3. Replace the database with it and drop the journal side files of the file
-   you are replacing (a leftover `-wal` belongs to the old database and would
-   be applied to the restored one). The runner image has no `USER`, the app
-   runs as root, so root ownership with mode 600 is what the app expects:
-   `docker compose run --rm --no-deps app sh -c 'set -e; rm -f /data/project-forge.db-journal /data/project-forge.db-wal /data/project-forge.db-shm; mv /data/project-forge.db.restore /data/project-forge.db; chmod 600 /data/project-forge.db'`
-   If this step fails (for example the `mv`), nothing has been lost yet: the
-   old database is still in place and the restore file is still named `.restore`.
+2. Stream the backup onto the volume under a temporary name. Do not use
+   `docker compose cp` for this: it keeps the host file's owner (your uid) and
+   mode, and the app container runs as root with every capability dropped
+   (`cap_drop: ALL`, so no `DAC_OVERRIDE`), which means root can neither read
+   nor change a mode 600 file owned by another uid. Reading from stdin makes
+   the container create the file itself, as root with mode 600 (adjust both
+   paths if `FORGE_DATABASE_URL` points elsewhere than `/data/project-forge.db`):
+   `docker compose run --rm -T --no-deps app sh -c 'set -e; rm -f /data/project-forge.db.restore; umask 077; cat > /data/project-forge.db.restore' < /var/backups/project-forge/project-forge-<timestamp>.db`
+3. Check the file and replace the database with it, dropping the journal side
+   files of the file you are replacing (a leftover `-wal` belongs to the old
+   database and would be applied to the restored one). The runner image has no
+   `USER`, so the app runs as root (a non-root user is not used yet: the
+   production `forge_db` volume is root-owned and would need a migration), but
+   with `no-new-privileges` and every Linux capability dropped, so it gains no
+   privilege after start; root ownership with mode 600 is what the app expects,
+   and step 2 already created the file that way:
+   `docker compose run --rm --no-deps app sh -c 'set -e; chmod 600 /data/project-forge.db.restore; [ -s /data/project-forge.db.restore ]; [ "$(sqlite3 /data/project-forge.db.restore "PRAGMA integrity_check")" = ok ]; [ "$(sqlite3 /data/project-forge.db.restore "SELECT count(*) > 0 FROM _prisma_migrations")" = 1 ]; rm -f /data/project-forge.db-journal /data/project-forge.db-wal /data/project-forge.db-shm; mv /data/project-forge.db.restore /data/project-forge.db'`
+   The `chmod` and three checks run first: the restore file is not empty,
+   SQLite's integrity check says `ok`, and it holds the app's migration
+   history (an empty file passes the integrity check on its own, and the next
+   start would turn it into an empty instance). So an empty, damaged, unreadable
+   or foreign restore file stops the step before the live database is touched.
+   If this step fails before the last command (the `mv`), the old database
+   file is still in place and the restore file is still named `.restore`; only
+   a `-journal` left by a crash is gone by then (step 1 stops the app cleanly,
+   so normally there is none). Fix the cause and run the step again.
 4. Start the app: `docker compose up -d app`.
 5. Check it came back healthy: `docker compose ps` must show `healthy` (the
    healthcheck probes `/api/health`; `docker compose logs app` shows the
-   start), and log in or hit a real route to confirm the data.
+   start), log in or hit a real route to confirm the data, and prove the
+   database is writable, because health stays green on a read-only database:
+   `docker compose exec -T app sqlite3 /data/project-forge.db 'BEGIN IMMEDIATE; CREATE TABLE _write_check(x); ROLLBACK;'`
+   must exit 0 and print nothing (it creates nothing; "attempt to write a
+   readonly database" means the file has the wrong owner or mode, so stop and
+   redo steps 2 and 3).
 
 The restored file carries whatever `_prisma_migrations` held at backup time.
 If the code you are running has newer migrations, the next start applies them
@@ -863,6 +883,11 @@ Run everything from the checkout that holds `docker-compose.yml`,
 `docker-compose.override.yml` and `.env`, after pulling 0.7.0. The one-off
 containers read the same environment as the `app` service, which is what
 makes the hash key below match.
+
+The `-v ./scripts:/app/scripts` runs below need the checkout's `scripts/`
+files to be world-readable (the default for a clone): the app container runs
+as root without `DAC_READ_SEARCH`, so it cannot read files only their host
+owner may read.
 
 1. Build the new image without restarting anything:
    `docker compose build app`

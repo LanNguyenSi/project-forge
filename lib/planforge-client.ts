@@ -253,6 +253,12 @@ export async function runPlanforgeViaHttp(
  * what the server-side wrote it with, so round-trip semantics (symlinks,
  * empty dirs, modes) can't drift between packer and unpacker.
  *
+ * `--no-same-owner` keeps extraction independent of the packer's uid: the
+ * app container runs with every capability dropped (no CHOWN), where GNU tar
+ * running as root would otherwise try to chown each entry to the archive's
+ * owner and fail with "Cannot change ownership". Extracted files belong to
+ * the extracting user instead.
+ *
  * The Next.js production image (node:24-slim, see
  * `Dockerfile`) has GNU tar preinstalled. Bind-mount-based dev on the
  * host also has it.
@@ -260,7 +266,7 @@ export async function runPlanforgeViaHttp(
 async function extractTarGzInto(outdir: string, base64: string): Promise<void> {
   const buf = Buffer.from(base64, "base64");
   return new Promise<void>((resolve, reject) => {
-    const child = spawn("tar", ["-xzf", "-", "-C", outdir], {
+    const child = spawn("tar", ["-xzf", "-", "--no-same-owner", "-C", outdir], {
       stdio: ["pipe", "ignore", "pipe"],
     });
     let stderr = "";
