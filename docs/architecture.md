@@ -252,7 +252,7 @@ sign-in are open to anyone who can reach the instance.
 The pipelines run on GitHub Actions in three workflows:
 
 - `ci.yml` (pushes to `main` and `release/*`, PRs to `main`, also called by the
-  release workflow) on Node 20:
+  release workflow) on Node 24:
 
   1. `npm ci --no-audit --no-fund`
   2. `npx prisma generate`

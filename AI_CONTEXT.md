@@ -13,7 +13,7 @@
 - **Database:** SQLite via Prisma
 - **Auth:** next-auth (GitHub OAuth + email/password, JWT sessions)
 - **Testing:** Vitest + Testing Library
-- **Deployment:** Docker (Node.js 20-slim; no Python / scaffoldkit in the project-forge image — those live inside the planforge container per ADR-0002)
+- **Deployment:** Docker (Node.js 24-slim; no Python / scaffoldkit in the project-forge image — those live inside the planforge container per ADR-0002)
 
 ## Repository Structure
 
