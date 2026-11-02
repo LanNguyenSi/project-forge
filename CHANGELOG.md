@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Cron installer and backup freshness stamp.** `make install-cron` (`scripts/install-cron.sh`) installs the hourly `forge_tmp` prune and the nightly `scripts/backup.sh` into the invoking user's crontab as one marked block that a re-run replaces in place, leaving every other line untouched (`FORGE_BACKUP_DIR` required and absolute, `FORGE_BACKUP_TIME` default `03:15`, `FORGE_BACKUP_LOG`; `--dry-run` prints the block, `--remove` deletes only it). A successful, verified backup now also replaces `$FORGE_BACKUP_DIR/.last-success` (UTC time and file name, written atomically, never on a failure), and `sh scripts/backup.sh --check-fresh [hours]` (default 26) exits non-zero when that stamp is missing or older, for monitoring. `scripts/backup.sh` now refuses unknown arguments (it ignored them before). Copying backups off-host stays a manual step. `docs/deployment.md` points at `make install-cron` and keeps the raw crontab lines as reference.
+
 ### Changed
 
 - Dependency updates: `renovate.json` extends the shared `github>LanNguyenSi/renovate-config` preset (weekly grouped patch/minor pull requests, 7-day minimum release age, no automerge, majors only through the Dependency Dashboard). The `overrides` entries that equal a direct dependency now reference it (`"postcss": "$postcss"`, `"uuid": "$uuid"` in `package.json`), so updating that dependency no longer fails with `EOVERRIDE`.

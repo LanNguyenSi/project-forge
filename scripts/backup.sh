@@ -6,6 +6,7 @@
 # the old backups.
 #
 #   sh scripts/backup.sh
+#   sh scripts/backup.sh --check-fresh [hours]
 #
 # Environment:
 #   COMPOSE_FILE       select the compose file; it is never re-packed into a
@@ -17,6 +18,15 @@
 #   FORGE_BACKUP_KEEP  number of backups to keep, default 14 (an empty value
 #                      counts as unset); anything else than a positive integer
 #                      (zero included) is refused before anything runs.
+#
+# After a verified backup is published, `$FORGE_BACKUP_DIR/.last-success` is
+# replaced (temporary file, then mv) with one line: the UTC time and the file
+# name of that backup. It is never written on a failure, so its modification
+# time is "the last time a backup really succeeded".
+# `--check-fresh [hours]` takes no backup and needs no container: it exits 0 when the
+# stamp exists and is younger than that many hours (default 26, a nightly
+# run plus slack; a positive integer), and 1 when the stamp is missing,
+# empty or older, or the directory cannot be resolved. For monitoring.
 #
 # The database path is never assumed: the running container's DATABASE_URL is
 # read with printenv (docs/deployment.md, "Database location"), because that
@@ -47,6 +57,38 @@ die() { printf '[db-backup] ERROR: %s\n' "$*" >&2; exit 1; }
 
 # The backups hold password hashes and GitHub tokens.
 umask 077
+
+# The directory the backups (and the stamp) live in: an explicit
+# FORGE_BACKUP_DIR wins, empty counts as unset. Resolves only, creates nothing.
+resolve_backup_dir() {
+  if [ -n "${FORGE_BACKUP_DIR:-}" ]; then
+    backup_dir=$FORGE_BACKUP_DIR
+  elif [ -n "${HOME:-}" ]; then
+    backup_dir="$HOME/project-forge-backups"
+  else
+    return 1
+  fi
+}
+
+case "${1:-}" in
+  '') ;;
+  --check-fresh)
+    [ "$#" -le 2 ] || die "usage: sh scripts/backup.sh --check-fresh [hours]"
+    hours=26
+    if [ "$#" -eq 2 ]; then hours=$2; fi
+    case "$hours" in
+      '' | 0 | *[!0-9]*) die "--check-fresh hours must be a positive integer, got '$hours'." ;;
+    esac
+    resolve_backup_dir || die "FORGE_BACKUP_DIR is unset and HOME is not set: no backup directory to check."
+    [ -s "$backup_dir/.last-success" ] || die "no backup stamp at $backup_dir/.last-success: no backup has succeeded there yet."
+    if [ -z "$(find "$backup_dir/.last-success" -mmin "-$((hours * 60))" 2>/dev/null)" ]; then
+      die "the last successful backup is older than $hours hours: $(cat "$backup_dir/.last-success")"
+    fi
+    log "ok: last successful backup is younger than $hours hours: $(cat "$backup_dir/.last-success")"
+    exit 0
+    ;;
+  *) die "unknown argument '$1' (usage: sh scripts/backup.sh [--check-fresh [hours]])" ;;
+esac
 
 keep=${FORGE_BACKUP_KEEP:-14}
 case "$keep" in
@@ -94,13 +136,7 @@ log "container database: $db"
 
 # The output directory is only created once the container and its database
 # resolved: a failure above leaves no directory behind.
-if [ -n "${FORGE_BACKUP_DIR:-}" ]; then
-  backup_dir=$FORGE_BACKUP_DIR
-elif [ -n "${HOME:-}" ]; then
-  backup_dir="$HOME/project-forge-backups"
-else
-  die "FORGE_BACKUP_DIR is unset and HOME is not set: no backup directory to write to. Nothing was written."
-fi
+resolve_backup_dir || die "FORGE_BACKUP_DIR is unset and HOME is not set: no backup directory to write to. Nothing was written."
 mkdir -p "$backup_dir" || die "cannot create the backup directory $backup_dir. Nothing was written."
 [ -d "$backup_dir" ] || die "$backup_dir is not a directory. Nothing was written."
 
@@ -147,6 +183,16 @@ while [ -e "$final" ]; do
 done
 mv "$host_tmp" "$final" || die "cannot move the backup into place at $final. Nothing was published."
 log "backup written: $final"
+
+# Freshness stamp, only now that the verified backup is published. A failure to
+# write it fails the run: a backup nobody can see is worth a non-zero exit.
+stamp_tmp="$backup_dir/.last-success.$$.tmp"
+host_tmp=$stamp_tmp
+printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${final##*/}" > "$stamp_tmp" \
+  || die "cannot write the backup stamp $stamp_tmp (the backup itself is published: $final)."
+mv "$stamp_tmp" "$backup_dir/.last-success" \
+  || die "cannot move the backup stamp into place (the backup itself is published: $final)."
+host_tmp=""
 
 # Rotation: delete everything but the newest $keep files of exactly the
 # published name shape, `project-forge-YYYYMMDDTHHMMSSZ[-<n>].db` (the sort key

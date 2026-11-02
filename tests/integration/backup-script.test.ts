@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  utimesSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -105,7 +106,7 @@ interface Backup {
   home: string;
   backupDir: string; // the default $HOME/project-forge-backups of this run
   db: string; // the container database this run's DATABASE_URL points at
-  run: (env?: Env, dbUrl?: string) => SpawnSyncReturns<string>;
+  run: (env?: Env, dbUrl?: string, args?: string[]) => SpawnSyncReturns<string>;
   calls: () => string[];
   composeFileSeen: () => string[]; // the COMPOSE_FILE values the stub saw in its env
   defaultBackups: () => string[];
@@ -148,8 +149,8 @@ function newBackup(seedDb = true): Backup {
     db,
     sql,
     seed,
-    run: (env = {}, dbUrl) =>
-      spawnSync("sh", [SCRIPT], {
+    run: (env = {}, dbUrl, args = []) =>
+      spawnSync("sh", [SCRIPT, ...args], {
         cwd: dir,
         encoding: "utf-8",
         timeout: 60_000,
@@ -170,7 +171,11 @@ function newBackup(seedDb = true): Backup {
       const lines = readFileSync(composeFileLog, "utf-8").replace(/\n$/, "").split("\n");
       return Array.from(new Set(lines));
     },
-    defaultBackups: () => (existsSync(path.join(home, "project-forge-backups")) ? readdirSync(path.join(home, "project-forge-backups")) : []),
+    // The freshness stamp is not a backup: it is asserted on in its own tests.
+    defaultBackups: () =>
+      existsSync(path.join(home, "project-forge-backups"))
+        ? readdirSync(path.join(home, "project-forge-backups")).filter((f) => f !== ".last-success")
+        : [],
     matching: (files) => files.filter((f) => /^project-forge-\d{8}T\d{6}Z(-\d+)?\.db$/.test(f)),
     tmpLeft: () => {
       const hits = readdirSync(path.dirname(db)).filter((f) => f.includes(".tmp-backup."));
@@ -198,7 +203,7 @@ describe("scripts/backup.sh", () => {
     expect(r.stdout).toContain(`backup written: ${file}`);
     // No partial artifacts: the temporary host file is gone (the directory
     // holds only the published backup) and the container temp was removed.
-    expect(readdirSync(w.backupDir)).toEqual([name]);
+    expect(readdirSync(w.backupDir).sort()).toEqual([".last-success", name]);
     expect(w.tmpLeft()).toBe("");
     const calls = w.calls();
     expect(calls[0]).toBe("docker compose exec -T app printenv DATABASE_URL");
@@ -289,12 +294,180 @@ describe("scripts/backup.sh", () => {
     expect(w.tmpLeft()).toBe("");
   });
 
+  describe("freshness stamp (.last-success) and --check-fresh", () => {
+    const stampOf = (w: Backup, dir = w.backupDir) => path.join(dir, ".last-success");
+    const ageStamp = (file: string, hours: number) => {
+      const t = new Date(Date.now() - hours * 3600 * 1000);
+      utimesSync(file, t, t);
+    };
+    const writeStamp = (dir: string, ageHours: number, content = "2026-01-01T00:00:00Z project-forge-x.db\n") => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, ".last-success"), content);
+      ageStamp(path.join(dir, ".last-success"), ageHours);
+    };
+
+    it("success writes the stamp: UTC time and the published file name, atomically, no temp left", () => {
+      const w = newBackup();
+      const r = w.run();
+      expect(r.status, r.stderr).toBe(0);
+      const [name] = w.matching(w.defaultBackups());
+      const content = readFileSync(stampOf(w), "utf-8");
+      expect(content).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z project-forge-\d{8}T\d{6}Z\.db\n$/);
+      expect(content.trim().split(" ")[1]).toBe(name);
+      expect(statSync(stampOf(w)).mode & 0o777).toBe(0o600);
+      expect(readdirSync(w.backupDir).sort()).toEqual([".last-success", name]);
+    });
+
+    it("a second success replaces the stamp with the newer file name", () => {
+      const w = newBackup();
+      writeFileSync(path.join(w.dir, "bin", "date"), "#!/bin/sh\ncase \"$*\" in *%Y%m%dT*) echo 20260101T000000Z ;; *) echo 2026-01-01T00:00:00Z ;; esac\n");
+      chmodSync(path.join(w.dir, "bin", "date"), 0o755);
+      w.run();
+      w.run();
+      expect(readFileSync(stampOf(w), "utf-8")).toBe("2026-01-01T00:00:00Z project-forge-20260101T000000Z-1.db\n");
+    });
+
+    for (const [label, env] of [
+      [".backup fails", { STUB_BACKUP_FAIL: "1" }],
+      ["integrity_check answers something else", { STUB_INTEGRITY_ANSWER: "corrupt" }],
+      ["integrity_check command fails", { STUB_INTEGRITY_RC: "1" }],
+      ["compose cp fails", { STUB_CP_FAIL: "1" }],
+      ["compose cp copies an empty file", { STUB_CP_EMPTY: "1" }],
+    ] as const) {
+      it(`failure (${label}): no stamp is created`, () => {
+        const w = newBackup();
+        const r = w.run(env);
+        expect(r.status).not.toBe(0);
+        expect(existsSync(stampOf(w))).toBe(false);
+      });
+    }
+
+    it("failure leaves an older stamp untouched (content and mtime)", () => {
+      const w = newBackup();
+      writeStamp(w.backupDir, 30, "2026-01-01T00:00:00Z project-forge-old.db\n");
+      const before = statSync(stampOf(w)).mtimeMs;
+      const r = w.run({ STUB_BACKUP_FAIL: "1" });
+      expect(r.status).not.toBe(0);
+      expect(readFileSync(stampOf(w), "utf-8")).toBe("2026-01-01T00:00:00Z project-forge-old.db\n");
+      expect(statSync(stampOf(w)).mtimeMs).toBe(before);
+    });
+
+    it("the stamp lands in FORGE_BACKUP_DIR when that is set", () => {
+      const w = newBackup();
+      const custom = path.join(w.dir, "elsewhere");
+      expect(w.run({ FORGE_BACKUP_DIR: custom }).status).toBe(0);
+      expect(existsSync(stampOf(w, custom))).toBe(true);
+      expect(existsSync(stampOf(w))).toBe(false);
+    });
+
+    it("rotation never touches the stamp", () => {
+      const w = newBackup();
+      for (const n of [1, 2, 3]) {
+        const f = path.join(w.backupDir, oldName(`2020010${n}T000000Z`));
+        mkdirSync(w.backupDir, { recursive: true });
+        writeFileSync(f, "x");
+      }
+      expect(w.run({ FORGE_BACKUP_KEEP: "1" }).status).toBe(0);
+      expect(existsSync(stampOf(w))).toBe(true);
+    });
+
+    describe("--check-fresh", () => {
+      const check = (w: Backup, env: Env = {}, hours?: string) =>
+        w.run(env, undefined, hours === undefined ? ["--check-fresh"] : ["--check-fresh", hours]);
+
+      it("fresh stamp: exit 0, no docker call, nothing written", () => {
+        const w = newBackup();
+        writeStamp(w.backupDir, 1);
+        const r = check(w);
+        expect(r.status, r.stderr).toBe(0);
+        expect(w.calls()).toEqual([]);
+        expect(readdirSync(w.backupDir)).toEqual([".last-success"]);
+      });
+
+      it("missing stamp: exit 1 and says so", () => {
+        const w = newBackup();
+        const r = check(w);
+        expect(r.status).toBe(1);
+        expect(r.stderr).toContain("no backup stamp");
+        expect(existsSync(w.backupDir)).toBe(false);
+      });
+
+      it("empty stamp file counts as missing", () => {
+        const w = newBackup();
+        writeStamp(w.backupDir, 1, "");
+        expect(check(w).status).toBe(1);
+      });
+
+      it("default is 26 hours: 25 h old passes, 27 h old fails", () => {
+        const w = newBackup();
+        writeStamp(w.backupDir, 25);
+        expect(check(w).status).toBe(0);
+        ageStamp(stampOf(w), 27);
+        const r = check(w);
+        expect(r.status).toBe(1);
+        expect(r.stderr).toContain("older than 26 hours");
+      });
+
+      it("explicit hours: 2 h old stamp fails at 1, passes at 3", () => {
+        const w = newBackup();
+        writeStamp(w.backupDir, 2);
+        expect(check(w, {}, "1").status).toBe(1);
+        expect(check(w, {}, "3").status).toBe(0);
+      });
+
+      for (const bad of ["0", "abc", "-5", "1.5", ""]) {
+        it(`hours '${bad}' is refused`, () => {
+          const w = newBackup();
+          writeStamp(w.backupDir, 1);
+          const r = check(w, {}, bad);
+          expect(r.status).toBe(1);
+          expect(r.stderr).toContain("positive integer");
+        });
+      }
+
+      it("too many arguments and unknown arguments are refused", () => {
+        const w = newBackup();
+        writeStamp(w.backupDir, 1);
+        expect(w.run({}, undefined, ["--check-fresh", "1", "2"]).status).toBe(1);
+        const r = w.run({}, undefined, ["--nope"]);
+        expect(r.status).toBe(1);
+        expect(r.stderr).toContain("unknown argument");
+        expect(w.calls()).toEqual([]);
+      });
+
+      it("FORGE_BACKUP_DIR set wins; empty or unset means the $HOME default", () => {
+        const w = newBackup();
+        const custom = path.join(w.dir, "elsewhere");
+        writeStamp(custom, 1);
+        expect(check(w).status).toBe(1); // unset: HOME default has no stamp
+        expect(check(w, { FORGE_BACKUP_DIR: "" }).status).toBe(1); // empty: same
+        expect(check(w, { FORGE_BACKUP_DIR: custom }).status).toBe(0); // set: custom
+        writeStamp(w.backupDir, 1);
+        expect(check(w).status).toBe(0);
+        expect(check(w, { FORGE_BACKUP_DIR: "" }).status).toBe(0);
+        ageStamp(stampOf(w, custom), 100);
+        expect(check(w, { FORGE_BACKUP_DIR: custom }).status).toBe(1); // set wins over a fresh default
+      });
+
+      it("neither FORGE_BACKUP_DIR nor HOME: exit 1 with the reason", () => {
+        const w = newBackup();
+        const r = spawnSync("sh", [SCRIPT, "--check-fresh"], {
+          encoding: "utf-8",
+          env: envFor({ PATH: process.env.PATH }),
+        });
+        expect(r.status).toBe(1);
+        expect(r.stderr).toContain("HOME is not set");
+        void w;
+      });
+    });
+  });
+
   describe("FORGE_BACKUP_DIR (set wins over the default; empty counts as unset)", () => {
     it("unset: writes into $HOME/project-forge-backups, outside the checkout", () => {
       const w = newBackup();
       const r = w.run();
       expect(r.status, r.stderr).toBe(0);
-      expect(readdirSync(w.backupDir)).toHaveLength(1);
+      expect(w.defaultBackups()).toHaveLength(1);
       expect(readdirSync(w.dir)).not.toContain("project-forge-backups");
     });
 
@@ -303,7 +476,7 @@ describe("scripts/backup.sh", () => {
       const custom = path.join(w.dir, "backups-here");
       const r = w.run({ FORGE_BACKUP_DIR: custom });
       expect(r.status, r.stderr).toBe(0);
-      expect(readdirSync(custom)).toHaveLength(1);
+      expect(readdirSync(custom).filter((f) => f !== ".last-success")).toHaveLength(1);
       expect(existsSync(w.backupDir)).toBe(false);
     });
 
@@ -311,7 +484,7 @@ describe("scripts/backup.sh", () => {
       const w = newBackup();
       const r = w.run({ FORGE_BACKUP_DIR: "" });
       expect(r.status, r.stderr).toBe(0);
-      expect(readdirSync(w.backupDir)).toHaveLength(1);
+      expect(w.defaultBackups()).toHaveLength(1);
     });
 
     it("set to a path that is not a directory: refuses, nothing published", () => {

@@ -162,8 +162,9 @@ periodically, for example:
 docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} +
 ```
 
-As a host crontab entry (hourly, from the checkout that holds
-`docker-compose.yml`):
+`make install-cron` puts this prune (hourly) and the nightly backup into the
+crontab, see [Backup and restore](#backup-and-restore). Without make, the raw
+entry (hourly, from the checkout that holds `docker-compose.yml`) is:
 
 ```cron
 0 * * * * cd /path/to/project-forge && docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} +
@@ -507,13 +508,44 @@ the directory; the names never use the `.pre-migrate-` prefix that belongs to
 [start.sh](#pre-migrate-copy), so the two mechanisms cannot confuse each
 other.
 
-Schedule it from the deploy host's crontab (nightly at 03:15; cron's `HOME` is
-the crontab owner's, so name the output directory explicitly to be sure where
-backups land, and rotate a copy off-host, see below):
+Schedule it, and the hourly `forge_tmp` prune, with one command on the deploy
+host (it edits the crontab of the invoking user):
+
+```bash
+FORGE_BACKUP_DIR=/var/backups/project-forge make install-cron
+make install-cron ARGS=--dry-run    # print the block, change nothing
+make install-cron ARGS=--remove     # delete the block, nothing else
+```
+
+`scripts/install-cron.sh` writes one marked block (`# BEGIN project-forge ...`
+to `# END project-forge`) holding both entries, with absolute paths taken from
+the checkout the script lives in. A re-run replaces that block in place and
+leaves every other crontab line untouched; a re-run that changes nothing does
+not call `crontab` at all. `FORGE_BACKUP_DIR` is required and must be an
+absolute path (cron's `HOME` is the crontab owner's, so the default of
+`backup.sh` is not trusted there); unset or empty is refused. Optional:
+`FORGE_BACKUP_TIME` (`HH:MM`, default `03:15`) and `FORGE_BACKUP_LOG` (default
+`$FORGE_BACKUP_DIR/cron.log`, shared by both entries). A path with a single
+quote or a `%` is refused. A hand-made crontab line for the same job is not
+recognised: remove it before installing, or the backup runs twice.
+
+Without make, the raw entries the block holds are:
 
 ```cron
 15 3 * * * cd /path/to/project-forge && FORGE_BACKUP_DIR=/var/backups/project-forge sh ./scripts/backup.sh >> /var/log/forge-backup.log 2>&1
 ```
+
+Whether backups still run: after every successful, verified backup
+`backup.sh` replaces `$FORGE_BACKUP_DIR/.last-success` (temporary file, then
+`mv`) with one line, the UTC time and the file name of that backup. A failed
+run never writes it, so its modification time is the last real success.
+`sh scripts/backup.sh --check-fresh [hours]` needs no container and exits 0
+when the stamp is younger than that many hours (default 26, a nightly run plus
+slack) and 1 when it is missing, empty or older (the reason goes to stderr), so
+a monitoring probe or a second cron line can call it, for example
+`FORGE_BACKUP_DIR=/var/backups/project-forge sh ./scripts/backup.sh --check-fresh 26`.
+
+Copying the backups to another machine is not automated here, see below.
 
 A backup inside the volume's host is no backup at all: copy the directory to
 another machine as part of your routine, for example

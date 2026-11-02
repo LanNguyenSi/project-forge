@@ -1,4 +1,4 @@
-.PHONY: deploy logs restart pull backup dev dev-setup dev-db dev-env
+.PHONY: deploy logs restart pull backup install-cron dev dev-setup dev-db dev-env
 
 # ── Production (Docker) ──────────────────────────────────────
 
@@ -19,6 +19,12 @@ pull:
 # $HOME/project-forge-backups). See docs/deployment.md, "Backup and restore".
 backup:
 	sh scripts/backup.sh
+
+# Installs the hourly forge_tmp prune and the nightly backup into this user's
+# crontab (needs FORGE_BACKUP_DIR; ARGS=--dry-run prints, ARGS=--remove removes).
+# See docs/deployment.md, "Backup and restore".
+install-cron:
+	sh scripts/install-cron.sh $(ARGS)
 
 # ── Local Development ────────────────────────────────────────
 
