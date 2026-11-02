@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Runtime and CI move from Node 20 (EOL) to Node 24 LTS; `@types/node` ^24.** All three Dockerfile stages (`builder`, `deps`, `runner`) are now `node:24-slim` (same variant as before), `ci.yml` sets up `node-version: "24"` and `audit.yml` `node-version: 24`, and `@types/node` is `^24.0.0` (24.19.2 installed, with its own dependency `undici-types` at 7.24.6) because the only runtime this package has is the Docker image, which is now node:24. No code change was needed: `@types/node` 24 surfaces no type error, `npx tsc --noEmit --skipLibCheck`, `npm run typecheck`, `npm run lint` and `npm run build` behave as before under Node 24.22.2 with npm 11.19.1, `vitest run --coverage` ends with the same result as under Node 20.20.2, and the audit gate still classifies CLEAN. The lockfile change is limited to `@types/node` and `undici-types`; `engines` is untouched (this package declares none). Docs and comments that named the old runtime follow: `AI_CONTEXT.md`, `docs/architecture.md` (the `ci.yml` description), the `scripts/audit-gate.mjs` header (the audit job still runs no `npm ci`, so that script stays dependency-free), and the base image comment in `lib/planforge-client.ts`, which named `node:22-alpine / node:22-slim` for an image that has always been the slim Debian one and now names `node:24-slim`.
+
 ## [0.9.0] - 2026-11-01
 
 ### Added

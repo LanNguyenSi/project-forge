@@ -1,4 +1,4 @@
-FROM node:20-slim AS builder
+FROM node:24-slim AS builder
 WORKDIR /app
 RUN apt-get update && apt-get install -y git ca-certificates openssl --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
@@ -12,7 +12,7 @@ RUN npm run build
 # dependency because the container CMD (scripts/start.sh) runs `prisma migrate
 # deploy` before the server starts. Dev tooling
 # (eslint, vitest, typescript, ...) stays in the builder stage.
-FROM node:20-slim AS deps
+FROM node:24-slim AS deps
 WORKDIR /app
 RUN apt-get update && apt-get install -y openssl ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
@@ -20,7 +20,7 @@ COPY prisma ./prisma
 RUN npm ci --omit=dev --no-audit --no-fund
 RUN node_modules/.bin/prisma generate
 
-FROM node:20-slim AS runner
+FROM node:24-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 # git + SSL only. Python / scaffoldkit venv removed 2026-04-21 (ADR-0002

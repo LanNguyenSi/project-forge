@@ -253,7 +253,7 @@ export async function runPlanforgeViaHttp(
  * what the server-side wrote it with, so round-trip semantics (symlinks,
  * empty dirs, modes) can't drift between packer and unpacker.
  *
- * The Next.js production image (node:22-alpine / node:22-slim — see
+ * The Next.js production image (node:24-slim, see
  * `Dockerfile`) has GNU tar preinstalled. Bind-mount-based dev on the
  * host also has it.
  */
