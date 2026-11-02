@@ -7,7 +7,12 @@
 # It never runs `prisma db push`. Decision table (the database path comes from
 # DATABASE_URL; a relative `file:` path resolves against prisma/, like Prisma):
 #
-#   file missing, or file without any table   -> migrate deploy (creates it)
+#   file missing, and its directory holds no file of a database
+#                                             -> migrate deploy (creates it)
+#   file missing, but its directory holds files a database leaves behind
+#                                             -> abort, nothing created, unless
+#                                                FORGE_ALLOW_NEW_DATABASE=1
+#   file without any table                    -> migrate deploy (initialises it)
 #   _prisma_migrations present, a migration is recorded as failed
 #                                             -> abort, nothing changed, no copy
 #   _prisma_migrations present, nothing pending
@@ -55,6 +60,18 @@
 # once there are COPY_LOOP_LIMIT of them. The operator fixes the cause and
 # removes the surplus copies; an applied migration resets the count.
 #
+# A missing database file is a first install only when nothing of a database
+# lies next to it. Another database file, a -journal, -wal or -shm file or a
+# copy of a database in the same directory points to a wrong path (a typo in
+# DATABASE_URL), a volume mounted elsewhere or a restore under another name:
+# an empty database created there would start a healthy-looking empty
+# instance. The start stops instead and lists those files, unless
+# FORGE_ALLOW_NEW_DATABASE is exactly 1 (then it warns and creates it).
+#
+# Every start logs how many pre-migrate copies lie in the database's directory
+# and their total size, and warns when there are more than
+# FORGE_PRE_MIGRATE_COPIES_WARN (default 5). Nothing here deletes a copy.
+#
 # Tested in tests/integration/start-script.test.ts with stub `prisma` and `sqlite3`
 # binaries (PRISMA_BIN, SQLITE3_BIN) and with the real ones.
 set -eu
@@ -70,8 +87,16 @@ MIGRATIONS="prisma/migrations"
 DOCS='docs/deployment.md, section "Database migrations"'
 # Stamped copies newer than the newest applied migration at which a start stops.
 COPY_LOOP_LIMIT=3
-# Infix of the pre-migrate copy names. Only names that copy_key accepts count.
+# Infix of the pre-migrate copy names. Only names that copy_key accepts count
+# as restore points or loop copies; the copy report and the new-database check
+# match any name with the infix.
 COPY_INFIX=".pre-migrate-"
+# Default of FORGE_PRE_MIGRATE_COPIES_WARN: a start warns above this many
+# pre-migrate copies in the database's directory. It is above COPY_LOOP_LIMIT,
+# so the copies of one stopped restart loop plus a restore point or two do not
+# warn on their own; more than that means copies pile up without anyone
+# removing them.
+COPIES_WARN_DEFAULT=5
 # _prisma_migrations.started_at as 14 digits (YYYYMMDDHHMMSS, UTC). prisma 5.22
 # writes milliseconds since the epoch; a text date (the column default) works too.
 # NULL when the value cannot be read.
@@ -80,6 +105,7 @@ STARTED_DIGITS="CASE WHEN typeof(started_at) IN ('integer', 'real') THEN strftim
 FINISHED_DIGITS="CASE WHEN typeof(finished_at) IN ('integer', 'real') THEN strftime('%Y%m%d%H%M%S', finished_at / 1000, 'unixepoch') ELSE strftime('%Y%m%d%H%M%S', finished_at) END"
 
 log() { printf '[db-start] %s\n' "$*"; }
+warn() { printf '[db-start] WARNING: %s\n' "$*" >&2; }
 die() { printf '[db-start] ERROR: %s\n' "$*" >&2; exit 1; }
 
 [ "$#" -gt 0 ] || die "usage: start.sh <server command> [args...]"
@@ -100,10 +126,23 @@ esac
 case "$db" in
   *"'"*) die "database path must not contain a single quote: $db" ;;
 esac
+# The database's directory with a trailing slash ("/" for a file in the root).
+# The new-database check and the copy report look only here.
+db_dir="${db%/*}/"
 
 # The start reads the database state and takes the copy with sqlite3. Checked
 # once, before anything else, so that no later step depends on it by accident.
 command -v "$SQLITE3" >/dev/null 2>&1 || die "sqlite3 not found (looked for $SQLITE3): it is needed to read the state of $db and to take the pre-migrate copy. Nothing was changed."
+
+# Unset or empty: the default. Anything but 0 to 999999999 gets a warning and
+# the default: the knob only controls a log warning, so it never stops a start.
+copies_warn=${FORGE_PRE_MIGRATE_COPIES_WARN:-$COPIES_WARN_DEFAULT}
+case "$copies_warn" in
+  *[!0-9]*|??????????*)
+    warn "FORGE_PRE_MIGRATE_COPIES_WARN must be a whole number from 0 to 999999999, got '$copies_warn'; using the default $COPIES_WARN_DEFAULT."
+    copies_warn=$COPIES_WARN_DEFAULT
+    ;;
+esac
 
 # Said when `migrate deploy` fails. Each branch below sets it.
 deploy_note="No copy was taken."
@@ -279,7 +318,7 @@ refuse_failed_migration() {
       advice="$advice Warning: _prisma_migrations also has rows that started after that copy was taken ($later), so the copy may predate later changes. A migration that the same start applied before the failure is applied again after the restore; anything done after the copy outside this start script (a migration applied or resolved by hand) is undone by the restore. Check those rows before you restore."
     fi
   else
-    advice="There is no pre-migrate copy older than that start next to $db (looked for $db${COPY_INFIX}YYYYMMDDTHHMMSSZ). If the start that ran the failed migration created $db (no database file or no table before it, so it took no copy), stop the container, delete $db, $db-journal, $db-wal and $db-shm and fix the migration. Otherwise restore your own backup of the database."
+    advice="There is no pre-migrate copy older than that start next to $db (looked for $db${COPY_INFIX}YYYYMMDDTHHMMSSZ). If the start that ran the failed migration created $db (no database file or no table before it, so it took no copy), stop the container, delete $db, $db-journal, $db-wal and $db-shm and fix the migration. Otherwise restore your own backup of the database. After such a delete the next start creates the database again, unless other database files lie next to it: then start once with FORGE_ALLOW_NEW_DATABASE=1."
   fi
   die "migration $name failed halfway (recorded in _prisma_migrations since ${started_text}, UTC) and was never rolled back. SQLite keeps the statements that ran before the error, so $db may be partly migrated. The server was not started, no new copy was taken and migrate deploy was not run. $advice See $DOCS."
 }
@@ -311,10 +350,97 @@ baseline_legacy_database() {
 
 # Said when the database had nothing to keep before this start.
 new_database_note() {
-  deploy_note="$db $1 before this start, so no copy was taken. If a migration failed halfway, stop the container, delete $db, $db-journal, $db-wal and $db-shm and fix the migration."
+  deploy_note="$db $1 before this start, so no copy was taken. If a migration failed halfway, stop the container, delete $db, $db-journal, $db-wal and $db-shm and fix the migration. The next start then creates the database again, unless other database files lie next to it: then start once with FORGE_ALLOW_NEW_DATABASE=1."
 }
 
+# Prints a byte count for people: "512 B", "1.5 KiB", up to TiB, with one
+# decimal (cut off, not rounded).
+human_size() {
+  hs_div=1
+  for hs_next in KiB MiB GiB TiB; do
+    [ "$1" -ge $((hs_div * 1024)) ] || break
+    hs_div=$((hs_div * 1024))
+    hs_unit=$hs_next
+  done
+  if [ "$hs_div" -eq 1 ]; then
+    printf '%s B\n' "$1"
+  else
+    hs_tenths=$(($1 * 10 / hs_div))
+    printf '%s.%s %s\n' "$((hs_tenths / 10))" "$((hs_tenths % 10))" "$hs_unit"
+  fi
+}
+
+# Logs, on every start, how many pre-migrate copies lie in the database's
+# directory and their total size, and warns when there are more than
+# $copies_warn. It counts every regular file matching <dir>/*.pre-migrate-*,
+# stamped or not and of any database, which is what the `ls` command in
+# docs/deployment.md lists. It only looks: nothing is deleted or moved, and a
+# copy whose size cannot be read is counted and reported, never fatal.
+report_copies() {
+  rc_n=0
+  rc_bytes=0
+  rc_unread=0
+  for f in "$db_dir"*"$COPY_INFIX"*; do
+    [ -f "$f" ] || continue
+    rc_n=$((rc_n + 1))
+    rc_size=$({ wc -c <"$f"; } 2>/dev/null | tr -d ' ')
+    case "$rc_size" in
+      ''|*[!0-9]*) rc_unread=$((rc_unread + 1)) ;;
+      *) rc_bytes=$((rc_bytes + rc_size)) ;;
+    esac
+  done
+  rc_total="$(human_size "$rc_bytes") in total"
+  [ "$rc_unread" -eq 0 ] || rc_total="$rc_total, the size of $rc_unread could not be read"
+  log "pre-migrate copies in $db_dir: $rc_n, $rc_total"
+  [ "$rc_n" -le "$copies_warn" ] || warn "$rc_n pre-migrate copies in $db_dir ($rc_total), more than $copies_warn (FORGE_PRE_MIGRATE_COPIES_WARN). Each is a full copy of a database on the same volume and nothing deletes them: remove the ones you no longer need. See $DOCS."
+}
+
+# Sets $siblings to the names (comma separated) of the regular files in the
+# database's directory that a database leaves behind: another database file
+# (*.db, *.sqlite, *.sqlite3), a SQLite -journal, -wal or -shm file, or a copy
+# of a database: a pre-migrate copy of any database (*.pre-migrate-*), any other
+# <name>.db.<suffix> (such as the .manual-<stamp> copy and the .restore file
+# that docs/deployment.md uses), and the temporary copies of this script
+# (*.tmp-pre-migrate.*) and of scripts/backup.sh (*.tmp-backup.*), which both
+# are only ever written from an existing database. Dot files count too,
+# directories do not.
+find_db_siblings() {
+  siblings=""
+  for e in "$db_dir"* "$db_dir".[!.]* "$db_dir"..?*; do
+    [ -f "$e" ] || continue
+    case ${e##*/} in
+      *.db|*.sqlite|*.sqlite3|*-journal|*-wal|*-shm|*.db.*|*"$COPY_INFIX"*|*.tmp-pre-migrate.*|*.tmp-backup.*)
+        siblings="$siblings${siblings:+, }${e##*/}"
+        ;;
+    esac
+  done
+}
+
+# A missing database file next to files of a database is no first install: the
+# path may have a typo, the volume may be mounted elsewhere or a restore went
+# to another name, and an empty database created here would start an empty
+# instance that looks healthy. The start stops before any migration, unless
+# FORGE_ALLOW_NEW_DATABASE is exactly 1 (any other value, empty included, does
+# not allow it).
+refuse_new_database_next_to_old_files() {
+  find_db_siblings
+  [ -n "$siblings" ] || return 0
+  allow=${FORGE_ALLOW_NEW_DATABASE:-}
+  if [ "$allow" = 1 ]; then
+    warn "no database file at $db, but $db_dir holds files that a database leaves behind: $siblings. FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates a new, empty database at $db. Remove FORGE_ALLOW_NEW_DATABASE once it exists."
+    return 0
+  fi
+  case "$allow" in
+    '') allow_note="it is unset or empty now" ;;
+    *) allow_note="it is '$allow' now, and only the value 1 counts" ;;
+  esac
+  die "no database file at $db, but $db_dir holds files that a database leaves behind: $siblings. No database was created and nothing was changed. Check DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack): a typo, a volume mounted at another place or a restore under another name looks like this. Fix the path or put the database file back, then start again. To create a new, empty database at $db on purpose, start once with FORGE_ALLOW_NEW_DATABASE=1 ($allow_note); creating it discards a $db-journal or $db-wal left under that name, so move them away first if the old database may need them. See $DOCS."
+}
+
+report_copies
+
 if [ ! -e "$db" ]; then
+  refuse_new_database_next_to_old_files
   log "no database file at $db: migrate deploy creates it"
   new_database_note "did not exist"
   deploy
