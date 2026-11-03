@@ -55,6 +55,11 @@ jobs:
     # (`npm ci`), with the same flags as the build job, and the built image must
     # start and answer /api/health. No push.
     runs-on: ubuntu-latest
+    # The image build (two `npm ci` stages and `next build`) takes a few
+    # minutes and the smoke step is bounded at about 90 s; 15 minutes leaves
+    # headroom for a cold runner and stops a hung docker call from holding the
+    # runner for the 6 h default.
+    timeout-minutes: 15
     env:
       IMAGE: project-forge:ci
     steps:
@@ -95,14 +100,15 @@ jobs:
           port=$(docker port "$cid" 3000/tcp | head -n 1 | sed 's/.*://')
           code=000
           # 000 means nothing listens yet (migrations still running): keep
-          # polling, for at most 90 s and only while the container is up. Any
-          # HTTP status is final.
-          i=0
-          while [ "$i" -lt 90 ]; do
+          # polling until a 90 s deadline (a probe in flight finishes first,
+          # curl allows 2 s) and only while the container is up. Any HTTP
+          # status is final.
+          start=$SECONDS
+          deadline=$((SECONDS + 90))
+          while [ "$SECONDS" -lt "$deadline" ]; do
             code=$(curl -s -o "$body" -w '%{http_code}' --max-time 2 "http://127.0.0.1:$port/api/health" || true)
             [ "$code" != 000 ] && break
             [ "$(docker inspect -f '{{.State.Running}}' "$cid")" = true ] || break
-            i=$((i + 1))
             sleep 1
           done
           if [ "$code" != 200 ] || [ "$(cat "$body")" != '{"ok":true}' ]; then
@@ -110,4 +116,4 @@ jobs:
             docker logs "$cid" >&2 || true
             exit 1
           fi
-          echo "health smoke ok after ${i}s: $(cat "$body")"
+          echo "health smoke ok after $((SECONDS - start))s: $(cat "$body")"

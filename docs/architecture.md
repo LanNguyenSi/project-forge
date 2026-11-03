@@ -273,7 +273,8 @@ The pipelines run on GitHub Actions in three workflows:
   A second job, `docker-build`, builds the image (no push), checks that it
   carries `scripts/start.sh`, the migrations and `sqlite3`, then starts it with
   generated dummy values (production hardening flags, a SQLite file on a
-  tmpfs) and polls `/api/health` for up to 90 seconds; any answer but 200 fails
+  tmpfs) and polls `/api/health` until a 90 second deadline (the job as a whole has a
+  15 minute timeout); any answer but 200 fails
   the job and prints the container logs, and the container is always removed.
 
 - `audit.yml` (PRs and pushes to `main`): npm audit gate. HIGH or CRITICAL

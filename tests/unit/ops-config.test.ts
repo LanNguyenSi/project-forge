@@ -123,8 +123,21 @@ describe("docker-compose.override.example.yml name", () => {
 
 describe(".github/workflows/ci.yml docker-build job", () => {
   // Text-level, like the compose checks: the job block runs from its name to
-  // the end of the file (it is the last job).
-  const job = /^ {2}docker-build:\n([\s\S]*)$/m.exec(read(".github/workflows/ci.yml"))?.[1] ?? "";
+  // the next top-level job key or the end of the file.
+  const job =
+    /^ {2}docker-build:\n([\s\S]*?)(?=^ {2}[\w-]+:\n|(?![\s\S]))/m.exec(read(".github/workflows/ci.yml"))?.[1] ?? "";
+  // The smoke step alone: from its name to the end of the job block.
+  const smoke = /- name: Image starts and answers \/api\/health\n([\s\S]*)$/.exec(job)?.[1] ?? "";
+
+  it("captures the job and the smoke step, and stops at the job boundary", () => {
+    expect(job).toMatch(/^ {4}runs-on: ubuntu-latest$/m);
+    expect(job).not.toMatch(/^ {2}build:/m);
+    expect(smoke).toMatch(/^ {8}run: \|$/m);
+  });
+
+  it("bounds the whole job with timeout-minutes", () => {
+    expect(job).toMatch(/^ {4}timeout-minutes: \d+$/m);
+  });
 
   it("finds the job and builds the image from one IMAGE variable", () => {
     expect(job).toMatch(/^ {6}IMAGE: project-forge:ci$/m);
@@ -140,6 +153,28 @@ describe(".github/workflows/ci.yml docker-build job", () => {
   it("generates the secret in the job and sets a non-placeholder NEXTAUTH_URL", () => {
     expect(job).toMatch(/NEXTAUTH_SECRET="\$\(openssl rand -hex 32\)"/);
     expect(job).toMatch(/NEXTAUTH_URL=https:\/\/(?!your-forge\.example\.com)\S+/);
+  });
+
+  it("keeps its SQLite file on a tmpfs at the path of DATABASE_URL, so the run leaves nothing behind", () => {
+    expect(smoke).toMatch(/^ {12}--tmpfs \/data \\$/m);
+    expect(smoke).toMatch(/-e DATABASE_URL=file:\/data\/project-forge\.db \\$/m);
+  });
+
+  it("polls against a 90 s deadline, not a fixed number of attempts", () => {
+    expect(smoke).toMatch(/^ {10}deadline=\$\(\(SECONDS \+ 90\)\)$/m);
+    expect(smoke).toMatch(/^ {10}while \[ "\$SECONDS" -lt "\$deadline" \]; do$/m);
+    expect(smoke).not.toMatch(/-lt 90/);
+  });
+
+  it("retries only while nothing listens (000) and gives up once the container is not running", () => {
+    expect(smoke).toMatch(/^ {12}\[ "\$code" != 000 \] && break$/m);
+    expect(smoke).toMatch(
+      /^ {12}\[ "\$\(docker inspect -f '\{\{\.State\.Running\}\}' "\$cid"\)" = true \] \|\| break$/m,
+    );
+  });
+
+  it("also fails when the status is 200 but the body is not {\"ok\":true}", () => {
+    expect(smoke).toMatch(/\|\| \[ "\$\(cat "\$body"\)" != '\{"ok":true\}' \]; then$/m);
   });
 
   it("fails on a non-200 answer, prints the container logs and always removes the container", () => {
