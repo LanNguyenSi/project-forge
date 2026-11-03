@@ -1,3 +1,9 @@
+# Pinned compose project name. Named volumes are prefixed with it
+# (project-forge_forge_db), so without a pin the volume follows the name of the
+# checkout directory and a moved or re-cloned checkout starts on an empty one.
+# A -p flag or COMPOSE_PROJECT_NAME still wins over this key.
+name: project-forge
+
 # Bounded container logs: json-file keeps at most 3 x 10 MB per service, so a
 # chatty or crash-looping container cannot fill the host disk.
 x-logging: &default-logging
@@ -84,6 +90,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+      # During the start period, probe every 2 s instead of every `interval`,
+      # so the container turns healthy (and Traefik routes to it) within
+      # seconds of the server listening. Needs Docker Engine 25 or newer.
+      start_interval: 2s
     logging: *default-logging
     networks:
       - traefik

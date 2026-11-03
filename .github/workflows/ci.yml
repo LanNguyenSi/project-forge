@@ -52,13 +52,62 @@ jobs:
 
   docker-build:
     # Smoke test only: the image must keep building from the lockfile
-    # (`npm ci`), with the same flags as the build job. No push.
+    # (`npm ci`), with the same flags as the build job, and the built image must
+    # start and answer /api/health. No push.
     runs-on: ubuntu-latest
+    env:
+      IMAGE: project-forge:ci
     steps:
       - uses: actions/checkout@v5
-      - run: docker build -t project-forge:ci .
+      - run: docker build -t "$IMAGE" .
       - name: Image carries the start script, the migrations and sqlite3
         # The container CMD runs scripts/start.sh, which needs all three.
         run: >-
-          docker run --rm --entrypoint sh project-forge:ci -c
+          docker run --rm --entrypoint sh "$IMAGE" -c
           'sqlite3 --version && test -f scripts/start.sh && test -f prisma/migrations/migration_lock.toml && node_modules/.bin/prisma --version'
+      - name: Image starts and answers /api/health
+        # Runs the image the way production does (the container CMD, so
+        # scripts/start.sh migrates a fresh SQLite file on a tmpfs first, then
+        # `next start`), with the production hardening flags of
+        # docker-compose.yml. The values are dummies generated here, none is a
+        # real secret; they satisfy the production start-up checks of
+        # lib/startup-checks.ts (NEXTAUTH_SECRET not a placeholder, NEXTAUTH_URL
+        # not the example host). /api/health answers 500 when that check fails,
+        # and the container exits when start.sh refuses to start, so both fail
+        # this step.
+        run: |
+          set -eu
+          cid=""
+          body=$(mktemp)
+          cleanup() {
+            if [ -n "$cid" ]; then docker rm -f "$cid" >/dev/null || true; fi
+            rm -f "$body"
+          }
+          trap cleanup EXIT
+          cid=$(docker run -d \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            --tmpfs /data \
+            -e NEXTAUTH_SECRET="$(openssl rand -hex 32)" \
+            -e NEXTAUTH_URL=https://forge.ci.invalid \
+            -e DATABASE_URL=file:/data/project-forge.db \
+            -p 127.0.0.1::3000 \
+            "$IMAGE")
+          port=$(docker port "$cid" 3000/tcp | head -n 1 | sed 's/.*://')
+          code=000
+          # 000 means nothing listens yet (migrations still running): keep
+          # polling, for at most 90 s and only while the container is up. Any
+          # HTTP status is final.
+          i=0
+          while [ "$i" -lt 90 ]; do
+            code=$(curl -s -o "$body" -w '%{http_code}' --max-time 2 "http://127.0.0.1:$port/api/health" || true)
+            [ "$code" != 000 ] && break
+            [ "$(docker inspect -f '{{.State.Running}}' "$cid")" = true ] || break
+            i=$((i + 1))
+            sleep 1
+          done
+          if [ "$code" != 200 ] || [ "$(cat "$body")" != '{"ok":true}' ]; then
+            echo "health smoke failed: status $code, body: $(cat "$body")" >&2
+            docker logs "$cid" >&2 || true
+            exit 1
+          fi
+          echo "health smoke ok after ${i}s: $(cat "$body")"

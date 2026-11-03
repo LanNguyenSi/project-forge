@@ -92,16 +92,18 @@ Check the effective value with
 (the plain form shows what a manual run would use). On a running stack,
 `docker compose exec app printenv DATABASE_URL` shows what the container has.
 
-`forge_db` is a named volume, so compose prefixes it with the project name, and
-unless `COMPOSE_PROJECT_NAME` is set, the project name comes from the name of
-the checkout directory: the relay runs
-`docker compose -f docker-compose.yml` with no `-p`, and `docker-compose.yml`
-has no top-level `name:`. Move the checkout, or re-clone it under another
-directory name, and the first deploy starts on a new, empty volume while the old
-one keeps the data with nothing pointing at it. Check with
-`docker volume ls | grep forge_db` before and after the first deploy from a new
-path: a second `forge_db` under a different prefix means the data did not come
-along.
+`forge_db` is a named volume, so compose prefixes it with the project name.
+`docker-compose.yml` pins that name with a top-level `name: project-forge`, so
+the volume is `project-forge_forge_db` whatever the checkout directory is
+called (the relay runs `docker compose -f docker-compose.yml` with no `-p`).
+The pin is the name the production volume already had, so it changed nothing
+for it. A `-p` flag or `COMPOSE_PROJECT_NAME` (also when set in `.env`) still
+wins over the pin: with one of them set to another value, the first deploy
+starts on a new, empty volume while the old one keeps the data with nothing
+pointing at it. Check with `docker volume ls | grep forge_db` before and after
+the first deploy after such a change: a second `forge_db` under a different
+prefix means the data did not come along. Before the pin existed, moving or
+re-cloning the checkout under another directory name had the same effect.
 
 ### Required secrets
 
@@ -139,9 +141,11 @@ along.
 The `app` service has a compose healthcheck against `GET /api/health`, a
 public route that answers `{"ok":true}` without touching the database. It
 gives the container 60 seconds to run `scripts/start.sh` (`prisma migrate deploy`,
-plus the pre-migrate copy when a migration is pending) and start, then probes
-every 15 seconds; five failures in a row mark it `unhealthy`
-(`docker compose ps`). Because the check reads the route, a server that
+plus the pre-migrate copy when a migration is pending) and start, probing every
+2 seconds during that time (`start_interval`, which needs Docker Engine 25 or
+newer and a Compose release that knows the key) so the container turns healthy
+soon after the server listens, then every 15 seconds; five failures in a row
+mark it `unhealthy` (`docker compose ps`). Because the check reads the route, a server that
 refuses to serve (see above) is `unhealthy` too. Docker does not restart an
 unhealthy container on its own; the check is the signal for operators and
 deploy tooling.
