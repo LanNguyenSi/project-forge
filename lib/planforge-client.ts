@@ -279,6 +279,12 @@ async function extractTarGzInto(outdir: string, base64: string): Promise<void> {
       if (code === 0) resolve();
       else reject(new PlanforgeClientError(`tar exited ${code}: ${stderr.trim()}`));
     });
+    // tar can exit before consuming stdin (an archive it cannot open fails on
+    // the first block while the pipe still holds the rest of the payload); the
+    // remaining write then emits EPIPE on child.stdin. Without a listener that
+    // escapes as an uncaught 'write EPIPE'; the exit code reported by the
+    // close handler above is the failure the caller is supposed to see.
+    child.stdin.on("error", () => {});
     child.stdin.end(buf);
   });
 }

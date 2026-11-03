@@ -40,9 +40,12 @@ function sseResponse(events: Array<{ event: string; data: unknown }>): Response 
     .map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`)
     .join("");
   // Stream it in chunks so the frame reassembler actually gets exercised.
+  // The chunk size is capped so a multi-MiB body (the tar-exit regression
+  // test below) stays fast; bodies up to 40 KB keep the 40-character slicing.
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const chunks = body.match(/[\s\S]{1,40}/g) ?? [body];
+      const size = Math.max(40, Math.ceil(body.length / 1000));
+      const chunks = body.match(new RegExp(`[\\s\\S]{1,${size}}`, "g")) ?? [body];
       for (const c of chunks) controller.enqueue(new TextEncoder().encode(c));
       controller.close();
     },
@@ -186,6 +189,42 @@ describe("runPlanforgeViaHttp", () => {
     });
 
     expect(result.scaffoldkit).toEqual({ invoked: true, exitCode: 0, stderr: "" });
+  });
+
+  // Regression for the `write EPIPE` flake: `tar -xzf -` exits with
+  // "Unrecognized archive format" on a payload it cannot open, while the
+  // client's write of the (multi-MiB) body is still in flight, so the rest
+  // of the write lands on a closed pipe. The run must fail with the tar
+  // PlanforgeClientError; the stdin EPIPE must stay an internal detail. It
+  // used to escape as an uncaught error and end the vitest worker (exit 1)
+  // with every test passing. 4 MiB: bsdtar gives up on its own input around
+  // 1 MiB, so the payload must stay clearly above what it consumes before
+  // exiting for the write-after-close to be deterministic.
+  it("fails with the tar error when tar exits before consuming the tarball", async () => {
+    const notAnArchive = Buffer.alloc(4 * 1024 * 1024, 0x41).toString("base64");
+    global.fetch = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          event: "done",
+          data: {
+            requestId: "req-epipe",
+            planOutput: {},
+            scaffoldkitInput: null,
+            outputTarGz: notAnArchive,
+            exitCode: 0,
+          },
+        },
+      ]),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      runPlanforgeViaHttp({
+        baseUrl: "http://planforge:8223",
+        token: "t",
+        input: {},
+        outdir,
+      }),
+    ).rejects.toThrow(/tar exited/);
   });
 
   it("sends `scaffold: true` explicitly on the request body", async () => {
