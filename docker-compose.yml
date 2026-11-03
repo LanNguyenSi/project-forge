@@ -119,7 +119,7 @@ services:
   # auth on /api/*.
   planforge:
     build:
-      context: ${PLANFORGE_CONTEXT:-https://github.com/LanNguyenSi/agent-planforge.git#2438f9a47da23de378b0943e8f073a41decdb00a}
+      context: ${PLANFORGE_CONTEXT:-https://github.com/LanNguyenSi/agent-planforge.git#88a5453a49bba5fd63588c5015bb754645d3f74e}
       dockerfile: server/Dockerfile
     environment:
       PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN:?set PLANFORGE_SERVICE_TOKEN in .env (openssl rand -hex 32)}
