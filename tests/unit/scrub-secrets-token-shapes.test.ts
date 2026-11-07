@@ -102,6 +102,114 @@ describe("scrubSecrets context-guarded classic 40-hex PAT", () => {
   });
 });
 
+describe("scrubSecrets http userinfo", () => {
+  it("masks http userinfo carrying a classic PAT and keeps the scheme and host", () => {
+    expect(scrubSecrets(`fatal: unable to access 'http://user:${SHA_1}@host.example/o/r.git/'`)).toBe(
+      "fatal: unable to access 'http://***@host.example/o/r.git/'",
+    );
+    expect(scrubSecrets(`http://user:${SHA_1}@host`)).toBe("http://***@host");
+  });
+
+  it("masks https userinfo carrying a classic PAT (user name is masked with the token)", () => {
+    expect(scrubSecrets(`https://user:${SHA_1}@host/o/r`)).toBe("https://***@host/o/r");
+  });
+
+  it("leaves an http URL without userinfo and a bare SHA in a URL path untouched", () => {
+    const line = `see http://host.example/o/r/commit/${SHA_1} and http://host.example:8080/x`;
+    expect(scrubSecrets(line)).toBe(line);
+  });
+});
+
+describe("scrubSecrets context word with a name suffix", () => {
+  it("masks a 40-hex value after token_value, password_hash, secret_key and secret-string", () => {
+    expect(scrubSecrets(`token_value=${SHA_1}`)).toBe("token_value=***");
+    expect(scrubSecrets(`password_hash: ${SHA_1}`)).toBe("password_hash: ***");
+    expect(scrubSecrets(`secret_key=${SHA_1}`)).toBe("secret_key=***");
+    expect(scrubSecrets(`secret.string: ${SHA_1}`)).toBe("secret.string: ***");
+    expect(scrubSecrets(`tokenValue=${SHA_1}`)).toBe("tokenValue=***");
+    expect(scrubSecrets(`secret-hash ${SHA_1}`)).toBe("secret-hash ***");
+  });
+
+  it("accepts the false positive of a SHA after a suffixed context word", () => {
+    expect(scrubSecrets(`secret_key ${SHA_2} rotated`)).toBe("secret_key *** rotated");
+  });
+
+  it("keeps a SHA after a suffix that is not on the list", () => {
+    for (const word of ["token_count", "password_length", "secret_id", "tokenizer", "key"]) {
+      const line = `${word}=${SHA_1}`;
+      expect(scrubSecrets(line)).toBe(line);
+    }
+  });
+});
+
+describe("scrubSecrets quote shapes around the key and the value", () => {
+  it("masks a value behind JSON-escaped quotes", () => {
+    expect(scrubSecrets(`{\\"token\\": \\"${SHA_1}\\"}`)).toBe(`{\\"token\\": \\"***\\"}`);
+    expect(scrubSecrets(`{\\\\"token\\\\": \\\\"${SHA_1}\\\\"}`)).toBe(`{\\\\"token\\\\": \\\\"***\\\\"}`);
+  });
+
+  it("masks a value behind a backtick on the key and on the value", () => {
+    expect(scrubSecrets(`\`token\`: ${SHA_1}`)).toBe("`token`: ***");
+    expect(scrubSecrets(`token: \`${SHA_1}\``)).toBe("token: `***`");
+  });
+
+  it("masks a value behind typographic single quotes on the key and on the value", () => {
+    expect(scrubSecrets(`‘token’: ${SHA_1}`)).toBe("‘token’: ***");
+    expect(scrubSecrets(`token: ‘${SHA_1}’`)).toBe("token: ‘***’");
+    expect(scrubSecrets(`token’: ${SHA_1}`)).toBe("token’: ***");
+    expect(scrubSecrets(`token: ’${SHA_1}`)).toBe("token: ’***");
+  });
+
+  it("masks a value behind typographic double quotes on the key and on the value", () => {
+    expect(scrubSecrets(`“token”: ${SHA_1}`)).toBe("“token”: ***");
+    expect(scrubSecrets(`token: “${SHA_1}”`)).toBe("token: “***”");
+    expect(scrubSecrets(`token”: ${SHA_1}`)).toBe("token”: ***");
+    expect(scrubSecrets(`token: ”${SHA_1}`)).toBe("token: ”***");
+  });
+
+  it("masks a value behind a plain single quote on the key and any quote class member right after the word", () => {
+    expect(scrubSecrets(`{'token': '${SHA_1}'}`)).toBe("{'token': '***'}");
+    // The key group sits right after the context word, so a stray opening
+    // typographic quote there is accepted the same as a closing one.
+    expect(scrubSecrets(`token\u2018: ${SHA_1}`)).toBe("token\u2018: ***");
+    expect(scrubSecrets(`token\u201C: ${SHA_1}`)).toBe("token\u201C: ***");
+  });
+
+  it("keeps a SHA behind a quote that follows no context word", () => {
+    for (const q of ["\\\"", "`", "‘", "“", "'"]) {
+      const line = `commit ${q}${SHA_1}${q}`;
+      expect(scrubSecrets(line)).toBe(line);
+    }
+  });
+});
+
+describe("scrubSecrets arrow separators", () => {
+  it("masks a value after => and ->", () => {
+    expect(scrubSecrets(`token => ${SHA_1}`)).toBe("token => ***");
+    expect(scrubSecrets(`{ token=>"${SHA_1}" }`)).toBe('{ token=>"***" }');
+    expect(scrubSecrets(`password -> ${SHA_1}`)).toBe("password -> ***");
+    expect(scrubSecrets(`secret->${SHA_1}`)).toBe("secret->***");
+  });
+
+  it("keeps SHAs in a git push line and a commit range", () => {
+    const push = `   ${SHA_1}..${SHA_2}  main -> main`;
+    expect(scrubSecrets(push)).toBe(push);
+    const forced = ` + ${SHA_1}...${SHA_2} main -> main (forced update)`;
+    expect(scrubSecrets(forced)).toBe(forced);
+    const rejected = ` ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'https://github.com/o/r.git'\nhint: ${SHA_1}...${SHA_2}`;
+    expect(scrubSecrets(rejected)).toBe(rejected);
+    const range = `git log ${SHA_1}...${SHA_2}`;
+    expect(scrubSecrets(range)).toBe(range);
+  });
+
+  it("keeps a SHA after a single > or - that is not an arrow", () => {
+    for (const sep of [">", "-", "=="]) {
+      const line = `main ${sep} ${SHA_1}`;
+      expect(scrubSecrets(line)).toBe(line);
+    }
+  });
+});
+
 /**
  * Linearity, not wall clock: the 200 ms ceilings in scrub-secrets.test.ts
  * flake under CPU contention, so these patterns are pinned by scaling
@@ -185,5 +293,39 @@ describe("scrubSecrets new pattern time budgets (scaling, not absolute)", () => 
     const smallMs = minElapsedMs(() => small);
     const largeMs = minElapsedMs(() => large);
     expectNearLinear(smallMs, largeMs);
+  });
+
+  it("scales linearly on adversarial repeats of the widened context pattern", () => {
+    // One input per added piece: a repeated suffixed context word, a repeated
+    // key quote (plain and escaped), a repeated arrow separator, repeated
+    // typographic quotes and a repeated backslash. Each ends in "!" so
+    // nothing masks and every anchor fails after consuming its run.
+    const hex39 = "a".repeat(39);
+    const units = [
+      "token_value",
+      `token${'"'.repeat(64)}${hex39}!`,
+      `token${"\\\"".repeat(64)}${hex39}!`,
+      `password_hash${"=>".repeat(64)}${hex39}!`,
+      `secret${"->".repeat(64)}${hex39}!`,
+      `pat${"“’".repeat(64)}:${hex39}!`,
+      `token${"\\".repeat(64)}`,
+      `token_hash${"=".repeat(64)}`,
+    ];
+    for (const unit of units) {
+      const small = repeated(unit, 200 * 1024);
+      const large = repeated(unit, 2000 * 1024);
+      expect(large.length).toBeGreaterThanOrEqual(2000 * 1024);
+      expect(scrubSecrets(large)).toBe(large);
+      expectNearLinear(minElapsedMs(() => small), minElapsedMs(() => large));
+    }
+  });
+
+  it("scales linearly on repeated http and https userinfo prefixes without an @", () => {
+    for (const unit of ["https://a:", "http://a:", "https://a:b", "http://"]) {
+      const small = repeated(unit, 200 * 1024);
+      const large = repeated(unit, 2000 * 1024);
+      expect(scrubSecrets(large)).toBe(large);
+      expectNearLinear(minElapsedMs(() => small), minElapsedMs(() => large));
+    }
   });
 });
