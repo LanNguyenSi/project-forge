@@ -3,7 +3,8 @@
  *
  * A failed `git push` to an authed remote echoes the URL (and so the token)
  * in git's stderr, and Prisma errors can embed argument values. Handles the
- * `x-access-token:TOKEN@` and `https://TOKEN@` remote forms, bare GitHub
+ * `x-access-token:TOKEN@` and `http(s)://TOKEN@` or `http(s)://user:TOKEN@`
+ * remote forms, bare GitHub
  * token shapes (prefixed, or classic 40-hex only next to credential context
  * such as `GITHUB_TOKEN=` or `githubPat: "..."`, so a bare git SHA survives)
  * as defense in depth.
@@ -35,10 +36,14 @@ export function scrubSecrets(text: string): string {
       // `x-access-token` word, an optional name suffix (`_value`, `-hash`,
       // `.key`, `string`, so `token_value=` and `password_hash:` qualify; the
       // price is over-masking a SHA after e.g. `secret_key`), an optional
-      // quote, a run of separators (whitespace, `:`, `=`, `=>`, `->`), an
-      // optional quote, then the hex. A quote is one of ' " ` or a
-      // typographic single or double quote, optionally behind one or two
-      // backslashes (JSON escaped inside a string, `\"token\": \"<hex>\"`).
+      // quote, a run of at most 1024 separators (whitespace, `:`, `=`, `=>`,
+      // `->`), an optional quote, then the hex. A quote is one of ' " ` or a
+      // typographic or guillemet quote (U+2018, U+2019, U+201A, U+201C,
+      // U+201D, U+201E, U+00AB, U+00BB), optionally behind up to three
+      // backslashes (JSON escaped inside a string, `\"token\": \"<hex>\"`,
+      // up to the triple escape of a value stringified three times). The run
+      // is bounded because an unbounded alternation star overflows the
+      // regex engine stack on a multi-megabyte separator run (RangeError).
       // No leading word boundary on purpose: the context word also counts
       // inside a name, so `GITHUB_TOKEN=`, `db_password=`, `access_token=` and
       // `githubPat:` qualify (and `pat` alone covers `githubPat` and
@@ -55,7 +60,7 @@ export function scrubSecrets(text: string): string {
       // single. Each anchor therefore fails in linear time like the capped
       // pattern above.
       .replace(
-        /(token|authorization|bearer|password|secret|pat|x-access-token)((?:[_.-]?(?:value|hash|key|string))?)((?:\\{0,2}['"`\u2018\u2019\u201C\u201D])?)((?:[\s:]|=>?|->)*)((?:\\{0,2}['"`\u2018\u2019\u201C\u201D])?)([0-9a-f]{40,})/gi,
+        /(token|authorization|bearer|password|secret|pat|x-access-token)((?:[_.-]?(?:value|hash|key|string))?)((?:\\{0,3}['"`\u2018\u2019\u201A\u201C\u201D\u201E\u00AB\u00BB])?)((?:[\s:]|=>?|->){0,1024})((?:\\{0,3}['"`\u2018\u2019\u201A\u201C\u201D\u201E\u00AB\u00BB])?)([0-9a-f]{40,})/gi,
         "$1$2$3$4$5***",
       )
   );
