@@ -102,15 +102,186 @@ describe("scrubSecrets context-guarded classic 40-hex PAT", () => {
   });
 });
 
+describe("scrubSecrets http userinfo", () => {
+  it("masks http userinfo carrying a classic PAT and keeps the scheme and host", () => {
+    expect(scrubSecrets(`fatal: unable to access 'http://user:${SHA_1}@host.example/o/r.git/'`)).toBe(
+      "fatal: unable to access 'http://***@host.example/o/r.git/'",
+    );
+    expect(scrubSecrets(`http://user:${SHA_1}@host`)).toBe("http://***@host");
+  });
+
+  it("masks https userinfo carrying a classic PAT (user name is masked with the token)", () => {
+    expect(scrubSecrets(`https://user:${SHA_1}@host/o/r`)).toBe("https://***@host/o/r");
+  });
+
+  it("leaves an http URL without userinfo and a bare SHA in a URL path untouched", () => {
+    const line = `see http://host.example/o/r/commit/${SHA_1} and http://host.example:8080/x`;
+    expect(scrubSecrets(line)).toBe(line);
+  });
+});
+
+describe("scrubSecrets context word with a name suffix", () => {
+  it("masks a 40-hex value after token_value, password_hash, secret_key and secret-string", () => {
+    expect(scrubSecrets(`token_value=${SHA_1}`)).toBe("token_value=***");
+    expect(scrubSecrets(`password_hash: ${SHA_1}`)).toBe("password_hash: ***");
+    expect(scrubSecrets(`secret_key=${SHA_1}`)).toBe("secret_key=***");
+    expect(scrubSecrets(`secret.string: ${SHA_1}`)).toBe("secret.string: ***");
+    expect(scrubSecrets(`tokenValue=${SHA_1}`)).toBe("tokenValue=***");
+    expect(scrubSecrets(`secret-hash ${SHA_1}`)).toBe("secret-hash ***");
+  });
+
+  it("accepts the false positive of a SHA after a suffixed context word", () => {
+    expect(scrubSecrets(`secret_key ${SHA_2} rotated`)).toBe("secret_key *** rotated");
+  });
+
+  it("keeps a SHA after a suffix that is not on the list", () => {
+    for (const word of ["token_count", "password_length", "secret_id", "tokenizer", "key"]) {
+      const line = `${word}=${SHA_1}`;
+      expect(scrubSecrets(line)).toBe(line);
+    }
+  });
+});
+
+describe("scrubSecrets quote shapes around the key and the value", () => {
+  it("masks a value behind JSON-escaped quotes", () => {
+    expect(scrubSecrets(`{\\"token\\": \\"${SHA_1}\\"}`)).toBe(`{\\"token\\": \\"***\\"}`);
+    expect(scrubSecrets(`{\\\\"token\\\\": \\\\"${SHA_1}\\\\"}`)).toBe(`{\\\\"token\\\\": \\\\"***\\\\"}`);
+  });
+
+  it("masks a value behind the triple escape of a value stringified three times", () => {
+    // JSON.stringify applied three times turns each quote into \\\" (three backslashes).
+    const q = "\\".repeat(3) + '"';
+    expect(scrubSecrets(`${q}token${q}: ${q}${SHA_1}${q}`)).toBe(`${q}token${q}: ${q}***${q}`);
+  });
+
+  it("masks a value behind each low, guillemet and German quote on the key and on the value", () => {
+    for (const ch of ["\u201A", "\u201E", "\u00AB", "\u00BB"]) {
+      expect(scrubSecrets(`token${ch}: ${SHA_1}`)).toBe(`token${ch}: ***`);
+      expect(scrubSecrets(`token: ${ch}${SHA_1}${ch}`)).toBe(`token: ${ch}***${ch}`);
+    }
+  });
+
+  it("masks a value behind a backtick on the key and on the value", () => {
+    expect(scrubSecrets(`\`token\`: ${SHA_1}`)).toBe("`token`: ***");
+    expect(scrubSecrets(`token: \`${SHA_1}\``)).toBe("token: `***`");
+  });
+
+  it("masks a value behind typographic single quotes on the key and on the value", () => {
+    expect(scrubSecrets(`‘token’: ${SHA_1}`)).toBe("‘token’: ***");
+    expect(scrubSecrets(`token: ‘${SHA_1}’`)).toBe("token: ‘***’");
+    expect(scrubSecrets(`token’: ${SHA_1}`)).toBe("token’: ***");
+    expect(scrubSecrets(`token: ’${SHA_1}`)).toBe("token: ’***");
+  });
+
+  it("masks a value behind typographic double quotes on the key and on the value", () => {
+    expect(scrubSecrets(`“token”: ${SHA_1}`)).toBe("“token”: ***");
+    expect(scrubSecrets(`token: “${SHA_1}”`)).toBe("token: “***”");
+    expect(scrubSecrets(`token”: ${SHA_1}`)).toBe("token”: ***");
+    expect(scrubSecrets(`token: ”${SHA_1}`)).toBe("token: ”***");
+  });
+
+  it("masks a value behind a plain single quote on the key and any quote class member right after the word", () => {
+    expect(scrubSecrets(`{'token': '${SHA_1}'}`)).toBe("{'token': '***'}");
+    // The key group sits right after the context word, so a stray opening
+    // typographic quote there is accepted the same as a closing one.
+    expect(scrubSecrets(`token\u2018: ${SHA_1}`)).toBe("token\u2018: ***");
+    expect(scrubSecrets(`token\u201C: ${SHA_1}`)).toBe("token\u201C: ***");
+  });
+
+  it("keeps a SHA behind a quote that follows no context word", () => {
+    for (const q of ["\\\"", "`", "‘", "“", "'", "\u201A", "\u201E", "\u00AB", "\u00BB"]) {
+      const line = `commit ${q}${SHA_1}${q}`;
+      expect(scrubSecrets(line)).toBe(line);
+    }
+  });
+});
+
+describe("scrubSecrets arrow separators", () => {
+  it("masks a value after => and ->", () => {
+    expect(scrubSecrets(`token => ${SHA_1}`)).toBe("token => ***");
+    expect(scrubSecrets(`{ token=>"${SHA_1}" }`)).toBe('{ token=>"***" }');
+    expect(scrubSecrets(`password -> ${SHA_1}`)).toBe("password -> ***");
+    expect(scrubSecrets(`secret->${SHA_1}`)).toBe("secret->***");
+  });
+
+  it("keeps SHAs in a git push line and a commit range", () => {
+    const push = `   ${SHA_1}..${SHA_2}  main -> main`;
+    expect(scrubSecrets(push)).toBe(push);
+    const forced = ` + ${SHA_1}...${SHA_2} main -> main (forced update)`;
+    expect(scrubSecrets(forced)).toBe(forced);
+    const rejected = ` ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'https://github.com/o/r.git'\nhint: ${SHA_1}...${SHA_2}`;
+    expect(scrubSecrets(rejected)).toBe(rejected);
+    const range = `git log ${SHA_1}...${SHA_2}`;
+    expect(scrubSecrets(range)).toBe(range);
+  });
+
+  it("keeps a SHA after a context word and a single > or - that is not an arrow", () => {
+    for (const sep of [">", "-"]) {
+      const line = `token ${sep} ${SHA_1}`;
+      expect(scrubSecrets(line)).toBe(line);
+    }
+  });
+
+  it("masks a value behind a doubled = (two = separators)", () => {
+    expect(scrubSecrets(`token == ${SHA_1}`)).toBe("token == ***");
+  });
+});
+
+describe("scrubSecrets URL look-alikes and huge separator runs", () => {
+  it("keeps a repo URL with an @ in the path after the host", () => {
+    for (const url of ["https://github.com/org/repo@tag", "http://github.com/org/repo@tag"]) {
+      expect(scrubSecrets(url)).toBe(url);
+    }
+  });
+
+  it("returns a 9 MiB separator run after a context word unchanged and without throwing", () => {
+    const spaces = "token" + " ".repeat(9 * 1024 * 1024);
+    expect(scrubSecrets(spaces)).toBe(spaces);
+    const arrows = "token" + "=>".repeat(4 * 1024 * 1024);
+    expect(scrubSecrets(arrows)).toBe(arrows);
+  });
+
+  it("masks a 9 MiB hex run after a context word whole and without throwing", () => {
+    const hex = "a".repeat(9 * 1024 * 1024);
+    expect(scrubSecrets(`token=${hex}`)).toBe("token=***");
+    expect(scrubSecrets(`x-access-token:${hex}`)).toBe("x-access-token:***");
+  });
+
+  it("returns 9 MiB runs for the other unbounded groups unchanged and without throwing", () => {
+    const mib9 = 9 * 1024 * 1024;
+    const hexAfterNothing = "a".repeat(mib9);
+    expect(scrubSecrets(hexAfterNothing)).toBe(hexAfterNothing);
+    const userinfo = "https://" + "a".repeat(mib9);
+    expect(scrubSecrets(userinfo)).toBe(userinfo);
+    const quotes = "token" + '"'.repeat(mib9);
+    expect(scrubSecrets(quotes)).toBe(quotes);
+    const backslashes = "token" + "\\".repeat(mib9);
+    expect(scrubSecrets(backslashes)).toBe(backslashes);
+  });
+
+  it("still masks a value behind a short separator run and behind a 1 MiB hex run", () => {
+    expect(scrubSecrets(`token:   ${SHA_1}`)).toBe("token:   ***");
+    expect(scrubSecrets(`token=${"a".repeat(1024 * 1024)}`)).toBe("token=***");
+  });
+
+  it("masks a value behind the longest allowed separator run and not behind a longer one", () => {
+    expect(scrubSecrets(`token${" ".repeat(1024)}${SHA_1}`)).toBe(`token${" ".repeat(1024)}***`);
+    const beyond = `token${" ".repeat(1025)}${SHA_1}`;
+    expect(scrubSecrets(beyond)).toBe(beyond);
+  });
+});
+
 /**
  * Linearity, not wall clock: the 200 ms ceilings in scrub-secrets.test.ts
  * flake under CPU contention, so these patterns are pinned by scaling
- * instead. Each case scrubs a 200 KB and a 2 MB adversarial input (10x the
- * input; both sides take well over a timer tick, so the measured ratio is
- * meaningful) and requires the 2 MB time to stay under 20x the 200 KB time:
- * a linear pattern grows about 10x, a quadratic or exponential one grows
- * about 100x or more. The 2000 ms absolute ceiling on the 2 MB run is
- * deliberately generous and only bounds the worst case per pass.
+ * instead. The 200 KB side takes well under a millisecond, so it is timed as
+ * 10 passes (10 x 200 KB, the same total size as one 2 MB pass) and compared
+ * with one pass over 2 MB; the minimum of 5 rounds is taken on each side.
+ * Linear patterns land near 1, a quadratic one near 10, and the test fails at
+ * 5. Only the ratio is asserted, with no absolute time ceiling. This applies
+ * to the two widened-pattern tests that use expectRatioLinear; the three older
+ * tests keep expectNearLinear, its 20x ratio and its ceiling, and those still
+ * flake under heavy load.
  */
 function minElapsedMs(build: () => string): number {
   let best = Number.POSITIVE_INFINITY;
@@ -128,6 +299,25 @@ const repeated = (unit: string, bytes: number) => unit.repeat(Math.ceil(bytes / 
 function expectNearLinear(smallMs: number, largeMs: number): void {
   expect(largeMs).toBeLessThan(smallMs * 20);
   expect(largeMs).toBeLessThan(2000);
+}
+
+/** Ratio of one pass over `large` to 10 passes over `small`; near 1 when linear. */
+function scalingRatio(small: string, large: string): number {
+  let smallBest = Number.POSITIVE_INFINITY;
+  let largeBest = Number.POSITIVE_INFINITY;
+  for (let round = 0; round < 5; round++) {
+    let t0 = performance.now();
+    for (let pass = 0; pass < 10; pass++) scrubSecrets(small);
+    smallBest = Math.min(smallBest, performance.now() - t0);
+    t0 = performance.now();
+    scrubSecrets(large);
+    largeBest = Math.min(largeBest, performance.now() - t0);
+  }
+  return largeBest / smallBest;
+}
+
+function expectRatioLinear(small: string, large: string): void {
+  expect(scalingRatio(small, large)).toBeLessThan(5);
 }
 
 describe("scrubSecrets new pattern time budgets (scaling, not absolute)", () => {
@@ -185,5 +375,45 @@ describe("scrubSecrets new pattern time budgets (scaling, not absolute)", () => 
     const smallMs = minElapsedMs(() => small);
     const largeMs = minElapsedMs(() => large);
     expectNearLinear(smallMs, largeMs);
+  });
+
+  it("scales linearly on adversarial repeats of the widened context pattern", () => {
+    // One input per added piece: a repeated suffixed context word, a repeated
+    // key quote (plain and escaped), a repeated arrow separator, repeated
+    // typographic quotes and a repeated backslash. Each ends in "!" so
+    // nothing masks and every anchor fails after consuming its run.
+    const hex39 = "a".repeat(39);
+    const units = [
+      "token_value",
+      `token${'"'.repeat(64)}${hex39}!`,
+      `token${"\\\"".repeat(64)}${hex39}!`,
+      `password_hash${"=>".repeat(64)}${hex39}!`,
+      `secret${"->".repeat(64)}${hex39}!`,
+      `pat${"“’".repeat(64)}:${hex39}!`,
+      `token${"\\".repeat(64)}`,
+      `token_hash${"=".repeat(64)}`,
+    ];
+    for (const unit of units) {
+      const small = repeated(unit, 200 * 1024);
+      const large = repeated(unit, 2000 * 1024);
+      expect(large.length).toBeGreaterThanOrEqual(2000 * 1024);
+      expect(scrubSecrets(large)).toBe(large);
+      expectRatioLinear(small, large);
+    }
+  });
+
+  it("scales linearly on repeated http and https userinfo prefixes without an @", () => {
+    // Anchors are spaced by ~7 KB of inert filler (no "/", "@" or whitespace)
+    // rather than packed: packed, a userinfo run that lost its "/" exclusion
+    // would scan to the end of the text from each of ~200k anchors and hang
+    // the suite; spaced, it still grows quadratically and fails the ratio.
+    const filler = "x".repeat(7000);
+    for (const prefix of ["https://a:", "http://a:", "https://a:b", "http://"]) {
+      const unit = prefix + filler;
+      const small = repeated(unit, 200 * 1024);
+      const large = repeated(unit, 2000 * 1024);
+      expect(scrubSecrets(large)).toBe(large);
+      expectRatioLinear(small, large);
+    }
   });
 });

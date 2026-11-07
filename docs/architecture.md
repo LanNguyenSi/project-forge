@@ -218,16 +218,21 @@ are unmetered.
 
 The publish path sanitizes any embedded GitHub PAT with the shared
 `lib/scrub-secrets.ts` before the message reaches logs. It masks the
-`x-access-token:...@` and `https://...@` remote URL forms and the
+`x-access-token:...@`, `https://...@` and `http://...@` remote URL forms (the
+whole userinfo, so `https://user:<hex>@host` masks too) and the
 `gho_/ghp_/ghu_/ghs_/github_pat_` token shapes even when the token follows a
 word character (`my_ghp_...`, `x_github_pat_...`); the accepted price is
 over-masking a word that ends in a prefix (`highs_...` masks as
 `highs_***`). The unprefixed classic 40-hex PAT is masked only in credential
 context: a `token`, `Authorization`, `bearer`, `password`, `secret`, `pat` or
 `x-access-token` word that needs no word boundary (so it also counts inside
-an env or camelCase name: `GITHUB_TOKEN=`, `db_password=`, `githubPat:`),
-then an optional run of `=`, `:` or space separators with one optional quote
-on each side (`{"token": "<hex>"}` matches), then the hex; so a bare 40-hex
+an env or camelCase name: `GITHUB_TOKEN=`, `db_password=`, `githubPat:`), an
+optional name suffix (`_value`, `_hash`, `_key`, `string`: `token_value=`,
+`password_hash:`), then an optional run of up to 1024 separators (space, `:`,
+`=`, `=>`, `->`) with one optional quote on each side (plain, backtick,
+typographic or guillemet quotes, each behind up to three backslashes for JSON
+escaping; `{"token": "<hex>"}` and `\"token\": \"<hex>\"` match), then the
+hex; so a bare 40-hex
 git commit SHA in push or log output stays readable, while a SHA right after
 a context word is masked as the accepted false positive. Client-facing
 publish failures are fixed reason sentences or a generic sentence with a

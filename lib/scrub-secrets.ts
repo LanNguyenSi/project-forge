@@ -3,7 +3,8 @@
  *
  * A failed `git push` to an authed remote echoes the URL (and so the token)
  * in git's stderr, and Prisma errors can embed argument values. Handles the
- * `x-access-token:TOKEN@` and `https://TOKEN@` remote forms, bare GitHub
+ * `x-access-token:TOKEN@` and `http(s)://TOKEN@` or `http(s)://user:TOKEN@`
+ * remote forms, bare GitHub
  * token shapes (prefixed, or classic 40-hex only next to credential context
  * such as `GITHUB_TOKEN=` or `githubPat: "..."`, so a bare git SHA survives)
  * as defense in depth.
@@ -16,7 +17,11 @@ export function scrubSecrets(text: string): string {
       // "x-access-token:" with no closing "@". The bare-token patterns below
       // still mask a longer token.
       .replace(/x-access-token:[^@\s/]{1,256}@/g, "x-access-token:***@")
-      .replace(/https:\/\/[^@\s/]+@/g, "https://***@")
+      // `http` as well as `https`; the whole userinfo (user name and any
+      // token after it, `https://user:<40hex>@host`) is masked. The run
+      // excludes "/", so an anchor never scans past the next "/" and the
+      // repeated `https://a:` input stays linear.
+      .replace(/(https?):\/\/[^@\s/]+@/g, "$1://***@")
       // No leading word boundary on purpose: tokens pasted straight after a
       // word character (`my_ghp_...`, `tokenghp_...`, `x_github_pat_...`) are
       // still credentials. The price is over-masking any word that ends in a
@@ -28,22 +33,37 @@ export function scrubSecrets(text: string): string {
       // Unprefixed classic PATs are 40 lowercase hex, exactly a git commit
       // SHA, so masking them requires credential context: a `token`,
       // `authorization`, `bearer`, `password`, `secret`, `pat` or
-      // `x-access-token` word, an optional run of `=`, `:` or space
-      // separators with at most one optional quote on each side (JSON
-      // quoting, `{"token": "<hex>"}`), then the hex. No leading word
-      // boundary on purpose: the context word also counts inside a name, so
-      // `GITHUB_TOKEN=`, `db_password=`, `access_token=` and `githubPat:`
-      // qualify (and `pat` alone covers `githubPat` and `github_pat=`). The
-      // price is over-masking a git SHA that follows a context word
-      // (`secret <sha>` masks as `secret ***`); an error log that loses a
-      // substring to `***` is an acceptable failure mode next to leaking a
-      // token. The two quote groups, the separator run and the hex run are
-      // single mutually disjoint quantifiers (a quote can never be shared
-      // between the groups), so each anchor still fails in linear time like
-      // the capped pattern above.
+      // `x-access-token` word, an optional name suffix (`_value`, `-hash`,
+      // `.key`, `string`, so `token_value=` and `password_hash:` qualify; the
+      // price is over-masking a SHA after e.g. `secret_key`), an optional
+      // quote, a run of at most 1024 separators (whitespace, `:`, `=`, `=>`,
+      // `->`), an optional quote, then the hex. A quote is one of ' " ` or a
+      // typographic or guillemet quote (U+2018, U+2019, U+201A, U+201C,
+      // U+201D, U+201E, U+00AB, U+00BB), optionally behind up to three
+      // backslashes (JSON escaped inside a string, `\"token\": \"<hex>\"`,
+      // up to the triple escape of a value stringified three times). The run
+      // is bounded because an unbounded alternation star overflows the
+      // regex engine stack on a multi-megabyte separator run (RangeError).
+      // No leading word boundary on purpose: the context word also counts
+      // inside a name, so `GITHUB_TOKEN=`, `db_password=`, `access_token=` and
+      // `githubPat:` qualify (and `pat` alone covers `githubPat` and
+      // `github_pat=`). The price is over-masking a git SHA that follows a
+      // context word (`secret <sha>` masks as `secret ***`); an error log that
+      // loses a substring to `***` is an acceptable failure mode next to
+      // leaking a token. A bare SHA, also in a `git push` line
+      // (`a..b  main -> main`) or a range (`a...b`), has no context word and
+      // survives. Every quantified group is disjoint from its neighbours: the
+      // suffix is literal words, the quote groups start with a backslash or a
+      // quote character (neither is a separator, a hex digit or a context
+      // character), the separator alternatives start with whitespace or `:`,
+      // `=` (then an optional `>`) or `-` (then `>`), and the hex run is
+      // single. Each anchor therefore fails in linear time like the capped
+      // pattern above. The hex run is written as a fixed 40 plus a star on one
+      // character class: a very long run then masks whole instead of overflowing
+      // the regex stack, as `{40,}` does.
       .replace(
-        /(token|authorization|bearer|password|secret|pat|x-access-token)(['"]?)([\s=:]*)(['"]?)([0-9a-f]{40,})/gi,
-        "$1$2$3$4***",
+        /(token|authorization|bearer|password|secret|pat|x-access-token)((?:[_.-]?(?:value|hash|key|string))?)((?:\\{0,3}['"`\u2018\u2019\u201A\u201C\u201D\u201E\u00AB\u00BB])?)((?:[\s:]|=>?|->){0,1024})((?:\\{0,3}['"`\u2018\u2019\u201A\u201C\u201D\u201E\u00AB\u00BB])?)([0-9a-f]{40}[0-9a-f]*)/gi,
+        "$1$2$3$4$5***",
       )
   );
 }

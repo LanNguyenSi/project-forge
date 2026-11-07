@@ -102,7 +102,8 @@ export async function POST(req: NextRequest) {
     // Client-facing body carries only a known reason sentence or the generic
     // sentence with a reference id. summarizePublishError scrubs PATs with
     // the shared lib/scrub-secrets (the known `x-access-token:TOKEN@` and
-    // `https://TOKEN@` remote forms plus bare GitHub token shapes), logs the
+    // `http(s)://[user:]TOKEN@` remote forms plus bare GitHub token shapes and
+    // a context-guarded classic 40-hex PAT), logs the
     // scrubbed message (with a reference id only for the generic answer),
     // and keeps git stderr,
     // temp-dir paths and remote URLs server-side.
