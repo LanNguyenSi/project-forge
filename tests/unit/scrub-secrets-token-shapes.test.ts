@@ -241,6 +241,12 @@ describe("scrubSecrets URL look-alikes and huge separator runs", () => {
     expect(scrubSecrets(arrows)).toBe(arrows);
   });
 
+  it("masks a 9 MiB hex run after a context word whole and without throwing", () => {
+    const hex = "a".repeat(9 * 1024 * 1024);
+    expect(scrubSecrets(`token=${hex}`)).toBe("token=***");
+    expect(scrubSecrets(`x-access-token:${hex}`)).toBe("x-access-token:***");
+  });
+
   it("returns 9 MiB runs for the other unbounded groups unchanged and without throwing", () => {
     const mib9 = 9 * 1024 * 1024;
     const hexAfterNothing = "a".repeat(mib9);
@@ -272,7 +278,10 @@ describe("scrubSecrets URL look-alikes and huge separator runs", () => {
  * 10 passes (10 x 200 KB, the same total size as one 2 MB pass) and compared
  * with one pass over 2 MB; the minimum of 5 rounds is taken on each side.
  * Linear patterns land near 1, a quadratic one near 10, and the test fails at
- * 5. Only the ratio is asserted, with no absolute time ceiling.
+ * 5. Only the ratio is asserted, with no absolute time ceiling. This applies
+ * to the two widened-pattern tests that use expectRatioLinear; the three older
+ * tests keep expectNearLinear, its 20x ratio and its ceiling, and those still
+ * flake under heavy load.
  */
 function minElapsedMs(build: () => string): number {
   let best = Number.POSITIVE_INFINITY;

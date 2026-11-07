@@ -58,9 +58,11 @@ export function scrubSecrets(text: string): string {
       // character), the separator alternatives start with whitespace or `:`,
       // `=` (then an optional `>`) or `-` (then `>`), and the hex run is
       // single. Each anchor therefore fails in linear time like the capped
-      // pattern above.
+      // pattern above. The hex run is written as a fixed 40 plus a star on one
+      // character class: a very long run then masks whole instead of overflowing
+      // the regex stack, as `{40,}` does.
       .replace(
-        /(token|authorization|bearer|password|secret|pat|x-access-token)((?:[_.-]?(?:value|hash|key|string))?)((?:\\{0,3}['"`\u2018\u2019\u201A\u201C\u201D\u201E\u00AB\u00BB])?)((?:[\s:]|=>?|->){0,1024})((?:\\{0,3}['"`\u2018\u2019\u201A\u201C\u201D\u201E\u00AB\u00BB])?)([0-9a-f]{40,})/gi,
+        /(token|authorization|bearer|password|secret|pat|x-access-token)((?:[_.-]?(?:value|hash|key|string))?)((?:\\{0,3}['"`\u2018\u2019\u201A\u201C\u201D\u201E\u00AB\u00BB])?)((?:[\s:]|=>?|->){0,1024})((?:\\{0,3}['"`\u2018\u2019\u201A\u201C\u201D\u201E\u00AB\u00BB])?)([0-9a-f]{40}[0-9a-f]*)/gi,
         "$1$2$3$4$5***",
       )
   );
