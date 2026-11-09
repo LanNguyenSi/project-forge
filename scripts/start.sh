@@ -96,7 +96,8 @@
 # existing parent), then it must be below FORGE_DB_VOLUME_DIR (default /data,
 # where docker-compose.yml mounts forge_db), and that directory must be a mount
 # point according to /proc/self/mountinfo (not checked where that file cannot be
-# read). Otherwise the start stops before anything else: `migrate deploy` would
+# read; a volume directory with whitespace or a backslash in its path is refused,
+# because that file escapes them). Otherwise the start stops before anything else: `migrate deploy` would
 # create a healthy-looking, empty database in the container layer and the next
 # deploy would lose it. FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 (exactly 1) skips
 # the check with a warning, for a deliberate path outside the volume. Outside
@@ -116,6 +117,7 @@ MOUNTINFO_FILE="${MOUNTINFO_FILE:-/proc/self/mountinfo}"
 SCHEMA="prisma/schema.prisma"
 MIGRATIONS="prisma/migrations"
 DOCS='docs/deployment.md, section "Database migrations"'
+VOLUME_DOCS='docs/deployment.md, section "Database location"'
 # Stamped copies newer than the newest applied migration at which a start stops.
 COPY_LOOP_LIMIT=3
 # Infix of the pre-migrate copy names. Only names that copy_key accepts count
@@ -191,7 +193,7 @@ resolve_physical() {
       rp_dir=${rp_dir%/*}
       [ -n "$rp_dir" ] || rp_dir=/
     done
-    rp_phys=$(cd "$rp_dir" && pwd -P) || return 1
+    rp_phys=$(cd -P "$rp_dir" && pwd -P) || return 1
     [ "$rp_phys" != / ] || rp_phys=""
     rp_full="$rp_phys$rp_rest/$rp_base"
     if [ -L "$rp_full" ]; then
@@ -224,12 +226,15 @@ is_mount_point() {
 refuse_database_outside_volume() {
   [ "${NODE_ENV:-}" = production ] || return 0
   vol_dir=${FORGE_DB_VOLUME_DIR:-/data}
-  vol_hint="Check DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack): it must point onto the forge_db volume, which docker-compose.yml mounts at $vol_dir. For a deliberate path elsewhere, start with FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 (exactly 1; unset, empty and any other value do not count; the data then lives where you put it, not on the volume). See $DOCS."
+  vol_hint="Check DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack): it must point onto the forge_db volume, which docker-compose.yml mounts at $vol_dir. For a deliberate path elsewhere, start with FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 (exactly 1; unset, empty and any other value do not count; the data then lives where you put it, not on the volume). See $VOLUME_DOCS."
   if [ "${FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME:-}" = 1 ]; then
     warn "FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 is set: the database path $db is not checked against the volume at $vol_dir. Unless that path is on persistent storage, the next deploy loses the data."
     return 0
   fi
-  vol_phys=$(cd "$vol_dir" 2>/dev/null && pwd -P) || vol_phys=""
+  vol_phys=$(cd -P "$vol_dir" 2>/dev/null && pwd -P) || vol_phys=""
+  case "$vol_phys" in
+    *[[:space:]\\]*) die "the volume directory $vol_dir resolves to '$vol_phys', which contains whitespace or a backslash. /proc/self/mountinfo escapes those characters, so the mount point could not be verified. Use a mount directory without them. No database was created and nothing was changed. $vol_hint" ;;
+  esac
   [ -n "$vol_phys" ] && [ "$vol_phys" != / ] || die "the volume directory $vol_dir does not exist or is the root directory, so the database path $db cannot be on it. No database was created and nothing was changed. $vol_hint"
   db_phys=$(resolve_physical "$db") || die "cannot resolve the database path $db (a '..' below a directory that does not exist, a symlink loop or an empty file name). No database was created and nothing was changed. $vol_hint"
   case "$db_phys" in

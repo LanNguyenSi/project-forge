@@ -1829,6 +1829,62 @@ describe("scripts/start.sh with a stub prisma", () => {
       expect(r.stderr).not.toContain("forge_db volume mounted");
     });
 
+    it("a directory symlink followed by '..' resolves physically and is refused", () => {
+      const { w, vol, env } = setup();
+      const target = path.join(w.dir, "outside", "sub");
+      mkdirSync(target, { recursive: true });
+      symlinkSync(target, path.join(vol, "link"));
+      const r = w.run(env(`${vol}/link/../x.db`));
+      refused(w, r, "is not on the forge_db volume");
+      expect(existsSync(path.join(w.dir, "outside", "x.db"))).toBe(false);
+    });
+
+    it("a directory symlink followed by '..' that lands back on the volume starts", () => {
+      const { w, vol, env } = setup();
+      mkdirSync(path.join(vol, "a", "b"), { recursive: true });
+      symlinkSync(path.join(vol, "a", "b"), path.join(vol, "link"));
+      accepted(w, w.run(env(`${vol}/link/../project-forge.db`)));
+    });
+
+    it("a symlink before '..' in the part below a missing directory is resolved physically", () => {
+      const { w, vol, env } = setup();
+      const target = path.join(w.dir, "outside", "sub");
+      mkdirSync(target, { recursive: true });
+      symlinkSync(target, path.join(vol, "link"));
+      refused(w, w.run(env(`${vol}/link/../missing/x.db`)), "is not on the forge_db volume");
+      expect(existsSync(path.join(w.dir, "outside", "missing"))).toBe(false);
+    });
+
+    it("a volume directory reached through a symlink and '..' is resolved physically", () => {
+      const { w, vol, env } = setup();
+      const target = path.join(w.dir, "outside", "sub");
+      mkdirSync(target, { recursive: true });
+      symlinkSync(target, path.join(w.dir, "lnk"));
+      // logical: <dir>/lnk/.. is <dir> (not a mount); physical: <dir>/outside
+      const r = w.run(env(path.join(vol, "x.db"), { FORGE_DB_VOLUME_DIR: `${w.dir}/lnk/..` }));
+      refused(w, r, "is not on the forge_db volume");
+    });
+
+    it("a volume directory with whitespace is refused", () => {
+      const { w, env } = setup();
+      const odd = path.join(w.dir, "my vol");
+      mkdirSync(odd);
+      refused(w, w.run(env(path.join(odd, "x.db"), { FORGE_DB_VOLUME_DIR: odd })), "contains whitespace or a backslash");
+    });
+
+    it("a volume directory with a backslash is refused", () => {
+      const { w, env } = setup();
+      const odd = path.join(w.dir, "my\\vol");
+      mkdirSync(odd);
+      refused(w, w.run(env(path.join(odd, "x.db"), { FORGE_DB_VOLUME_DIR: odd })), "contains whitespace or a backslash");
+    });
+
+    it("the volume refusal points at the Database location section", () => {
+      const { w, env } = setup();
+      const r = w.run(env(w.db));
+      expect(r.stderr).toContain('section "Database location"');
+    });
+
     it("the volume directory not being a mount point is refused", () => {
       const { w, vol, env } = setup(false);
       refused(w, w.run(env(path.join(vol, "project-forge.db"))), "is not a mount point");
@@ -1883,7 +1939,7 @@ describe("scripts/start.sh with a stub prisma", () => {
         refused(w, w.run(env(w.db, { FORGE_ALLOW_NEW_DATABASE: "1" })), "is not on the forge_db volume");
       });
 
-      it("set with a path on the volume starts without a warning", () => {
+      it("set with a path on the volume starts and still warns", () => {
         const { w, vol, env } = setup();
         const r = w.run(env(path.join(vol, "project-forge.db"), { FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME: "1" }));
         accepted(w, r);
