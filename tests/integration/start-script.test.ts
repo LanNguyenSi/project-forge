@@ -13,6 +13,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -1710,6 +1711,215 @@ describe("scripts/start.sh with a stub prisma", () => {
         }
       });
     }
+  });
+
+  describe("in production the database must lie on the forge_db volume", () => {
+    // The volume is a scratch directory; its mountinfo is a file listing it.
+    const setup = (mounted = true) => {
+      const w = newWork();
+      const vol = path.join(realpathSync(w.dir), "vol");
+      mkdirSync(vol);
+      const mountinfo = path.join(w.dir, "mountinfo");
+      writeFileSync(
+        mountinfo,
+        `22 1 8:1 / / rw - overlay overlay rw\n${mounted ? `45 22 8:2 / ${vol} rw - ext4 /dev/sda2 rw\n` : ""}`,
+      );
+      const base: Env = { NODE_ENV: "production", FORGE_DB_VOLUME_DIR: vol, MOUNTINFO_FILE: mountinfo };
+      const env = (db: string, extra: Env = {}): Env => ({ ...base, DATABASE_URL: `file:${db}`, STUB_DB: db, ...extra });
+      return { w, vol, mountinfo, base, env };
+    };
+    const refused = (w: Work, r: SpawnSyncReturns<string>, ...parts: string[]) => {
+      expect(r.status).not.toBe(0);
+      for (const p of parts) expect(r.stderr).toContain(p);
+      expect(r.stderr).toContain("FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1");
+      expect(r.stderr).toContain("No database was created and nothing was changed.");
+      expect(w.calls()).toEqual([]);
+      expect(started(w)).toBe(false);
+    };
+    const accepted = (w: Work, r: SpawnSyncReturns<string>) => {
+      expect(r.status, r.stderr).toBe(0);
+      expect(w.calls()).toEqual(["prisma migrate deploy [copies=0]"]);
+      expect(started(w)).toBe(true);
+    };
+
+    it("a path on the volume starts", () => {
+      const { w, vol, env } = setup();
+      accepted(w, w.run(env(path.join(vol, "project-forge.db"))));
+    });
+
+    it("a path outside the volume is refused before anything is created, naming path, volume and override", () => {
+      const { w, vol, env } = setup();
+      const outside = path.join(w.dir, "data", "project-forge.db");
+      const r = w.run(env(outside));
+      refused(w, r, `the database path ${outside}`, `is not on the forge_db volume mounted at ${vol}`);
+      expect(existsSync(outside)).toBe(false);
+    });
+
+    it("a sibling directory that only shares the volume's name prefix is outside", () => {
+      const { w, vol, env } = setup();
+      mkdirSync(`${vol}-other`);
+      refused(w, w.run(env(`${vol}-other/project-forge.db`)), "is not on the forge_db volume");
+    });
+
+    it("a relative path (resolved against prisma/) is outside", () => {
+      const { w, env } = setup();
+      refused(w, w.run({ ...env(path.join(w.dir, "x")), DATABASE_URL: "file:./db/project-forge.db" }), "prisma/./db/project-forge.db");
+    });
+
+    it("a '..' escape out of the volume is refused", () => {
+      const { w, vol, env } = setup();
+      const r = w.run(env(`${vol}/../data/project-forge.db`));
+      refused(w, r, "is not on the forge_db volume");
+    });
+
+    it("a '..' that stays on the volume starts", () => {
+      const { w, vol, env } = setup();
+      mkdirSync(path.join(vol, "a"));
+      accepted(w, w.run(env(`${vol}/a/../project-forge.db`)));
+    });
+
+    it("a directory on the volume that is a symlink to the outside is refused", () => {
+      const { w, vol, env } = setup();
+      symlinkSync(path.dirname(w.db), path.join(vol, "link"));
+      const r = w.run(env(`${vol}/link/project-forge.db`));
+      refused(w, r, "is not on the forge_db volume");
+      expect(existsSync(w.db)).toBe(false);
+    });
+
+    it("a database file on the volume that is a symlink to the outside is refused", () => {
+      const { w, vol, env } = setup();
+      symlinkSync(w.db, path.join(vol, "project-forge.db"));
+      refused(w, w.run(env(path.join(vol, "project-forge.db"))), "is not on the forge_db volume");
+      expect(existsSync(w.db)).toBe(false);
+    });
+
+    it("a relative symlink as the file that stays on the volume starts", () => {
+      const { w, vol, env } = setup();
+      seedHistory(w, path.join(vol, "real.db"));
+      symlinkSync("real.db", path.join(vol, "project-forge.db"));
+      const r = w.run(env(path.join(vol, "project-forge.db"), { STUB_DB: path.join(vol, "real.db") }));
+      expect(r.status, r.stderr).toBe(0);
+      expect(started(w)).toBe(true);
+    });
+
+    it("a symlink loop is refused", () => {
+      const { w, vol, env } = setup();
+      symlinkSync("b.db", path.join(vol, "a.db"));
+      symlinkSync("a.db", path.join(vol, "b.db"));
+      refused(w, w.run(env(path.join(vol, "a.db"))), "cannot resolve the database path");
+    });
+
+    it("a '..' below a directory that does not exist is refused", () => {
+      const { w, vol, env } = setup();
+      refused(w, w.run(env(`${vol}/missing/../project-forge.db`)), "cannot resolve the database path");
+    });
+
+    it("a missing directory outside the volume is refused by this check, not created", () => {
+      const { w, env } = setup();
+      const outside = path.join(w.dir, "nope", "project-forge.db");
+      refused(w, w.run(env(outside, { FORGE_ALLOW_NEW_DATABASE: "1" })), "is not on the forge_db volume");
+      expect(existsSync(path.join(w.dir, "nope"))).toBe(false);
+    });
+
+    it("a missing directory on the volume still reaches the directory check", () => {
+      const { w, vol, env } = setup();
+      const r = w.run(env(`${vol}/sub/project-forge.db`));
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain("does not exist");
+      expect(r.stderr).not.toContain("forge_db volume mounted");
+    });
+
+    it("the volume directory not being a mount point is refused", () => {
+      const { w, vol, env } = setup(false);
+      refused(w, w.run(env(path.join(vol, "project-forge.db"))), "is not a mount point");
+    });
+
+    it("an unreadable mountinfo warns and does not stop the start", () => {
+      const { w, vol, env } = setup(false);
+      const r = w.run(env(path.join(vol, "project-forge.db"), { MOUNTINFO_FILE: path.join(w.dir, "no-such-mountinfo") }));
+      accepted(w, r);
+      expect(r.stderr).toContain("not verified that");
+    });
+
+    it("a volume directory that does not exist is refused", () => {
+      const { w, env } = setup();
+      refused(w, w.run(env(path.join(w.dir, "vol", "x.db"), { FORGE_DB_VOLUME_DIR: path.join(w.dir, "no-vol") })), "does not exist or is the root directory");
+    });
+
+    it("the volume directory '/' is refused", () => {
+      const { w, vol, env } = setup();
+      refused(w, w.run(env(path.join(vol, "x.db"), { FORGE_DB_VOLUME_DIR: "/" })), "does not exist or is the root directory");
+    });
+
+    it("the default volume directory is /data", () => {
+      const { w, vol, env } = setup();
+      const e = env(path.join(vol, "project-forge.db"));
+      delete e.FORGE_DB_VOLUME_DIR;
+      refused(w, w.run(e), "docker-compose.yml mounts at /data");
+    });
+
+    it("an empty FORGE_DB_VOLUME_DIR means the default /data", () => {
+      const { w, vol, env } = setup();
+      refused(w, w.run(env(path.join(vol, "project-forge.db"), { FORGE_DB_VOLUME_DIR: "" })), "docker-compose.yml mounts at /data");
+    });
+
+    describe("FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME", () => {
+      it("exactly 1: warns and starts with a path outside", () => {
+        const { w, env } = setup();
+        const r = w.run(env(w.db, { FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME: "1" }));
+        accepted(w, r);
+        expect(r.stderr).toContain("FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 is set");
+      });
+
+      for (const v of ["", "0", "true", "yes", "11"]) {
+        it(`'${v}' does not count`, () => {
+          const { w, env } = setup();
+          refused(w, w.run(env(w.db, { FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME: v })), "is not on the forge_db volume");
+        });
+      }
+
+      it("FORGE_ALLOW_NEW_DATABASE=1 does not lift it", () => {
+        const { w, env } = setup();
+        refused(w, w.run(env(w.db, { FORGE_ALLOW_NEW_DATABASE: "1" })), "is not on the forge_db volume");
+      });
+
+      it("set with a path on the volume starts without a warning", () => {
+        const { w, vol, env } = setup();
+        const r = w.run(env(path.join(vol, "project-forge.db"), { FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME: "1" }));
+        accepted(w, r);
+        expect(r.stderr).toContain("FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 is set");
+      });
+    });
+
+    describe("when the check applies", () => {
+      for (const v of [undefined, "", "development", "test", "Production"]) {
+        it(`NODE_ENV ${v === undefined ? "unset" : `'${v}'`}: a path outside is not checked`, () => {
+          const { w, env } = setup();
+          const e = env(w.db, { NODE_ENV: v });
+          accepted(w, w.run(e));
+        });
+      }
+    });
+
+    describe("DATABASE_URL against FORGE_DATABASE_URL", () => {
+      it("only DATABASE_URL is read: FORGE_DATABASE_URL set alone is ignored", () => {
+        const { w, vol, env } = setup();
+        const e = env(w.db, { DATABASE_URL: "", FORGE_DATABASE_URL: `file:${vol}/project-forge.db` });
+        const r = w.run(e);
+        expect(r.status).not.toBe(0);
+        expect(r.stderr).toContain("DATABASE_URL is not set");
+      });
+
+      it("both set: DATABASE_URL decides, outside DATABASE_URL is refused though FORGE_DATABASE_URL is on the volume", () => {
+        const { w, vol, env } = setup();
+        refused(w, w.run(env(w.db, { FORGE_DATABASE_URL: `file:${vol}/project-forge.db` })), "is not on the forge_db volume");
+      });
+
+      it("both set: DATABASE_URL on the volume starts though FORGE_DATABASE_URL is outside", () => {
+        const { w, vol, env } = setup();
+        accepted(w, w.run(env(path.join(vol, "project-forge.db"), { FORGE_DATABASE_URL: `file:${w.db}` })));
+      });
+    });
   });
 
   describe("every start reports the pre-migrate copies next to the database and never deletes one", () => {
