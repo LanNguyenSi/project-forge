@@ -62,7 +62,22 @@ override entirely.
 `forge_db` volume, so the database survives a rebuild plus recreate.
 `FORGE_DATABASE_URL` is a compose-only knob: set it in `.env` (or the shell,
 which wins over `.env`) to use another file on the volume. An empty value
-counts as unset. Precedence, highest first:
+counts as unset. The path must be on the `forge_db` volume, that is below
+`/data`: a path anywhere else (`file:/tmp/x.db`, a relative path, which
+resolves to `prisma/` in the image) would be created by `migrate deploy` in the
+container layer, and the next deploy would start from an empty database. In
+production (`NODE_ENV=production`, set by the image and `docker-compose.yml`)
+`scripts/start.sh` therefore resolves the path (`..`, symlinks in the
+directory and a symlink as the file itself are followed) and stops before any
+migration when it is not below `/data`, or when `/data` is not a mount point
+according to `/proc/self/mountinfo`. The message names the path, the volume and
+the override. `FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1` (exactly `1`) starts
+anyway with a warning, for a deliberate path outside the volume;
+`FORGE_DB_VOLUME_DIR` names another mount directory if you mount the volume
+somewhere other than `/data` (its path must contain no whitespace or backslash,
+which `/proc/self/mountinfo` escapes; the start refuses such a path). Where
+`/proc/self/mountinfo` cannot be read, the mount point check is skipped with a
+warning. Outside production (local runs) the check does not run. Precedence, highest first:
 
 1. `docker-compose.override.yml`, `services.app.environment.DATABASE_URL`.
    Applies to plain `docker compose` only, never with `-f docker-compose.yml`.
