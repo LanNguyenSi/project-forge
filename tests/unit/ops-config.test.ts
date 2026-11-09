@@ -11,8 +11,8 @@ const root = path.resolve(__dirname, "../..");
 const read = (f: string) => readFileSync(path.join(root, f), "utf-8");
 
 // js-yaml is not a direct dependency (it is pinned through `overrides` and
-// arrives with the lint tooling) and ships no types here, so it is loaded with
-// a minimal local signature.
+// arrives transitively through swagger-ui-react) and ships no types here, so it
+// is loaded with a minimal local signature.
 const { load } = createRequire(import.meta.url)("js-yaml") as { load: (text: string) => unknown };
 
 type Obj = Record<string, unknown>;
@@ -184,7 +184,7 @@ describe("docker-compose.override.example.yml name", () => {
 });
 
 describe(".github/workflows/ci.yml docker-build job", () => {
-  // Text-level, like the compose checks: the job block runs from its name to
+  // Text-level (the compose checks above parse YAML): the job block runs from its name to
   // the next top-level job key or the end of the file.
   const job =
     /^ {2}docker-build:\n([\s\S]*?)(?=^ {2}[\w-]+:\n|(?![\s\S]))/m.exec(read(".github/workflows/ci.yml"))?.[1] ?? "";
