@@ -697,8 +697,9 @@ it was installed from. After moving or re-cloning the checkout somewhere
 else, run `make install-cron` again from the new checkout (with the same
 `FORGE_BACKUP_DIR`) and check with `crontab -l` that the block names the new
 path: until you do, both entries `cd` into the old path first, so the hourly
-prune and the nightly backup fail quietly and the log goes to the old path or
-nowhere. `FORGE_BACKUP_DIR` is required and must be an
+prune and the nightly backup fail quietly: the `cd` fails, the command never
+runs and nothing reaches the log (cron only mails the error, if mail is set
+up). `FORGE_BACKUP_DIR` is required and must be an
 absolute path (cron's `HOME` is the crontab owner's, so the default of
 `backup.sh` is not trusted there); unset or empty is refused. Optional:
 `FORGE_BACKUP_TIME` (`HH:MM`, default `03:15`) and `FORGE_BACKUP_LOG` (default
@@ -744,8 +745,8 @@ destination readable by the operator only.
 ### Disk space
 
 Every deploy builds the image again (`docker compose up -d --build`, in
-`make deploy` and `make pull`, and the relay does the same, see
-[Docker Compose](#docker-compose)). Docker never removes what the rebuilds
+`make deploy` and `make pull`; relay deploys rebuild too when the code
+changed, see [Docker Compose](#docker-compose)). Docker never removes what the rebuilds
 leave behind: each one turns the previous image of the service into a dangling
 one and grows the BuildKit build cache, so the host disk fills up over time.
 `.relay.yml` has no prune step, so this is an operator task. See the usage
@@ -762,8 +763,14 @@ docker image prune -f
 docker builder prune -f --filter until=168h
 ```
 
-Never reclaim space with `docker system prune --volumes`: it deletes every
-volume not attached to a running container, and while the stack is stopped
+Both commands act on the whole Docker host, not only this stack. Dangling
+images and build cache older than a week are normally safe to drop, but on a
+host shared with other apps their next builds get slower; check
+`docker system df` first.
+
+Never reclaim space with `docker system prune --volumes`: depending on the
+Docker version (older releases, or newer ones with `--all`) it also deletes
+named volumes that no running container uses, and while the stack is stopped
 that includes `forge_db`, the database. It must not be used on this host.
 
 ### Restoring a backup
