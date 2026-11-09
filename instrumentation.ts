@@ -7,7 +7,7 @@ export async function register() {
     process.env.NODE_ENV === "production" &&
     process.env.NEXT_PHASE !== "phase-production-build"
   ) {
-    const { assertSecretsConfigured } = await import("./lib/startup-checks");
-    assertSecretsConfigured(process.env);
+    const { assertStartupConfig } = await import("./lib/startup-checks");
+    assertStartupConfig(process.env);
   }
 }

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assertSecretsConfigured, findSecretProblems } from "@/lib/startup-checks";
+import { assertStartupConfig, findStartupConfigProblems } from "@/lib/startup-checks";
 
-describe("findSecretProblems", () => {
+describe("findStartupConfigProblems", () => {
   it("accepts a real secret", () => {
     expect(
-      findSecretProblems({
+      findStartupConfigProblems({
         NEXTAUTH_SECRET: "a".repeat(64),
         NEXTAUTH_URL: "https://forge.example.com",
       }),
@@ -12,17 +12,17 @@ describe("findSecretProblems", () => {
   });
 
   it("rejects a missing secret", () => {
-    expect(findSecretProblems({})).toHaveLength(1);
+    expect(findStartupConfigProblems({})).toHaveLength(1);
   });
 
   it("rejects an empty or whitespace-only secret", () => {
-    expect(findSecretProblems({ NEXTAUTH_SECRET: "" })).toHaveLength(1);
-    expect(findSecretProblems({ NEXTAUTH_SECRET: "   " })).toHaveLength(1);
+    expect(findStartupConfigProblems({ NEXTAUTH_SECRET: "" })).toHaveLength(1);
+    expect(findStartupConfigProblems({ NEXTAUTH_SECRET: "   " })).toHaveLength(1);
   });
 
   it("rejects the .env.example placeholder", () => {
     expect(
-      findSecretProblems({
+      findStartupConfigProblems({
         NEXTAUTH_SECRET: "your-secret-here-generate-with-openssl-rand-hex-32",
       }),
     ).toHaveLength(1);
@@ -30,24 +30,24 @@ describe("findSecretProblems", () => {
 
   it("rejects the override example placeholder", () => {
     expect(
-      findSecretProblems({
+      findStartupConfigProblems({
         NEXTAUTH_SECRET: "your_nextauth_secret_here-generate-with-openssl-rand-hex-32",
       }),
     ).toHaveLength(1);
   });
 
   it("rejects a placeholder that only carries the generate hint", () => {
-    expect(findSecretProblems({ NEXTAUTH_SECRET: "changeme-generate-with-openssl" })).toHaveLength(1);
+    expect(findStartupConfigProblems({ NEXTAUTH_SECRET: "changeme-generate-with-openssl" })).toHaveLength(1);
   });
 
   it("rejects a your-prefixed placeholder without the generate hint", () => {
-    expect(findSecretProblems({ NEXTAUTH_SECRET: "your-secret-here" })).toHaveLength(1);
-    expect(findSecretProblems({ NEXTAUTH_SECRET: "YOUR_SECRET" })).toHaveLength(1);
+    expect(findStartupConfigProblems({ NEXTAUTH_SECRET: "your-secret-here" })).toHaveLength(1);
+    expect(findStartupConfigProblems({ NEXTAUTH_SECRET: "YOUR_SECRET" })).toHaveLength(1);
   });
 
   it("does not flag a random secret that merely starts with other text", () => {
     expect(
-      findSecretProblems({
+      findStartupConfigProblems({
         NEXTAUTH_SECRET: "yours3cr3tvalue0123456789abcdef",
         NEXTAUTH_URL: "https://forge.example.com",
       }),
@@ -57,7 +57,7 @@ describe("findSecretProblems", () => {
 
 describe("NEXTAUTH_URL", () => {
   const realSecret = { NEXTAUTH_SECRET: "a".repeat(64) };
-  const withUrl = (extra: Record<string, string | undefined>) => findSecretProblems({ ...realSecret, ...extra });
+  const withUrl = (extra: Record<string, string | undefined>) => findStartupConfigProblems({ ...realSecret, ...extra });
   const notSet = [expect.stringContaining("NEXTAUTH_URL is not set")];
   const notValid = [expect.stringContaining("NEXTAUTH_URL is not a valid URL")];
   const placeholder = [expect.stringContaining("NEXTAUTH_URL is still the placeholder")];
@@ -152,13 +152,13 @@ describe("NEXTAUTH_URL", () => {
 
   it("reports the secret problem first when both values are bad", () => {
     expect(
-      findSecretProblems({
+      findStartupConfigProblems({
         NEXTAUTH_SECRET: "your-secret-here-generate-with-openssl-rand-hex-32",
         NEXTAUTH_URL: "https://your-forge.example.com",
       }),
     ).toEqual([expect.stringContaining("NEXTAUTH_SECRET")]);
     expect(
-      findSecretProblems({
+      findStartupConfigProblems({
         NEXTAUTH_SECRET: "",
         NEXTAUTH_URL: "https://",
       }),
@@ -166,20 +166,20 @@ describe("NEXTAUTH_URL", () => {
   });
 });
 
-describe("assertSecretsConfigured", () => {
+describe("assertStartupConfig", () => {
   it("does not throw for a real secret", () => {
     expect(() =>
-      assertSecretsConfigured({ NEXTAUTH_SECRET: "f".repeat(64), NEXTAUTH_URL: "https://forge.example.com" }),
+      assertStartupConfig({ NEXTAUTH_SECRET: "f".repeat(64), NEXTAUTH_URL: "https://forge.example.com" }),
     ).not.toThrow();
   });
 
   it("throws a refusal naming the variable", () => {
-    expect(() => assertSecretsConfigured({})).toThrow(/Refusing to serve: NEXTAUTH_SECRET/);
+    expect(() => assertStartupConfig({})).toThrow(/Refusing to serve: NEXTAUTH_SECRET/);
   });
 
   it("throws a refusal naming NEXTAUTH_URL", () => {
     expect(() =>
-      assertSecretsConfigured({ NEXTAUTH_SECRET: "f".repeat(64), NEXTAUTH_URL: "https://" }),
+      assertStartupConfig({ NEXTAUTH_SECRET: "f".repeat(64), NEXTAUTH_URL: "https://" }),
     ).toThrow(/Refusing to serve: NEXTAUTH_URL/);
   });
 });

@@ -38,7 +38,7 @@ function trustsRequestHost(env: Record<string, string | undefined>): boolean {
   return Boolean(env.VERCEL ?? env.AUTH_TRUST_HOST);
 }
 
-export function findSecretProblems(env: Record<string, string | undefined>): string[] {
+export function findStartupConfigProblems(env: Record<string, string | undefined>): string[] {
   const secret = env.NEXTAUTH_SECRET?.trim();
   if (!secret) {
     return ["NEXTAUTH_SECRET is not set (generate one with: openssl rand -hex 32)"];
@@ -68,8 +68,8 @@ export function findSecretProblems(env: Record<string, string | undefined>): str
   return [];
 }
 
-export function assertSecretsConfigured(env: Record<string, string | undefined>): void {
-  const problems = findSecretProblems(env);
+export function assertStartupConfig(env: Record<string, string | undefined>): void {
+  const problems = findStartupConfigProblems(env);
   if (problems.length > 0) {
     throw new Error(`Refusing to serve: ${problems.join("; ")}`);
   }
