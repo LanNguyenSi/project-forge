@@ -14,16 +14,16 @@ const baseStyles =
 
 // A Field hands one generated id to the Label and the Input/Textarea inside it,
 // so the label names the control without every call site wiring id/htmlFor.
-// The same Field reserves "<id>-hint" and "<id>-error": a direct Label child
-// that renders a hint owns the hint slot, an error set on the Field owns the
-// error slot, and the control references both in its aria-describedby (hint id
-// first, then error id, then any aria-describedby from the call site), so the
-// hint and the error sit in the accessible description instead of the
-// accessible name, and no id is ever referenced that renders nothing.
+// The same Field reserves "<id>-hint": a direct Label child that renders a hint
+// owns the hint slot, and the control references it in its aria-describedby
+// (hint id first, then any aria-describedby from the call site), so the hint
+// sits in the accessible description instead of the accessible name, and no id
+// is ever referenced that renders nothing. The hint is wired only when the
+// Label is a direct child of the Field; otherwise it stays in the label text
+// as before.
 interface FieldIds {
   id: string;
   hintId?: string;
-  errorId?: string;
   describedBy?: string;
 }
 
@@ -32,12 +32,9 @@ const FieldIdContext = createContext<FieldIds | undefined>(undefined);
 export function Field({
   children,
   className,
-  error,
 }: {
   children: React.ReactNode;
   className?: string;
-  /** Rendered under the field and named in the control's aria-describedby. */
-  error?: string;
 }) {
   const id = useId();
   const hasHint = Children.toArray(children).some(
@@ -45,16 +42,10 @@ export function Field({
       isValidElement<{ hint?: string }>(child) && child.type === Label && Boolean(child.props.hint),
   );
   const hintId = hasHint ? `${id}-hint` : undefined;
-  const errorId = error ? `${id}-error` : undefined;
-  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
+  const describedBy = hintId;
   return (
-    <FieldIdContext.Provider value={{ id, hintId, errorId, describedBy }}>
+    <FieldIdContext.Provider value={{ id, hintId, describedBy }}>
       <div className={className}>{children}</div>
-      {error && (
-        <p id={errorId} className="text-xs text-danger mt-1.5">
-          {error}
-        </p>
-      )}
     </FieldIdContext.Provider>
   );
 }

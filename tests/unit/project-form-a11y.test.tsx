@@ -52,15 +52,15 @@ describe("ProjectForm accessible names and heading order", () => {
     );
   });
 
-  it("names both the hint and the error in one field's description", () => {
+  it("names the hint in one field's description", () => {
     render(
-      <Field error="Add at least one core feature.">
+      <Field>
         <Label required hint="(one per line)">Core Features</Label>
         <Textarea rows={2} defaultValue="" />
       </Field>,
     );
     const control = screen.getByRole("textbox", { name: "Core Features" });
-    expect(control).toHaveAccessibleDescription("(one per line) Add at least one core feature.");
+    expect(control).toHaveAccessibleDescription("(one per line)");
   });
 
   it("names the magic-fill prompt input through its screen-reader label", async () => {
