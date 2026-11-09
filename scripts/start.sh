@@ -89,6 +89,20 @@
 # and their total size, and warns when there are more than
 # FORGE_PRE_MIGRATE_COPIES_WARN (default 5). Nothing here deletes a copy.
 #
+# In production (NODE_ENV=production, which the image and docker-compose.yml set)
+# the database must lie on the forge_db volume. The path is resolved first
+# (`..`, symlinks in the directory part and a symlink as the file itself are
+# followed; a directory that does not exist yet is resolved from its nearest
+# existing parent), then it must be below FORGE_DB_VOLUME_DIR (default /data,
+# where docker-compose.yml mounts forge_db), and that directory must be a mount
+# point according to /proc/self/mountinfo (not checked where that file cannot be
+# read; a volume directory with whitespace or a backslash in its path is refused,
+# because that file escapes them). Otherwise the start stops before anything else: `migrate deploy` would
+# create a healthy-looking, empty database in the container layer and the next
+# deploy would lose it. FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 (exactly 1) skips
+# the check with a warning, for a deliberate path outside the volume. Outside
+# production (local runs, tests) the check does not run.
+#
 # Tested in tests/integration/start-script.test.ts with stub `prisma` and `sqlite3`
 # binaries (PRISMA_BIN, SQLITE3_BIN) and with the real ones.
 set -eu
@@ -99,9 +113,11 @@ BASELINE="20261027000000_baseline"
 
 PRISMA="${PRISMA_BIN:-node_modules/.bin/prisma}"
 SQLITE3="${SQLITE3_BIN:-sqlite3}"
+MOUNTINFO_FILE="${MOUNTINFO_FILE:-/proc/self/mountinfo}"
 SCHEMA="prisma/schema.prisma"
 MIGRATIONS="prisma/migrations"
 DOCS='docs/deployment.md, section "Database migrations"'
+VOLUME_DOCS='docs/deployment.md, section "Database location"'
 # Stamped copies newer than the newest applied migration at which a start stops.
 COPY_LOOP_LIMIT=3
 # Infix of the pre-migrate copy names. Only names that copy_key accepts count
@@ -150,6 +166,91 @@ db_dir="${db%/*}/"
 # The start reads the database state and takes the copy with sqlite3. Checked
 # once, before anything else, so that no later step depends on it by accident.
 command -v "$SQLITE3" >/dev/null 2>&1 || die "sqlite3 not found (looked for $SQLITE3): it is needed to read the state of $db and to take the pre-migrate copy. Nothing was changed."
+
+# Prints the physical path of $1 (relative paths resolve against $PWD): every
+# `..` and symlink in the directory part is followed, a directory that does not
+# exist yet is resolved from its nearest existing parent, and a symlink as the
+# file itself is followed too. Fails when that is not possible (a `..` below a
+# missing directory, a link loop, an empty file name).
+resolve_physical() {
+  rp=$1
+  rp_hops=0
+  while :; do
+    case $rp in
+      /*) ;;
+      *) rp="$PWD/$rp" ;;
+    esac
+    rp_base=${rp##*/}
+    [ -n "$rp_base" ] || return 1
+    rp_dir=${rp%/*}
+    [ -n "$rp_dir" ] || rp_dir=/
+    rp_rest=""
+    while [ ! -d "$rp_dir" ]; do
+      case ${rp_dir##*/} in
+        ..) return 1 ;;
+      esac
+      rp_rest="/${rp_dir##*/}$rp_rest"
+      rp_dir=${rp_dir%/*}
+      [ -n "$rp_dir" ] || rp_dir=/
+    done
+    rp_phys=$(cd -P "$rp_dir" && pwd -P) || return 1
+    [ "$rp_phys" != / ] || rp_phys=""
+    rp_full="$rp_phys$rp_rest/$rp_base"
+    if [ -L "$rp_full" ]; then
+      rp_hops=$((rp_hops + 1))
+      [ "$rp_hops" -le 40 ] || return 1
+      rp_target=$(readlink "$rp_full") || return 1
+      case $rp_target in
+        /*) rp=$rp_target ;;
+        *) rp="$rp_phys$rp_rest/$rp_target" ;;
+      esac
+      continue
+    fi
+    printf '%s\n' "$rp_full"
+    return 0
+  done
+}
+
+# True when $1 is a mount point in the mountinfo file ($MOUNTINFO_FILE, default
+# /proc/self/mountinfo; the fifth field of a line). Returns 2 when the file
+# cannot be read, so the caller can tell "not mounted" from "cannot tell".
+is_mount_point() {
+  [ -r "$MOUNTINFO_FILE" ] || return 2
+  while read -r _ _ _ _ mi_mount _; do
+    [ "$mi_mount" != "$1" ] || return 0
+  done <"$MOUNTINFO_FILE"
+  return 1
+}
+
+# In production the database must be on the forge_db volume: see the header.
+refuse_database_outside_volume() {
+  [ "${NODE_ENV:-}" = production ] || return 0
+  vol_dir=${FORGE_DB_VOLUME_DIR:-/data}
+  vol_hint="Check DATABASE_URL (FORGE_DATABASE_URL in .env for the compose stack): it must point onto the forge_db volume, which docker-compose.yml mounts at $vol_dir. For a deliberate path elsewhere, start with FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 (exactly 1; unset, empty and any other value do not count; the data then lives where you put it, not on the volume). See $VOLUME_DOCS."
+  if [ "${FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME:-}" = 1 ]; then
+    warn "FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1 is set: the database path $db is not checked against the volume at $vol_dir. Unless that path is on persistent storage, the next deploy loses the data."
+    return 0
+  fi
+  vol_phys=$(cd -P "$vol_dir" 2>/dev/null && pwd -P) || vol_phys=""
+  case "$vol_phys" in
+    *[[:space:]\\]*) die "the volume directory $vol_dir resolves to '$vol_phys', which contains whitespace or a backslash. /proc/self/mountinfo escapes those characters, so the mount point could not be verified. Use a mount directory without them. No database was created and nothing was changed. $vol_hint" ;;
+  esac
+  [ -n "$vol_phys" ] && [ "$vol_phys" != / ] || die "the volume directory $vol_dir does not exist or is the root directory, so the database path $db cannot be on it. No database was created and nothing was changed. $vol_hint"
+  db_phys=$(resolve_physical "$db") || die "cannot resolve the database path $db (a '..' below a directory that does not exist, a symlink loop or an empty file name). No database was created and nothing was changed. $vol_hint"
+  case "$db_phys" in
+    "$vol_phys"/*) ;;
+    *) die "the database path $db (resolves to $db_phys) is not on the forge_db volume mounted at $vol_dir. migrate deploy would create an empty database in the container layer, and the next deploy would lose it. No database was created and nothing was changed. $vol_hint" ;;
+  esac
+  vp_rc=0
+  is_mount_point "$vol_phys" || vp_rc=$?
+  case "$vp_rc" in
+    0) ;;
+    1) die "$vol_phys is not a mount point (no volume is mounted there), so the database path $db would live in the container layer and the next deploy would lose it. No database was created and nothing was changed. $vol_hint" ;;
+    *) warn "cannot read $MOUNTINFO_FILE: not verified that $vol_phys is a mount point." ;;
+  esac
+}
+
+refuse_database_outside_volume
 
 # Unset or empty: the default. Anything but 0 to 999999999 gets a warning and
 # the default: the knob only controls a log warning, so it never stops a start.
