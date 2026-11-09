@@ -8,11 +8,18 @@ import { describe, expect, it } from "vitest";
 const css = readFileSync(path.resolve(__dirname, "../../app/globals.css"), "utf8");
 
 describe("swagger-ui info block links", () => {
+  // every declaration inside any block whose selector list includes `.swagger-ui .info a`
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const declarations = [...withoutComments.matchAll(/([^{}]*)\{([^{}]*)\}/g)]
+    .filter(([, selector]) => selector.split(",").some((sel) => sel.trim() === ".swagger-ui .info a"))
+    .map(([, , body]) => body)
+    .join("\n");
+
   it("underlines the links that share the muted body colour", () => {
-    const rule = css.match(/\.swagger-ui \.info a\s*\{([^}]*)\}/g) ?? [];
-    const decl = rule.join("\n");
-    expect(decl).toMatch(/text-decoration:\s*underline\s*!important/);
-    // the colour override stays
-    expect(css).toMatch(/\.swagger-ui \.info a\s*\{\s*color:\s*var\(--text-muted\)\s*!important/);
+    expect(declarations).toMatch(/text-decoration:\s*underline\s*!important/);
+  });
+
+  it("keeps the colour override", () => {
+    expect(declarations).toMatch(/color:\s*var\(--text-muted\)\s*!important/);
   });
 });

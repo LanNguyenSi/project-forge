@@ -87,3 +87,57 @@ describe("login page error from the query string", () => {
     expect(screen.getByRole("alert").textContent).toBe("Invalid email or password");
   });
 });
+
+describe("login page query error is one-shot", () => {
+  function submitWrongPassword() {
+    fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
+      target: { value: "a@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign In" }));
+  }
+
+  it("shows the query error on a fresh load", () => {
+    query = "error=OAuthSignin";
+    render(<LoginPage />);
+    expect(screen.getByRole("alert").textContent).toContain("Could not start the GitHub sign-in");
+  });
+
+  it("drops the query error while a submit is pending", () => {
+    query = "error=OAuthSignin";
+    signInMock.mockReturnValue(new Promise(() => {}));
+    render(<LoginPage />);
+    submitWrongPassword();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not bring the query error back after a form error and a switch to register", async () => {
+    query = "error=OAuthSignin";
+    signInMock.mockResolvedValue({ error: "CredentialsSignin" });
+    render(<LoginPage />);
+    submitWrongPassword();
+    await screen.findByText("Invalid email or password");
+
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Create your account" })).toBeTruthy();
+  });
+
+  it("does not bring the query error back after switching back to sign in", () => {
+    query = "error=OAuthSignin";
+    render(<LoginPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("drops the query error on the first switch to register without any submit", () => {
+    query = "error=AccessDenied";
+    render(<LoginPage />);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

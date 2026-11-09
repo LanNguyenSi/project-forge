@@ -9,14 +9,24 @@ import { PublicNav } from "@/components/layout/PublicNav";
 import { MAIN_CONTENT_ID } from "@/components/layout/SkipLink";
 import { authErrorMessage } from "./auth-error-message";
 
-// NextAuth sends a failed OAuth sign-in back here as ?error=<code>. An error
-// from the form on this page (localError) is newer and wins over it. This is
-// its own component because useSearchParams needs a Suspense boundary for the
-// production build; wrapping only this alert keeps the rest of the page in the
-// prerendered HTML.
-function LoginErrorAlert({ localError }: { localError: string }) {
+// NextAuth sends a failed OAuth sign-in back here as ?error=<code>. The query
+// error is one-shot: it shows on a fresh load and is dismissed (queryDismissed)
+// by the first submit or a switch between sign-in and register, so it never
+// comes back after the visitor has moved on. An error from the form on this
+// page (localError) is newer and wins over it while the query error is shown.
+// This is its own component because useSearchParams needs a Suspense boundary
+// for the production build; wrapping only this alert keeps the rest of the
+// page in the prerendered HTML.
+function LoginErrorAlert({
+  localError,
+  queryDismissed,
+}: {
+  localError: string;
+  queryDismissed: boolean;
+}) {
   const searchParams = useSearchParams();
-  const message = localError || authErrorMessage(searchParams?.get("error"));
+  const queryError = queryDismissed ? null : authErrorMessage(searchParams?.get("error"));
+  const message = localError || queryError;
   if (!message) return null;
   return <Alert variant="error">{message}</Alert>;
 }
@@ -27,11 +37,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [queryDismissed, setQueryDismissed] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setQueryDismissed(true);
     setLoading(true);
 
     try {
@@ -124,7 +136,7 @@ export default function LoginPage() {
             {/* Email/Password Form */}
             <form onSubmit={handleSubmit} className="space-y-4 rounded-card bg-forge-iron border border-forge-steel p-6">
               <Suspense fallback={null}>
-                <LoginErrorAlert localError={error} />
+                <LoginErrorAlert localError={error} queryDismissed={queryDismissed} />
               </Suspense>
 
               <Field>
@@ -164,7 +176,7 @@ export default function LoginPage() {
                   Don&apos;t have an account?{" "}
                   <button
                     type="button"
-                    onClick={() => { setMode("register"); setError(""); }}
+                    onClick={() => { setMode("register"); setError(""); setQueryDismissed(true); }}
                     className="text-ember hover:text-ember-soft transition font-medium"
                   >
                     Register
@@ -175,7 +187,7 @@ export default function LoginPage() {
                   Already have an account?{" "}
                   <button
                     type="button"
-                    onClick={() => { setMode("login"); setError(""); }}
+                    onClick={() => { setMode("login"); setError(""); setQueryDismissed(true); }}
                     className="text-ember hover:text-ember-soft transition font-medium"
                   >
                     Sign in
