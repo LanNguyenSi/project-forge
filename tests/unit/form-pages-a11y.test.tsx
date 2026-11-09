@@ -16,6 +16,7 @@ vi.mock("next-auth/react", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => "/login",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/components/layout/PublicNav", () => ({ PublicNav: () => null }));

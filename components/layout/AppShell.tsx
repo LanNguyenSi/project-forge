@@ -30,6 +30,10 @@ const mainNavItems = [
 ];
 
 const MOBILE_NAV_ID = "mobile-nav-drawer";
+// The sidebar markup is rendered twice (desktop sidebar and mobile drawer), so
+// the user menu region needs one id per instance for aria-controls.
+type SidebarInstance = "sidebar" | "drawer";
+const userMenuId = (instance: SidebarInstance) => `user-menu-${instance}`;
 // Same breakpoint as Tailwind's md: the drawer is hidden and the desktop sidebar shows.
 const DESKTOP_QUERY = "(min-width: 768px)";
 
@@ -55,9 +59,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => query.removeEventListener("change", handleChange);
   }, []);
 
+  // A link is active on its own route and on any route below it, so a parent
+  // link (/dashboard) stays active on a child route (/dashboard/anything).
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  // The same test drives the visual state and aria-current, so they cannot differ.
+  const ariaCurrent = (href: string) => (isActive(href) ? ("page" as const) : undefined);
 
-  const sidebarContent = (
+  const renderSidebarContent = (instance: SidebarInstance) => (
     <>
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-4 py-5 border-b border-forge-steel">
@@ -71,6 +79,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link
             key={item.href}
             href={item.href}
+            aria-current={ariaCurrent(item.href)}
             onClick={() => setSidebarOpen(false)}
             className={`flex items-center gap-3 rounded-btn px-3 py-2.5 text-sm font-medium transition-colors ${
               isActive(item.href)
@@ -86,6 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* New Project — primary action, visually distinct */}
         <Link
           href="/create"
+          aria-current={ariaCurrent("/create")}
           onClick={() => setSidebarOpen(false)}
           className={`flex items-center gap-3 rounded-btn px-3 py-2.5 text-sm font-medium transition-colors ${
             isActive("/create")
@@ -102,12 +112,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* User menu (collapsible) */}
       {session?.user && (
-        <div className="border-t border-forge-steel px-3 py-3">
+        // Escape closes the menu and puts focus back on its toggle. The event
+        // stops here, so inside the drawer the first Escape closes only the menu
+        // and the next one closes the drawer.
+        <div
+          className="border-t border-forge-steel px-3 py-3"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || !userMenuOpen) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setUserMenuOpen(false);
+            event.currentTarget.querySelector<HTMLElement>("[data-user-menu-toggle]")?.focus();
+          }}
+        >
+          {/* A disclosure, not an ARIA menu: it reveals plain links and a button */}
           <button
+            type="button"
+            data-user-menu-toggle=""
+            aria-expanded={userMenuOpen}
+            aria-controls={userMenuId(instance)}
             onClick={() => setUserMenuOpen((o) => !o)}
             className="flex items-center gap-3 w-full rounded-btn px-3 py-2.5 text-left hover:bg-forge-steel/60 transition-colors"
           >
-            <div className="h-8 w-8 rounded-full bg-forge-steel flex items-center justify-center text-xs font-medium text-forge-ash shrink-0">
+            <div aria-hidden="true" className="h-8 w-8 rounded-full bg-forge-steel flex items-center justify-center text-xs font-medium text-forge-ash shrink-0">
               {session.user.email?.charAt(0).toUpperCase() ?? "U"}
             </div>
             <div className="flex-1 min-w-0">
@@ -116,6 +143,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </p>
             </div>
             <svg
+              aria-hidden="true"
               className={`w-4 h-4 text-forge-ash transition-transform ${userMenuOpen ? "rotate-180" : ""}`}
               fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"
             >
@@ -124,9 +152,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
 
           {userMenuOpen && (
-            <div className="mt-1 space-y-0.5">
+            <div id={userMenuId(instance)} className="mt-1 space-y-0.5">
               <Link
                 href="/settings"
+                aria-current={ariaCurrent("/settings")}
                 onClick={() => { setSidebarOpen(false); setUserMenuOpen(false); }}
                 className={`flex items-center gap-3 rounded-btn px-3 py-2 text-sm transition-colors ${
                   isActive("/settings")
@@ -186,13 +215,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile navigation drawer: a modal dialog (Escape, overlay click, focus trap and focus return in DialogShell) */}
       {sidebarOpen && (
         <DialogShell title="Navigation menu" variant="drawer" onClose={closeSidebar} id={MOBILE_NAV_ID}>
-          {sidebarContent}
+          {renderSidebarContent("drawer")}
         </DialogShell>
       )}
 
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:fixed md:inset-y-0 md:left-0 md:w-56 md:flex-col md:border-r md:border-forge-steel md:bg-forge-iron">
-        {sidebarContent}
+        {renderSidebarContent("sidebar")}
       </aside>
 
       {/* Main content: the skip-link target; tabIndex -1 so the browser moves
