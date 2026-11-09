@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -9,26 +10,71 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const root = path.resolve(__dirname, "../..");
 const read = (f: string) => readFileSync(path.join(root, f), "utf-8");
 
-// Text-level checks (no YAML parser is a direct dependency). A service block
-// runs from its two-space-indented name to the next service or top-level key.
-function serviceBlock(file: string, name: string): string {
-  const m = new RegExp(`^  ${name}:\\n((?:(?:    |\\s*#|\\s*\\n).*\\n?)*)`, "m").exec(read(file));
-  return m?.[1] ?? "";
+// js-yaml is not a direct dependency (it is pinned through `overrides` and
+// arrives with the lint tooling) and ships no types here, so it is loaded with
+// a minimal local signature.
+const { load } = createRequire(import.meta.url)("js-yaml") as { load: (text: string) => unknown };
+
+type Obj = Record<string, unknown>;
+
+// Compose files are parsed, so key order, quoting, comments and the
+// `KEY: value` / `- KEY=value` forms of `environment` do not matter.
+function loadCompose(file: string): Obj {
+  return load(read(file)) as Obj;
 }
 
+function service(compose: Obj, name: string): Obj {
+  const services = compose.services as Obj | undefined;
+  return (services?.[name] ?? {}) as Obj;
+}
+
+// `environment` is either a map or a list of `KEY=value` / `KEY` entries.
+function env(svc: Obj): Record<string, string | null> {
+  const e = svc.environment;
+  if (Array.isArray(e)) {
+    return Object.fromEntries(
+      e.map((entry) => {
+        const s = String(entry);
+        const i = s.indexOf("=");
+        return i < 0 ? [s, null] : [s.slice(0, i), s.slice(i + 1)];
+      }),
+    );
+  }
+  return Object.fromEntries(
+    Object.entries((e ?? {}) as Obj).map(([k, v]) => [k, v === null ? null : String(v)]),
+  );
+}
+
+// Every string scalar in the parsed document (keys excluded). Comments never
+// show up here.
+function strings(node: unknown): string[] {
+  if (typeof node === "string") return [node];
+  if (Array.isArray(node)) return node.flatMap(strings);
+  if (node && typeof node === "object") return Object.values(node).flatMap(strings);
+  return [];
+}
+
+function buildOf(svc: Obj): Obj {
+  const b = svc.build;
+  return typeof b === "string" ? { context: b } : ((b ?? {}) as Obj);
+}
+
+const composeFile = "docker-compose.yml";
+
 describe("docker-compose.yml defaults", () => {
-  const app = serviceBlock("docker-compose.yml", "app");
-  const planforge = serviceBlock("docker-compose.yml", "planforge");
+  const compose = loadCompose(composeFile);
+  const app = service(compose, "app");
+  const planforge = service(compose, "planforge");
 
   it("finds both service blocks", () => {
-    expect(app).toContain("build: .");
-    expect(planforge).toContain("dockerfile: server/Dockerfile");
+    expect(buildOf(app).context).toBe(".");
+    expect(buildOf(planforge).dockerfile).toBe("server/Dockerfile");
   });
 
   // The planforge image is built from a pinned git revision, not from a
   // sibling checkout whose contents depend on the host.
-  const contextLine = /^ {6}context: (.+)$/m.exec(planforge)?.[1] ?? "";
-  const defaultContext = /^\$\{PLANFORGE_CONTEXT:-([^}]+)\}$/.exec(contextLine)?.[1] ?? "";
+  const contextValue = String(buildOf(planforge).context ?? "");
+  const defaultContext = /^\$\{PLANFORGE_CONTEXT:-([^}]+)\}$/.exec(contextValue)?.[1] ?? "";
 
   it("builds planforge from a git URL pinned to a tag or a full commit SHA", () => {
     expect(defaultContext).toMatch(
@@ -37,46 +83,46 @@ describe("docker-compose.yml defaults", () => {
   });
 
   it("lets PLANFORGE_CONTEXT override the context, and only through that variable", () => {
-    expect(contextLine).toMatch(/^\$\{PLANFORGE_CONTEXT:-[^}]+\}$/);
+    expect(contextValue).toMatch(/^\$\{PLANFORGE_CONTEXT:-[^}]+\}$/);
   });
 
   it("has no sibling-checkout path in the default compose outside comments", () => {
-    const code = read("docker-compose.yml")
-      .split("\n")
-      .filter((l) => !l.trimStart().startsWith("#"))
-      .join("\n");
-    expect(code).not.toMatch(/\.\.\/agent-planforge/);
-    expect(code).not.toMatch(/context:\s*\.\.?\//);
+    const values = strings(compose);
+    expect(values.length).toBeGreaterThan(0);
+    expect(values.filter((v) => /\.\.\/agent-planforge/.test(v))).toEqual([]);
+    expect(values.filter((v) => /^\.\.?\//.test(v))).toEqual([]);
   });
 
   it("keeps the planforge ref in exactly one place", () => {
-    expect(read("docker-compose.yml").match(/agent-planforge\.git#/g)).toHaveLength(1);
+    expect(strings(compose).filter((v) => v.includes("agent-planforge.git#"))).toHaveLength(1);
   });
 
   it("gives the app a healthcheck against the health route", () => {
-    const hc = /healthcheck:\n([\s\S]*?)\n    logging:/.exec(app)?.[1] ?? "";
-    expect(hc).toContain("- CMD");
-    expect(hc).toMatch(/^ {8}- "require\('http'\)\.get\('http:\/\/127\.0\.0\.1:3000\/api\/health'/m);
+    const test = (app.healthcheck as Obj | undefined)?.test;
+    expect(Array.isArray(test)).toBe(true);
+    const parts = test as string[];
+    expect(parts[0]).toBe("CMD");
+    expect(parts[parts.length - 1]).toMatch(
+      /^require\('http'\)\.get\('http:\/\/127\.0\.0\.1:3000\/api\/health'/,
+    );
   });
 
   // Named volumes are prefixed with the project name; without the pin the
   // forge_db volume would follow the checkout directory (docs/deployment.md,
   // "Database location"). The name is the one the production volume already has.
   it("pins the compose project name at the top level, so forge_db does not follow the checkout directory", () => {
-    expect(read("docker-compose.yml")).toMatch(/^name: project-forge$/m);
+    expect(compose.name).toBe("project-forge");
   });
 
   it("probes every 2 s during the start period (start_interval), after the 60 s start_period", () => {
-    const hc = /healthcheck:\n([\s\S]*?)\n    logging:/.exec(app)?.[1] ?? "";
-    expect(hc).toMatch(/^ {6}start_period: 60s$/m);
-    expect(hc).toMatch(/^ {6}start_interval: 2s$/m);
+    const hc = app.healthcheck as Obj;
+    expect(hc.start_period).toBe("60s");
+    expect(hc.start_interval).toBe("2s");
   });
 
   it("defaults DATABASE_URL to the forge_db volume mount, overridable only through FORGE_DATABASE_URL", () => {
-    expect(app).toMatch(
-      /^ {6}DATABASE_URL: \$\{FORGE_DATABASE_URL:-file:\/data\/project-forge\.db\}$/m,
-    );
-    expect(app).toMatch(/^ {6}- forge_db:\/data$/m);
+    expect(env(app).DATABASE_URL).toBe("${FORGE_DATABASE_URL:-file:/data/project-forge.db}");
+    expect(app.volumes).toContain("forge_db:/data");
   });
 
   // Same pattern as DATABASE_URL: deploy tooling that runs
@@ -86,51 +132,54 @@ describe("docker-compose.yml defaults", () => {
   // (.env may carry http://localhost:8223 for local development, and that
   // must not reach the container).
   it("defaults PLANFORGE_URL to the planforge service, overridable only through FORGE_PLANFORGE_URL", () => {
-    expect(app).toMatch(
-      /^ {6}PLANFORGE_URL: \$\{FORGE_PLANFORGE_URL:-http:\/\/planforge:8223\}$/m,
-    );
-    expect(app).not.toMatch(/\$\{PLANFORGE_URL\b/);
+    expect(env(app).PLANFORGE_URL).toBe("${FORGE_PLANFORGE_URL:-http://planforge:8223}");
+    expect(JSON.stringify(app)).not.toMatch(/\$\{PLANFORGE_URL\b/);
   });
 
   it("requires PLANFORGE_SERVICE_TOKEN for both services", () => {
-    const required = /^ {6}PLANFORGE_SERVICE_TOKEN: \$\{PLANFORGE_SERVICE_TOKEN:\?[^}]+\}$/m;
-    expect(app).toMatch(required);
-    expect(planforge).toMatch(required);
+    const required = /^\$\{PLANFORGE_SERVICE_TOKEN:\?[^}]+\}$/;
+    expect(env(app).PLANFORGE_SERVICE_TOKEN).toMatch(required);
+    expect(env(planforge).PLANFORGE_SERVICE_TOKEN).toMatch(required);
   });
 
   it("bounds the json-file logs of both services through the shared anchor", () => {
-    const compose = read("docker-compose.yml");
-    expect(compose).toMatch(/^x-logging: &default-logging\n {2}driver: json-file\n {2}options:\n {4}max-size: "\d+m"\n {4}max-file: "\d+"$/m);
-    expect(app).toMatch(/^ {4}logging: \*default-logging$/m);
-    expect(planforge).toMatch(/^ {4}logging: \*default-logging$/m);
+    const shared = compose["x-logging"] as Obj;
+    expect(shared.driver).toBe("json-file");
+    const options = shared.options as Obj;
+    expect(String(options["max-size"])).toMatch(/^\d+m$/);
+    expect(String(options["max-file"])).toMatch(/^\d+$/);
+    // An alias resolves to the very same object as the anchor.
+    expect(app.logging).toBe(shared);
+    expect(planforge.logging).toBe(shared);
   });
 
   // The app runs as root (the production forge_db volume is root-owned) but is
-  // hardened so it keeps none of the privileges root does not need. Pinned by
-  // text, like the rest of this file (no YAML parser is a direct dependency).
+  // hardened so it keeps none of the privileges root does not need.
   it("runs the app with no-new-privileges, so no process gains privileges after start", () => {
-    expect(app).toMatch(/^ {4}security_opt:\n {6}- no-new-privileges:true$/m);
+    expect(app.security_opt).toEqual(["no-new-privileges:true"]);
   });
 
   it("drops every Linux capability from the app", () => {
-    expect(app).toMatch(/^ {4}cap_drop:\n {6}- ALL$/m);
+    expect(app.cap_drop).toEqual(["ALL"]);
   });
 
   it("adds no capability back to the app, because root needs none of the dropped set", () => {
-    expect(app).not.toMatch(/^ {4}cap_add:/m);
+    expect(app).not.toHaveProperty("cap_add");
   });
 
   // planforge builds from an external image whose runtime needs (scaffoldkit,
   // tar packing as root) cannot be verified from this repo, so it is left
   // unchanged on purpose.
   it("leaves planforge without the hardening keys, so the change is scoped to the app", () => {
-    expect(planforge).not.toMatch(/^ {4}(security_opt|cap_drop|cap_add):/m);
+    for (const key of ["security_opt", "cap_drop", "cap_add"]) {
+      expect(planforge).not.toHaveProperty(key);
+    }
   });
 });
 
 describe("docker-compose.override.example.yml name", () => {
   it("does not set a top-level name, so the override joins the pinned project of docker-compose.yml", () => {
-    expect(read("docker-compose.override.example.yml")).not.toMatch(/^name:/m);
+    expect(loadCompose("docker-compose.override.example.yml")).not.toHaveProperty("name");
   });
 });
 
@@ -199,14 +248,14 @@ describe(".github/workflows/ci.yml docker-build job", () => {
 });
 
 describe("docker-compose.override.example.yml", () => {
+  const overrideEnv = env(service(loadCompose("docker-compose.override.example.yml"), "app"));
+
   it("does not set DATABASE_URL by default, so the compose default applies", () => {
-    expect(read("docker-compose.override.example.yml")).not.toMatch(/^\s*DATABASE_URL:/m);
+    expect(overrideEnv).not.toHaveProperty("DATABASE_URL");
   });
 
   it("ships the NEXTAUTH_URL placeholder, not a live URL", () => {
-    expect(read("docker-compose.override.example.yml")).toMatch(
-      /^\s*NEXTAUTH_URL: "https:\/\/your-forge\.example\.com"$/m,
-    );
+    expect(overrideEnv.NEXTAUTH_URL).toBe("https://your-forge.example.com");
   });
 });
 
@@ -233,9 +282,10 @@ describe("app healthcheck script", () => {
   // against a local server with the port swapped in. Pins the exit-code
   // contract: 0 only for a 200 answer, 1 for any other status and for a
   // refused connection.
-  const script = /^ {8}- "(require\('http'\)\.get\('http:\/\/127\.0\.0\.1:3000\/api\/health'.*)"$/m.exec(
-    serviceBlock("docker-compose.yml", "app"),
-  )?.[1];
+  const hcTest = (service(loadCompose(composeFile), "app").healthcheck as Obj | undefined)?.test;
+  const script = Array.isArray(hcTest)
+    ? (hcTest as string[]).find((p) => p.startsWith("require('http').get('http://127.0.0.1:3000/api/health'"))
+    : undefined;
 
   function probe(port: number): Promise<number | null> {
     return new Promise((resolve) => {
