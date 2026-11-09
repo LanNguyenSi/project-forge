@@ -29,8 +29,11 @@ relay runs every compose command as `docker compose -f docker-compose.yml ...`
 file lookup, so `docker-compose.override.yml` is skipped. Everything such a
 deploy needs comes from `docker-compose.yml`, `.env` and the shell of the
 relay: put the secrets and a non-default database path in `.env`, not in the
-override. `make deploy` and `make pull` run plain `docker compose`, which does
-load the override.
+override, and the same for a non-default planforge URL: set
+`FORGE_PLANFORGE_URL` there (compose only; unset or empty means the internal
+`http://planforge:8223`; the `PLANFORGE_URL` in `.env` is for local
+development and does not reach the container). `make deploy` and `make pull`
+run plain `docker compose`, which does load the override.
 
 ### Planforge version
 
@@ -203,8 +206,13 @@ or plain `docker compose`).
 ### Session cleanup
 
 Generated sessions live in `FORGE_TEMP_DIR` (`/tmp/project-forge` on the
-`forge_tmp` volume). There is no background cleanup: an expired session is
-removed only when it is read again, and a published one right after the push.
+`forge_tmp` volume). That container path is fixed in `docker-compose.yml` on
+purpose: the volume is mounted at `/tmp/project-forge` and the hourly prune
+(see [Backup and restore](#backup-and-restore)) cleans exactly that path, so
+setting `FORGE_TEMP_DIR` in `docker-compose.override.yml` would leave the
+volume and the prune pointing at the old path. There is no background
+cleanup: an expired session is removed only when it is read again, and a
+published one right after the push.
 Sessions that are never previewed or published stay on the volume, together
 with any uploaded documents, and the `forge_tmp` volume grows until someone
 prunes it. This is an operator step, not something the stack does. Prune
@@ -684,7 +692,14 @@ make install-cron ARGS=--remove     # delete the block, nothing else
 to `# END project-forge`) holding both entries, with absolute paths taken from
 the checkout the script lives in. A re-run replaces that block in place and
 leaves every other crontab line untouched; a re-run that changes nothing does
-not call `crontab` at all. `FORGE_BACKUP_DIR` is required and must be an
+not call `crontab` at all. The block keeps the absolute paths of the checkout
+it was installed from. After moving or re-cloning the checkout somewhere
+else, run `make install-cron` again from the new checkout (with the same
+`FORGE_BACKUP_DIR`) and check with `crontab -l` that the block names the new
+path: until you do, both entries `cd` into the old path first, so the hourly
+prune and the nightly backup fail quietly: the `cd` fails, the command never
+runs and nothing reaches the log (cron only mails the error, if mail is set
+up). `FORGE_BACKUP_DIR` is required and must be an
 absolute path (cron's `HOME` is the crontab owner's, so the default of
 `backup.sh` is not trusted there); unset or empty is refused. Optional:
 `FORGE_BACKUP_TIME` (`HH:MM`, default `03:15`) and `FORGE_BACKUP_LOG` (default
@@ -726,6 +741,37 @@ another machine as part of your routine, for example
 `rsync -a --delete /var/backups/project-forge/ backuphost:/backups/project-forge/`.
 The files carry the same secrets as the database, keep the mode 600 and the
 destination readable by the operator only.
+
+### Disk space
+
+Every deploy builds the image again (`docker compose up -d --build`, in
+`make deploy` and `make pull`; relay deploys rebuild too when the code
+changed, see [Docker Compose](#docker-compose)). Docker never removes what the rebuilds
+leave behind: each one turns the previous image of the service into a dangling
+one and grows the BuildKit build cache, so the host disk fills up over time.
+`.relay.yml` has no prune step, so this is an operator task. See the usage
+with:
+
+```bash
+docker system df
+```
+
+Remove the dangling images, and the build cache older than a week:
+
+```bash
+docker image prune -f
+docker builder prune -f --filter until=168h
+```
+
+Both commands act on the whole Docker host, not only this stack. Dangling
+images and build cache older than a week are normally safe to drop, but on a
+host shared with other apps their next builds get slower; check
+`docker system df` first.
+
+Never reclaim space with `docker system prune --volumes`: depending on the
+Docker version (older releases, or newer ones with `--all`) it also deletes
+named volumes that no running container uses, and while the stack is stopped
+that includes `forge_db`, the database. It must not be used on this host.
 
 ### Restoring a backup
 

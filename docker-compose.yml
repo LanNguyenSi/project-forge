@@ -53,7 +53,10 @@ services:
       # Planforge HTTP boundary (ADR-0002). The planforge service runs both
       # the planforge CLI and scaffoldkit in-container; this app just POSTs
       # input and untars the response. No bind-mounts needed.
-      PLANFORGE_URL: http://planforge:8223
+      # FORGE_PLANFORGE_URL is a compose-only knob read from .env or the
+      # shell; the PLANFORGE_URL in .env is for local development (it may
+      # carry http://localhost:8223) and must not reach the container.
+      PLANFORGE_URL: ${FORGE_PLANFORGE_URL:-http://planforge:8223}
       # Required: compose refuses to start the stack when it is unset or empty.
       # Read from .env or the shell: compose interpolates this file before it
       # merges the override, so a value that only the override sets does not

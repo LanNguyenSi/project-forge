@@ -15,9 +15,8 @@ their secrets belong in `.env`.
 | `NEXTAUTH_SECRET` | Random secret (`openssl rand -hex 32`) |
 | `NEXTAUTH_URL` | Public URL (e.g. `https://project-forge.example.com`) |
 | `DATABASE_URL` | SQLite path for local development (`.env.example` ships `file:./db/project-forge.db`). In Docker the container gets `file:/data/project-forge.db`; the `.env` value does not reach it. Use `FORGE_DATABASE_URL` (below) to change the container path. |
-| `PLANFORGE_URL` | URL of the planforge HTTP service (set to `http://planforge:8223` by `docker-compose.yml`). `.env.example` carries it commented out; for local development uncomment it in `.env` (`http://localhost:8223`). |
+| `PLANFORGE_URL` | URL of the planforge HTTP service. Only local development needs it: uncomment it in `.env` (`http://localhost:8223`, as `.env.example` ships it). `docker-compose.yml` sets the container's value itself (`${FORGE_PLANFORGE_URL:-http://planforge:8223}`, below), so this `.env` value does not reach the container. |
 | `PLANFORGE_SERVICE_TOKEN` | Shared bearer token for the planforge HTTP service. Generate with `openssl rand -hex 32`. Same value in both `app` and `planforge` containers. |
-| `PLANFORGE_CONTEXT` | Compose-only, optional. Build context of the `planforge` image; default is the pinned agent-planforge git URL in `docker-compose.yml`. Set to `../agent-planforge` to build from a local checkout, see [Planforge version](deployment.md#planforge-version). |
 
 > Publishing a repo uses each **user's own** GitHub credential (the OAuth token
 > from GitHub sign-in or a classic PAT saved in Settings, see
@@ -25,11 +24,19 @@ their secrets belong in `.env`.
 > There is no server-level `GITHUB_TOKEN` or `GITHUB_OWNER` env var. For OAuth
 > sign-in, set the optional `GITHUB_ID` / `GITHUB_SECRET` below.
 
-With `docker-compose.yml`, `PLANFORGE_URL`, `FORGE_TEMP_DIR` and `DATABASE_URL`
-are fixed in the service's `environment:` block, which takes precedence over
-`.env`; change `PLANFORGE_URL` and `FORGE_TEMP_DIR` in
-`docker-compose.override.yml` (the `forge_tmp` volume is mounted at
-`/tmp/project-forge`). The container's `DATABASE_URL` is
+With `docker-compose.yml`, `FORGE_TEMP_DIR` and `DATABASE_URL` are fixed in the
+service's `environment:` block, which takes precedence over `.env`. The
+container path in `FORGE_TEMP_DIR` is fixed on purpose: the `forge_tmp` volume
+is mounted at `/tmp/project-forge` and the hourly prune cron cleans exactly
+that path (see [deployment.md](deployment.md#session-cleanup)), so changing it
+in `docker-compose.override.yml` would leave the volume and the prune pointing
+at the old path. The container's `PLANFORGE_URL` is
+`${FORGE_PLANFORGE_URL:-http://planforge:8223}`: `FORGE_PLANFORGE_URL` is a
+compose-only knob read from `.env` or the shell (compose only; the app does
+not read it), and it is the one that survives deploys that run
+`docker compose -f docker-compose.yml` and skip the override; the
+`PLANFORGE_URL` in `.env` is for local development and does not reach the
+container. The container's `DATABASE_URL` is
 `${FORGE_DATABASE_URL:-file:/data/project-forge.db}`: set `FORGE_DATABASE_URL`
 in `.env` or the shell to use another file on the `forge_db` volume (compose
 only; the app does not read it). The full precedence, including the override
@@ -56,6 +63,7 @@ mapping and the scaffold review stay deterministic.
 | `GITHUB_SECRET` | GitHub OAuth app Client Secret |
 | `ALLOWED_GITHUB_LOGINS` | Comma-separated allowlist of GitHub logins permitted to register via the project-pilot broker. Unset/empty = accept any. |
 | `FORGE_TEMP_DIR` | Directory for temporary build artifacts (defaults to `/tmp/project-forge`) |
+| `PLANFORGE_CONTEXT` | Compose-only, optional. Build context of the `planforge` image; default is the pinned agent-planforge git URL in `docker-compose.yml`. Set to `../agent-planforge` to build from a local checkout, see [Planforge version](deployment.md#planforge-version). |
 | `FORGE_DATABASE_URL` | Docker only, read by compose (not by the app) from `.env` or the shell: the container's `DATABASE_URL`. Unset or empty = `file:/data/project-forge.db`. It must point onto the `forge_db` volume (below `/data`, after `..` and symlinks are resolved): the production container start refuses any other path. See [deployment.md](deployment.md#database-location). |
 | `FORGE_PRE_MIGRATE_COPIES_WARN` | Docker container start (`scripts/start.sh`), read from `.env`: warn when more than this many `*.pre-migrate-*` copies lie in the database's directory. Unset or empty = 5; `0` warns on any copy; a value that is not a whole number from 0 to 999999999 gets a warning and the default. It only warns: nothing deletes a copy. See [deployment.md](deployment.md#pre-migrate-copy). |
 | `FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME` | Docker container start (`scripts/start.sh`, `NODE_ENV=production` only). Exactly `1` lets the start use a database path that is not on the `forge_db` volume (it warns); any other value does not. Left set, it switches the volume check off for every later start, and the data then lives where you put it. See [deployment.md](deployment.md#database-location). |
