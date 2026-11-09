@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
 import { ProjectForm } from "@/components/ProjectForm";
+import { Field, Label, Textarea } from "@/components/ui/primitives";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -26,11 +28,39 @@ describe("ProjectForm accessible names and heading order", () => {
   it("names every project field by its label, not its placeholder", async () => {
     render(<ProjectForm onSubmit={vi.fn()} />);
     await screen.findByRole("heading", { level: 2, name: /AI Magic Fill/ });
-    expect(screen.getByRole("textbox", { name: /Project Name/ })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: /Summary/ })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: /Core Features/ })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: /Constraints/ })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: /Target Users/ })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Project Name" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Summary" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Core Features" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Constraints" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Target Users" })).toBeTruthy();
+  });
+
+  it("keeps the hint out of the accessible name and in the description", async () => {
+    render(<ProjectForm onSubmit={vi.fn()} />);
+    await screen.findByRole("heading", { level: 2, name: /AI Magic Fill/ });
+    for (const name of ["Core Features", "Constraints", "Target Users"]) {
+      const control = screen.getByRole("textbox", { name });
+      expect(control).toHaveAccessibleDescription("(one per line)");
+    }
+  });
+
+  it("gives a field without a hint or an error no aria-describedby", async () => {
+    render(<ProjectForm onSubmit={vi.fn()} />);
+    await screen.findByRole("heading", { level: 2, name: /AI Magic Fill/ });
+    expect(screen.getByRole("textbox", { name: "Project Name" })).not.toHaveAttribute(
+      "aria-describedby",
+    );
+  });
+
+  it("names both the hint and the error in one field's description", () => {
+    render(
+      <Field error="Add at least one core feature.">
+        <Label required hint="(one per line)">Core Features</Label>
+        <Textarea rows={2} defaultValue="" />
+      </Field>,
+    );
+    const control = screen.getByRole("textbox", { name: "Core Features" });
+    expect(control).toHaveAccessibleDescription("(one per line) Add at least one core feature.");
   });
 
   it("names the magic-fill prompt input through its screen-reader label", async () => {
@@ -41,6 +71,7 @@ describe("ProjectForm accessible names and heading order", () => {
 
   it("names the magic-fill file input through its screen-reader label", async () => {
     render(<ProjectForm onSubmit={vi.fn()} />);
+    await screen.findByRole("heading", { level: 2, name: /AI Magic Fill/ });
     fireEvent.click(await screen.findByRole("tab", { name: "File" }));
     const fileInput = screen.getByLabelText("Upload a project document");
     expect(fileInput.getAttribute("type")).toBe("file");

@@ -22,6 +22,7 @@ interface ApiToken {
 interface TokenToRevoke {
   id: string;
   name: string;
+  tokenPrefix: string;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -304,8 +305,14 @@ export default function SettingsPage() {
                     <Button
                       variant="danger"
                       size="sm"
-                      aria-label={`Revoke ${token.name}`}
-                      onClick={() => setTokenToRevoke({ id: token.id, name: token.name })}
+                      aria-label={`Revoke token ${token.name}, prefix ${token.tokenPrefix}`}
+                      onClick={() =>
+                        setTokenToRevoke({
+                          id: token.id,
+                          name: token.name,
+                          tokenPrefix: token.tokenPrefix,
+                        })
+                      }
                       className="ml-4 shrink-0"
                     >
                       Revoke
@@ -373,6 +380,7 @@ export default function SettingsPage() {
         {tokenToRevoke && (
           <RevokeTokenModal
             tokenName={tokenToRevoke.name}
+            tokenPrefix={tokenToRevoke.tokenPrefix}
             loading={revokingTokenId === tokenToRevoke.id}
             onConfirm={handleRevokeToken}
             onCancel={() => {
@@ -389,11 +397,13 @@ export default function SettingsPage() {
 
 function RevokeTokenModal({
   tokenName,
+  tokenPrefix,
   loading = false,
   onConfirm,
   onCancel,
 }: {
   tokenName: string;
+  tokenPrefix: string;
   loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -414,7 +424,8 @@ function RevokeTokenModal({
         </div>
         <h2 className="text-xl font-semibold text-forge-mist">Revoke API token?</h2>
         <p className="text-forge-ash text-sm mt-2">
-          <span className="text-forge-mist font-medium">{tokenName}</span> will stop working immediately.
+          <span className="text-forge-mist font-medium">{tokenName}</span> ({tokenPrefix}) will stop
+          working immediately.
         </p>
       </div>
 
