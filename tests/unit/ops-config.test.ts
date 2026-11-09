@@ -79,6 +79,19 @@ describe("docker-compose.yml defaults", () => {
     expect(app).toMatch(/^ {6}- forge_db:\/data$/m);
   });
 
+  // Same pattern as DATABASE_URL: deploy tooling that runs
+  // `docker compose -f docker-compose.yml` skips the override, so a
+  // non-default planforge URL must come from FORGE_PLANFORGE_URL (.env or
+  // the shell), never from the override and never from PLANFORGE_URL itself
+  // (.env may carry http://localhost:8223 for local development, and that
+  // must not reach the container).
+  it("defaults PLANFORGE_URL to the planforge service, overridable only through FORGE_PLANFORGE_URL", () => {
+    expect(app).toMatch(
+      /^ {6}PLANFORGE_URL: \$\{FORGE_PLANFORGE_URL:-http:\/\/planforge:8223\}$/m,
+    );
+    expect(app).not.toMatch(/\$\{PLANFORGE_URL\b/);
+  });
+
   it("requires PLANFORGE_SERVICE_TOKEN for both services", () => {
     const required = /^ {6}PLANFORGE_SERVICE_TOKEN: \$\{PLANFORGE_SERVICE_TOKEN:\?[^}]+\}$/m;
     expect(app).toMatch(required);
@@ -207,6 +220,11 @@ describe(".env.example", () => {
   it("documents FORGE_DATABASE_URL only as a commented-out example, so the volume default applies", () => {
     expect(lines.some((l) => l.startsWith("FORGE_DATABASE_URL="))).toBe(false);
     expect(lines).toContain("# FORGE_DATABASE_URL=file:/data/project-forge.db");
+  });
+
+  it("documents FORGE_PLANFORGE_URL only as a commented-out example, so the compose default applies", () => {
+    expect(lines.some((l) => l.startsWith("FORGE_PLANFORGE_URL="))).toBe(false);
+    expect(lines).toContain("# FORGE_PLANFORGE_URL=http://planforge:8223");
   });
 });
 
