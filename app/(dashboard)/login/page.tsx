@@ -1,12 +1,25 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Input, Label, Alert, Field } from "@/components/ui/primitives";
 import { PublicNav } from "@/components/layout/PublicNav";
 import { MAIN_CONTENT_ID } from "@/components/layout/SkipLink";
+import { authErrorMessage } from "./auth-error-message";
+
+// NextAuth sends a failed OAuth sign-in back here as ?error=<code>. An error
+// from the form on this page (localError) is newer and wins over it. This is
+// its own component because useSearchParams needs a Suspense boundary for the
+// production build; wrapping only this alert keeps the rest of the page in the
+// prerendered HTML.
+function LoginErrorAlert({ localError }: { localError: string }) {
+  const searchParams = useSearchParams();
+  const message = localError || authErrorMessage(searchParams?.get("error"));
+  if (!message) return null;
+  return <Alert variant="error">{message}</Alert>;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -110,7 +123,9 @@ export default function LoginPage() {
 
             {/* Email/Password Form */}
             <form onSubmit={handleSubmit} className="space-y-4 rounded-card bg-forge-iron border border-forge-steel p-6">
-              {error && <Alert variant="error">{error}</Alert>}
+              <Suspense fallback={null}>
+                <LoginErrorAlert localError={error} />
+              </Suspense>
 
               <Field>
                 <Label>Email</Label>

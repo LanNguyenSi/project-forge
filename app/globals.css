@@ -194,6 +194,12 @@
   color: var(--text-muted) !important;
 }
 
+/* The links share the body text colour, so colour alone does not mark them
+   as links (WCAG 1.4.1): underline them. */
+.swagger-ui .info a {
+  text-decoration: underline !important;
+}
+
 .swagger-ui .opblock {
   border-color: var(--border) !important;
   background: var(--bg-secondary) !important;

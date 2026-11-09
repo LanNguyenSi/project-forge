@@ -304,6 +304,7 @@ export default function SettingsPage() {
                     <Button
                       variant="danger"
                       size="sm"
+                      aria-label={`Revoke ${token.name}`}
                       onClick={() => setTokenToRevoke({ id: token.id, name: token.name })}
                       className="ml-4 shrink-0"
                     >
