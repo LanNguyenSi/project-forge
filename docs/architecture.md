@@ -80,6 +80,9 @@ project-forge/
 │   │   └── dashboard/            # profile (route.ts), API tokens (tokens/), GitHub PAT (pat/)
 │   ├── docs/page.tsx             # Swagger UI over public/openapi.json
 │   ├── styleguide/page.tsx       # UI primitives showcase
+│   ├── page.tsx                  # Public landing page (sends signed-in users to /dashboard)
+│   ├── fonts/                    # Vendored woff2 fonts loaded with next/font/local
+│   ├── icon.svg                  # App Router site icon (the ember flame mark)
 │   ├── layout.tsx                # Root layout
 │   └── globals.css               # Global styles + Swagger dark overrides
 │
@@ -87,7 +90,9 @@ project-forge/
 ├── lib/                          # Server-side business logic (see below)
 ├── prisma/schema.prisma          # SQLite schema (users, API tokens, usage log)
 ├── middleware.ts                 # X-API-Key presence check on /api/v1, login redirect for pages
+├── instrumentation.ts            # Next.js register() hook: runs the production start-up check
 ├── public/openapi.json           # OpenAPI spec served at /docs
+├── public/favicon.svg            # Browser favicon (the ember flame mark)
 └── tests/                        # Vitest integration + unit tests
 ```
 

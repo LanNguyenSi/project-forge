@@ -161,7 +161,9 @@ public route that answers `{"ok":true}` without touching the database. It
 gives the container 60 seconds to run `scripts/start.sh` (`prisma migrate deploy`,
 plus the pre-migrate copy when a migration is pending) and start, probing every
 2 seconds during that time (`start_interval`, which needs Docker Engine 25 or
-newer and a Compose release that knows the key) so the container turns healthy
+newer and a Compose release that knows the key; the floor for this stack is
+Docker Compose v2.24.0, the release that added `required:` support to
+`env_file`) so the container turns healthy
 soon after the server listens, then every 15 seconds; five failures in a row
 mark it `unhealthy` (`docker compose ps`). Because the check reads the route, a server that
 refuses to serve (see above) is `unhealthy` too. Docker does not restart an
@@ -773,12 +775,24 @@ Docker version (older releases, or newer ones with `--all`) it also deletes
 named volumes that no running container uses, and while the stack is stopped
 that includes `forge_db`, the database. It must not be used on this host.
 
+Never take the stack down with `docker compose down -v` or `docker compose
+down --volumes`: these delete the project's named volumes, `forge_db` with
+the database and `forge_tmp` with the temporary generation and preview
+sessions, and the next start finds an empty volume and silently
+creates a fresh, empty database on it (the first-install row of the table in
+[Database migrations](#database-migrations)). For maintenance use
+`docker compose down` without `-v`, or `docker compose stop` /
+`docker compose up -d`.
+
 ### Restoring a backup
 
 A restore puts the database back to the moment of the backup: every write
 after it (users, API tokens, sessions, published-project rows) is gone. That
 includes what the app wrote while the backup was being taken. Restore with the
-app stopped, so nothing writes between the check and the swap:
+app stopped, so nothing writes between the check and the swap: stop it with
+`docker compose stop` or `docker compose stop app`, never with
+`docker compose down -v` (see [Disk space](#disk-space)), which would delete
+the volume the restore writes into:
 
 1. Stop the app: `docker compose stop app`.
 2. Stream the backup onto the volume under a temporary name. Do not use
@@ -826,6 +840,9 @@ schema, do not start it (see [Rollback](#rollback)).
 
 The release that adds `prisma/migrations/` replaces the container's
 `prisma db push` with `scripts/start.sh` (see [Database migrations](#database-migrations)).
+If you take the stack down during this upgrade, never use
+`docker compose down -v`: it deletes `forge_db`, the database (see
+[Disk space](#disk-space)).
 What the next deploy does, with the database at `file:/data/project-forge.db`:
 
 1. The image is rebuilt; it now contains `sqlite3`, `scripts/start.sh` and the
@@ -865,7 +882,7 @@ pre-migrate copy once the new version has run well.
 ```bash
 cd <path to your project-forge checkout>
 NEW_TOKEN=$(openssl rand -hex 32)
-sed -i "s/^PLANFORGE_SERVICE_TOKEN=.*/PLANFORGE_SERVICE_TOKEN=$NEW_TOKEN/" .env
+sed -i.bak "s/^PLANFORGE_SERVICE_TOKEN=.*/PLANFORGE_SERVICE_TOKEN=$NEW_TOKEN/" .env && rm .env.bak
 docker compose up -d --build  # rebuild both so the new token is live simultaneously
 ```
 
@@ -963,7 +980,9 @@ the default in `docker-compose.yml`).
 Run everything from the checkout that holds `docker-compose.yml`,
 `docker-compose.override.yml` and `.env`, after pulling 0.7.0. The one-off
 containers read the same environment as the `app` service, which is what
-makes the hash key below match.
+makes the hash key below match. Never use `docker compose down -v` (or
+`--volumes`) anywhere in this runbook: it deletes `forge_db`, the
+database being migrated, see [Disk space](#disk-space).
 
 The `-v ./scripts:/app/scripts` runs below need the checkout's `scripts/`
 files to be world-readable (the default for a clone): the app container runs
