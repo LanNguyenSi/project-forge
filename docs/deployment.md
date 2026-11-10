@@ -776,9 +776,9 @@ named volumes that no running container uses, and while the stack is stopped
 that includes `forge_db`, the database. It must not be used on this host.
 
 Never take the stack down with `docker compose down -v` or `docker compose
-down --volumes`, and never with `docker compose rm -v` either: these delete
-the project's named volumes, `forge_db` with the database and `forge_tmp`
-with the sessions, and the next start finds an empty volume and silently
+down --volumes`: these delete the project's named volumes, `forge_db` with
+the database and `forge_tmp` with the temporary generation and preview
+sessions, and the next start finds an empty volume and silently
 creates a fresh, empty database on it (the first-install row of the table in
 [Database migrations](#database-migrations)). For maintenance use
 `docker compose down` without `-v`, or `docker compose stop` /
@@ -933,10 +933,6 @@ before the next deploy (`make deploy` and `make pull` now rebuild with
 - **Logs and health.** The `json-file` rotation applies after the containers
   are recreated; the healthcheck starts out `starting` for up to 60 seconds.
   If you use `.relay.yml`, its `health: /` check is unchanged.
-- **Down without `-v`.** If you take the stack down during this upgrade, use
-  `docker compose down` without `-v` (or `stop` / `up -d`):
-  `down -v`, `down --volumes` and `rm -v` delete `forge_db` with the
-  database, see [Disk space](#disk-space).
 
 ## Upgrading to 0.7.0
 
@@ -985,7 +981,7 @@ Run everything from the checkout that holds `docker-compose.yml`,
 `docker-compose.override.yml` and `.env`, after pulling 0.7.0. The one-off
 containers read the same environment as the `app` service, which is what
 makes the hash key below match. Never use `docker compose down -v` (or
-`--volumes`, `rm -v`) anywhere in this runbook: it deletes `forge_db`, the
+`--volumes`) anywhere in this runbook: it deletes `forge_db`, the
 database being migrated, see [Disk space](#disk-space).
 
 The `-v ./scripts:/app/scripts` runs below need the checkout's `scripts/`
