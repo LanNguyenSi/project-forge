@@ -224,8 +224,9 @@ periodically, for example:
 docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} +
 ```
 
-`make install-cron` puts this prune (hourly) and the nightly backup into the
-crontab, see [Backup and restore](#backup-and-restore). The command itself,
+`make install-cron` puts this prune (hourly), the nightly backup and the
+daily freshness check that follows it one hour later into the crontab, see
+[Backup and restore](#backup-and-restore). The command itself,
 without the log redirection the installer appends (hourly, from the checkout
 that holds `docker-compose.yml`), is:
 
@@ -681,8 +682,9 @@ the directory; the names never use the `.pre-migrate-` prefix that belongs to
 [start.sh](#pre-migrate-copy), so the two mechanisms cannot confuse each
 other.
 
-Schedule it, and the hourly `forge_tmp` prune, with one command on the deploy
-host (it edits the crontab of the invoking user):
+Schedule it, the hourly `forge_tmp` prune, and the daily freshness check that
+flags a backup that did not run, with one command on the deploy host (it edits
+the crontab of the invoking user):
 
 ```bash
 FORGE_BACKUP_DIR=/var/backups/project-forge make install-cron
@@ -691,31 +693,31 @@ make install-cron ARGS=--remove     # delete the block, nothing else
 ```
 
 `scripts/install-cron.sh` writes one marked block (`# BEGIN project-forge ...`
-to `# END project-forge`) holding both entries, with absolute paths taken from
+to `# END project-forge`) holding the three entries, with absolute paths taken from
 the checkout the script lives in. A re-run replaces that block in place and
 leaves every other crontab line untouched; a re-run that changes nothing does
 not call `crontab` at all. The block keeps the absolute paths of the checkout
 it was installed from. After moving or re-cloning the checkout somewhere
 else, run `make install-cron` again from the new checkout (with the same
 `FORGE_BACKUP_DIR`) and check with `crontab -l` that the block names the new
-path: until you do, both entries `cd` into the old path first, so the hourly
-prune and the nightly backup fail quietly: the `cd` fails, the command never
-runs and nothing reaches the log (cron only mails the error, if mail is set
-up). `FORGE_BACKUP_DIR` is required and must be an
+path: until you do, all three entries `cd` into the old path first, so the
+hourly prune, the nightly backup and the freshness check all fail quietly: the
+`cd` fails, the command never runs and nothing reaches the log (cron only mails
+the error, if mail is set up). `FORGE_BACKUP_DIR` is required and must be an
 absolute path (cron's `HOME` is the crontab owner's, so the default of
 `backup.sh` is not trusted there); unset or empty is refused. Optional:
 `FORGE_BACKUP_TIME` (`HH:MM`, default `03:15`) and `FORGE_BACKUP_LOG` (default
-`$FORGE_BACKUP_DIR/cron.log`, shared by both entries). A path with a single
+`$FORGE_BACKUP_DIR/cron.log`, shared by all three entries). A path with a single
 quote or a `%` is refused. A hand-made crontab line for the same job is not
 recognised: remove it before installing, or the backup runs twice.
 
 `make install-cron` also creates `FORGE_BACKUP_DIR` and the directory of the log
-file (mode 700) and touches the log, because both entries redirect into it and
-a missing directory would make cron skip them silently; it refuses if the log
+file (mode 700) and touches the log, because all three entries redirect into it
+and a missing directory would make cron skip them silently; it refuses if the log
 cannot be written. Cron runs with a minimal `PATH` (often `/usr/bin:/bin`), and
-both entries call `docker`: if it lives elsewhere, add a `PATH=...` line above
-the block with `crontab -e` (lines outside the block are never touched) or
-make `docker` reachable from `/usr/bin`.
+the prune and backup entries call `docker`: if it lives elsewhere, add a
+`PATH=...` line above the block with `crontab -e` (lines outside the block are
+never touched) or make `docker` reachable from `/usr/bin`.
 
 Without make, the raw entries the block writes (with the default time and log,
 `FORGE_BACKUP_DIR=/var/backups/project-forge`) are, after creating that
@@ -724,6 +726,7 @@ directory yourself:
 ```cron
 0 * * * * cd '/path/to/project-forge' && docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} + >> '/var/backups/project-forge/cron.log' 2>&1
 15 3 * * * cd '/path/to/project-forge' && FORGE_BACKUP_DIR='/var/backups/project-forge' sh ./scripts/backup.sh >> '/var/backups/project-forge/cron.log' 2>&1
+15 4 * * * cd '/path/to/project-forge' && FORGE_BACKUP_DIR='/var/backups/project-forge' sh ./scripts/backup.sh --check-fresh 2 >> '/var/backups/project-forge/cron.log' 2>&1
 ```
 
 Whether backups still run: after every successful, verified backup
@@ -732,9 +735,24 @@ Whether backups still run: after every successful, verified backup
 run never writes it, so its modification time is the last real success.
 `sh scripts/backup.sh --check-fresh [hours]` needs no container and exits 0
 when the stamp is younger than that many hours (default 26, a nightly run plus
-slack; a positive integer without a leading zero, at most 6 digits) and 1 when it is missing, empty or older (the reason goes to stderr), so
-a monitoring probe or a second cron line can call it, for example
-`FORGE_BACKUP_DIR=/var/backups/project-forge sh ./scripts/backup.sh --check-fresh 26`.
+slack; a positive integer without a leading zero, at most 6 digits) and 1 when
+it is missing, empty or older (the reason goes to stderr).
+
+`install-cron.sh` schedules that check for you, as the third entry of the
+block: a daily run one hour after the backup time (`03:15` is checked at
+`04:15`, a `23:30` backup at `00:30`) calling `--check-fresh 2`. One hour
+after a successful backup the stamp is about an hour old and the entry exits
+0; after a backup that did not run (or failed) it is about 25 h old, so the
+stale reason lands in the same cron log as the backup output the same night.
+The threshold must stay above the backup's run time plus slack and below 24,
+so a backup that takes longer than about an hour would be reported stale.
+Cron local-time shifts (a DST change) move both entries together, so the
+one-hour gap is stable. A monitoring probe outside cron can still call the
+very same command with the default 26 h and alert on its non-zero exit, for
+example `FORGE_BACKUP_DIR=/var/backups/project-forge sh ./scripts/backup.sh --check-fresh 26`.
+The entries redirect their output into the log (`>> ... 2>&1`), so cron mails
+nothing about them: to get cron mail for one instead, drop its redirect with
+`crontab -e`.
 
 Copying the backups to another machine is not automated here, see below.
 

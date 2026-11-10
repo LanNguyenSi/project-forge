@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 /**
- * scripts/install-cron.sh puts the prune and backup cron entries into one
- * marked block of the invoking user's crontab. It is tested with a stub
+ * scripts/install-cron.sh puts the prune, backup and freshness-check cron
+ * entries into one marked block of the invoking user's crontab. It is tested with a stub
  * `crontab` on PATH backed by a plain file: `-l` prints it (or answers "no
  * crontab for user" when the file is missing), `<file>` replaces it. The real
  * crontab of the machine is never touched.
@@ -54,6 +54,8 @@ function newCron(): Cron {
   mkdirSync(bin);
   writeFileSync(path.join(bin, "crontab"), CRONTAB_STUB);
   chmodSync(path.join(bin, "crontab"), 0o755);
+  const tmp = path.join(dir, "tmp");
+  mkdirSync(tmp);
   const file = path.join(dir, "crontab.store");
   const log = path.join(dir, "crontab.log");
   return {
@@ -67,6 +69,7 @@ function newCron(): Cron {
         env: {
           PATH: `${bin}:${process.env.PATH}`,
           HOME: dir,
+          TMPDIR: tmp,
           STUB_CRONTAB_FILE: file,
           STUB_CRONTAB_LOG: log,
           ...env,
@@ -88,22 +91,28 @@ const blockOf = (s: string | null) => {
   const a = l.indexOf(BEGIN);
   return a < 0 ? [] : l.slice(a, l.indexOf(END) + 1);
 };
-const backupLine = (s: string | null) => blockOf(s).find((l) => l.includes("scripts/backup.sh")) ?? "";
+const backupLine = (s: string | null) =>
+  blockOf(s).find((l) => l.includes("scripts/backup.sh") && !l.includes("--check-fresh")) ?? "";
+const checkLine = (s: string | null) => blockOf(s).find((l) => l.includes("--check-fresh")) ?? "";
 const pruneLine = (s: string | null) => blockOf(s).find((l) => l.includes("find /tmp/project-forge")) ?? "";
 const count = (s: string | null, what: string) => lines(s).filter((l) => l === what).length;
 
 describe("scripts/install-cron.sh", () => {
-  it("fresh install: no crontab yet, the block holds the prune and the backup entry with absolute paths", () => {
+  it("fresh install: no crontab yet, the block holds the prune, backup and freshness entries with absolute paths", () => {
     const c = newCron();
     const r = c.run({ FORGE_BACKUP_DIR: BACKUP_DIR });
     expect(r.status, r.stderr).toBe(0);
     const out = c.content();
-    expect(blockOf(out)).toHaveLength(4);
+    expect(blockOf(out)).toHaveLength(5);
     expect(pruneLine(out)).toBe(
       `0 * * * * cd '${ROOT}' && docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} + >> '${BACKUP_DIR}/cron.log' 2>&1`,
     );
     expect(backupLine(out)).toBe(
       `15 3 * * * cd '${ROOT}' && FORGE_BACKUP_DIR='${BACKUP_DIR}' sh ./scripts/backup.sh >> '${BACKUP_DIR}/cron.log' 2>&1`,
+    );
+    expect(backupLine(out)).not.toContain("--check-fresh");
+    expect(checkLine(out)).toBe(
+      `15 4 * * * cd '${ROOT}' && FORGE_BACKUP_DIR='${BACKUP_DIR}' sh ./scripts/backup.sh --check-fresh 2 >> '${BACKUP_DIR}/cron.log' 2>&1`,
     );
     expect(c.calls()).toEqual(["-l", expect.stringMatching(/crontab\.\w+$|next$/)]);
   });
@@ -246,6 +255,78 @@ describe("scripts/install-cron.sh", () => {
     }
   });
 
+  describe("the --check-fresh freshness entry (one hour after the backup, wrapping 23 to 00)", () => {
+    const checkFor = (t: string, dir = BACKUP_DIR) =>
+      `${t} * * * cd '${ROOT}' && FORGE_BACKUP_DIR='${dir}' sh ./scripts/backup.sh --check-fresh 2 >> '${dir}/cron.log' 2>&1`;
+
+    it("dry-run prints exactly three entries between the markers, the last being the freshness check", () => {
+      const c = newCron();
+      const r = c.run({ FORGE_BACKUP_DIR: BACKUP_DIR }, ["--dry-run"]);
+      expect(r.status, r.stderr).toBe(0);
+      const block = blockOf(r.stdout);
+      expect(block).toHaveLength(5);
+      expect(block.filter((l) => !l.startsWith("#"))).toHaveLength(3);
+      expect(checkLine(r.stdout)).toBe(checkFor("15 4"));
+      expect(c.calls()).toEqual([]);
+    });
+
+    for (const [backup, check] of [
+      ["03:15", "15 4"],
+      ["00:00", "0 1"],
+      ["08:09", "9 9"],
+      ["22:30", "30 23"],
+    ] as const) {
+      it(`FORGE_BACKUP_TIME ${backup}: the check runs one hour later at ${check}, same minute`, () => {
+        const c = newCron();
+        expect(c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, FORGE_BACKUP_TIME: backup }).status).toBe(0);
+        const out = c.content();
+        expect(backupLine(out)).toContain(" sh ./scripts/backup.sh >> ");
+        expect(checkLine(out)).toBe(checkFor(check));
+      });
+    }
+
+    it("23:30 wraps the check to 00:30 (still one hour after)", () => {
+      const c = newCron();
+      expect(c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, FORGE_BACKUP_TIME: "23:30" }).status).toBe(0);
+      expect(backupLine(c.content())).toMatch(/^30 23 \* \* \* /);
+      expect(checkLine(c.content())).toBe(checkFor("30 0"));
+    });
+
+    it("quotes a backup directory with a space exactly like the backup entry", () => {
+      const c = newCron();
+      const dir = path.join(BACKUP_ROOT, "sp ace");
+      expect(c.run({ FORGE_BACKUP_DIR: dir }).status).toBe(0);
+      const out = c.content();
+      expect(checkLine(out)).toBe(checkFor("15 4", dir));
+      const b = backupLine(out);
+      for (const frag of [`cd '${ROOT}'`, `FORGE_BACKUP_DIR='${dir}'`, `>> '${dir}/cron.log' 2>&1`]) {
+        expect(checkLine(out), frag).toContain(frag);
+        expect(b, frag).toContain(frag);
+      }
+    });
+
+    it("a re-install replaces the block and leaves exactly one check entry", () => {
+      const c = newCron();
+      expect(c.run({ FORGE_BACKUP_DIR: BACKUP_DIR }).status).toBe(0);
+      expect(c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, FORGE_BACKUP_TIME: "05:45" }).status).toBe(0);
+      const out = c.content();
+      expect(lines(out).filter((l) => l.includes("--check-fresh"))).toHaveLength(1);
+      expect(count(out, BEGIN)).toBe(1);
+      expect(checkLine(out)).toBe(checkFor("45 6"));
+    });
+
+    it("--remove takes the whole block down, check entry included", () => {
+      const c = newCron();
+      const keep = "MAILTO=ops@example.org\n0 4 * * * /usr/bin/other\n";
+      c.set(keep);
+      expect(c.run({ FORGE_BACKUP_DIR: BACKUP_DIR }).status).toBe(0);
+      expect(c.content()).toContain("--check-fresh");
+      expect(c.run({}, ["--remove"]).status).toBe(0);
+      expect(c.content()).toBe(keep);
+      expect(c.content()).not.toContain("--check-fresh");
+    });
+  });
+
   describe("FORGE_BACKUP_LOG (absent and empty mean $FORGE_BACKUP_DIR/cron.log; set wins)", () => {
     it("absent and empty: the default under the backup dir", () => {
       for (const env of [{}, { FORGE_BACKUP_LOG: "" }]) {
@@ -253,13 +334,15 @@ describe("scripts/install-cron.sh", () => {
         c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, ...env });
         expect(backupLine(c.content())).toContain(`>> '${BACKUP_DIR}/cron.log' 2>&1`);
         expect(pruneLine(c.content())).toContain(`>> '${BACKUP_DIR}/cron.log' 2>&1`);
+        expect(checkLine(c.content())).toContain(`>> '${BACKUP_DIR}/cron.log' 2>&1`);
       }
     });
-    it("set: both entries log there", () => {
+    it("set: all three entries log there", () => {
       const c = newCron();
       c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, FORGE_BACKUP_LOG: path.join(BACKUP_ROOT, "forge.log") });
       expect(backupLine(c.content())).toContain(`>> '${path.join(BACKUP_ROOT, "forge.log")}' 2>&1`);
       expect(pruneLine(c.content())).toContain(`>> '${path.join(BACKUP_ROOT, "forge.log")}' 2>&1`);
+      expect(checkLine(c.content())).toContain(`>> '${path.join(BACKUP_ROOT, "forge.log")}' 2>&1`);
     });
     it("a relative path is refused", () => {
       const c = newCron();
@@ -326,7 +409,7 @@ describe("scripts/install-cron.sh", () => {
     writeFileSync(path.join(stubBin, "docker"), `#!/bin/sh\nprintf 'docker %s\\n' "$*" >> '${dockerLog}'\nexit 1\n`);
     chmodSync(path.join(stubBin, "docker"), 0o755);
     const entries = blockOf(c.content()).filter((l) => !l.startsWith("#"));
-    expect(entries).toHaveLength(2);
+    expect(entries).toHaveLength(3);
     for (const entry of entries) {
       const command = entry.split(/^\S+ \S+ \S+ \S+ \S+ /)[1];
       const r = spawnSync("env", ["-i", `PATH=${stubBin}:/usr/bin:/bin`, "/bin/sh", "-c", command], { encoding: "utf-8" });
