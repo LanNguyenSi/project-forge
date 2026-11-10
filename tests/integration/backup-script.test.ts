@@ -52,6 +52,10 @@ case "\${1:-}" in
     [ "\${1:-}" = -T ] && shift
     [ "\${1:-}" = app ] || { echo "stub docker: wrong service: $*" >&2; exit 71; }
     shift
+    # docker compose exec runs the command with the container's own default umask
+    # (022), not the caller's, so an in-container copy that is not created under
+    # umask 077 really does land world-readable here.
+    umask 022
     if [ "\${1:-}" = printenv ]; then
       [ -n "\${STUB_PRINTENV_FAIL:-}" ] && exit 1
       printf '%s\\n' "\${STUB_DATABASE_URL:-}"
@@ -63,16 +67,27 @@ case "\${1:-}" in
         *.tmp-backup.*) echo "stub test: forced failure: $*" >&2; exit 1 ;;
       esac
     fi
-    if [ "\${1:-}" = sqlite3 ] && [ "$#" -ge 3 ]; then
-      case "$3" in
-        .backup*)
+    # The .backup now runs in the container as:
+    # sh -c 'umask 077 && sqlite3 "$1" ".backup '"'"'$2'"'"'"' sh <db> <tmp>
+    if [ "\${1:-}" = sh ] && [ "\${2:-}" = -c ]; then
+      case "\${3:-}" in
+        *.backup*)
           [ -n "\${STUB_BACKUP_FAIL:-}" ] && { echo "stub sqlite3: disk full" >&2; exit 1; }
           ;;
+      esac
+    fi
+    if [ "\${1:-}" = sqlite3 ] && [ "$#" -ge 3 ]; then
+      case "$3" in
         *integrity_check*)
           [ -n "\${STUB_INTEGRITY_RC:-}" ] && exit "\${STUB_INTEGRITY_RC}"
           [ -n "\${STUB_INTEGRITY_ANSWER+x}" ] && { printf '%s\\n' "$STUB_INTEGRITY_ANSWER"; exit 0; }
           ;;
       esac
+    fi
+    # The trap removes the container temp with rm -f: record the mode of the copy
+    # first, so a test can assert it was created under umask 077 before it goes.
+    if [ -n "\${STUB_TMP_MODE_OUT:-}" ] && [ "\${1:-}" = rm ] && [ "\${2:-}" = -f ] && [ -f "\${3:-}" ]; then
+      ls -l "\${3:-}" | cut -c1-10 > "$STUB_TMP_MODE_OUT"
     fi
     exec "$@"
     ;;
@@ -207,8 +222,15 @@ describe("scripts/backup.sh", () => {
     expect(w.tmpLeft()).toBe("");
     const calls = w.calls();
     expect(calls[0]).toBe("docker compose exec -T app printenv DATABASE_URL");
-    // The copy is a consistent .backup, never a cp of the live file.
-    expect(calls.some((c) => c.includes(`sqlite3 ${w.db} .backup `))).toBe(true);
+    // The copy is a consistent .backup, never a cp of the live file, and it runs
+    // under umask 077 inside the container: the paths are passed to the in-container
+    // sh as positional arguments (sqlite3 "$1" ...), never interpolated into the
+    // sh -c string next to sqlite3.
+    const backupCall = calls.find((c) => c.includes("umask 077") && c.includes(".backup"));
+    expect(backupCall, "the .backup must run under umask 077 in the container").toBeDefined();
+    expect(backupCall).toContain('sqlite3 "$1"');
+    expect(backupCall).toContain(` sh ${w.db} `);
+    expect(backupCall).not.toContain(`sqlite3 ${w.db}`);
     expect(calls.some((c) => c.includes("cp app:"))).toBe(true);
     expect(calls.filter((c) => c.includes(" cp ")).every((c) => c.includes(".tmp-backup."))).toBe(true);
     // The copy-out lands on a temporary name, never a final-shaped one: the
@@ -231,8 +253,10 @@ describe("scripts/backup.sh", () => {
     expect(r.status, r.stderr).toBe(0);
     const [name] = w.defaultBackups();
     expect(w.sql(path.join(w.backupDir, name), "SELECT group_concat(a) FROM t")).toBe("gamma");
-    expect(w.calls().some((c) => c.includes(`sqlite3 ${other} .backup `))).toBe(true);
-    expect(w.calls().some((c) => c.includes(`sqlite3 ${w.db} .backup `))).toBe(false);
+    // The umask-077 .backup passes the resolved path as the sh positional
+    // argument: it must be the container's own DATABASE_URL, not the compose default.
+    expect(w.calls().some((c) => c.includes("umask 077") && c.includes(` sh ${other} `))).toBe(true);
+    expect(w.calls().some((c) => c.includes("umask 077") && c.includes(` sh ${w.db} `))).toBe(false);
   });
 
   it("a relative file: path resolves against /app/prisma, like Prisma in the container", () => {
@@ -240,7 +264,36 @@ describe("scripts/backup.sh", () => {
     // /app/prisma does not exist on this host, so test -s is stubbed to
     // succeed and the case stays about which path the .backup call carries.
     w.run({ STUB_TEST_OK: "1" }, "file:./db/rel.db");
-    expect(w.calls().some((c) => c.includes("sqlite3 /app/prisma/db/rel.db .backup "))).toBe(true);
+    expect(w.calls().some((c) => c.includes("umask 077") && c.includes(" sh /app/prisma/db/rel.db "))).toBe(true);
+  });
+
+  it("the in-container copy is created under umask 077 (mode 600), not the container default 644", () => {
+    const w = newBackup();
+    const modeOut = path.join(w.dir, "tmp-mode");
+    const r = w.run({ STUB_TMP_MODE_OUT: modeOut });
+    expect(r.status, r.stderr).toBe(0);
+    // The stub runs the exec'd command under the container's default umask (022);
+    // only the script's own `umask 077` in the sh -c keeps the snapshot (password
+    // hashes, GitHub tokens) from being world-readable on the volume. Without it
+    // the recorded mode would be the -rw-r--r-- that 022 yields.
+    expect(readFileSync(modeOut, "utf-8").trim()).toBe("-rw-------");
+    expect(w.tmpLeft()).toBe("");
+  });
+
+  it("a database path with spaces and shell metacharacters survives the positional-argument form", () => {
+    const w = newBackup(false);
+    // A single quote cannot be carried by sqlite3's .backup filename quoting and is
+    // refused outright (see the single-quote test); every other shell metacharacter
+    // must survive both the sh -c positional passing and the dot-command quoting.
+    const tricky = path.join(w.dir, "container", "data", 'a dir $x `y` ; & "z" (1) #2', "db.name");
+    mkdirSync(path.dirname(tricky), { recursive: true });
+    w.seed(tricky, "omega");
+    const r = w.run({}, `file:${tricky}`);
+    expect(r.status, r.stderr).toBe(0);
+    const [name] = w.defaultBackups();
+    expect(w.sql(path.join(w.backupDir, name), "SELECT group_concat(a) FROM t")).toBe("omega");
+    expect(w.calls().some((c) => c.includes("umask 077") && c.includes(` sh ${tricky} `))).toBe(true);
+    expect(w.tmpLeft()).toBe("");
   });
 
   it("a second run in the same second gets a -1 name, then -2", () => {

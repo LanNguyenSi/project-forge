@@ -150,7 +150,15 @@ if ! compose exec -T app test -s "$db"; then
   die "no non-empty database file at $db in the app container (check DATABASE_URL and the app volume). Nothing was written."
 fi
 container_tmp="$db.tmp-backup.$$"
-if ! compose exec -T app sqlite3 "$db" ".backup '$container_tmp'"; then
+# The snapshot holds the same password hashes and GitHub tokens as the database.
+# docker compose exec starts a fresh process with the container's own default
+# umask (typically 022), so the copy would be world-readable on the volume
+# until the trap removes it, and a SIGKILL would leave it behind. Set the umask
+# inside the container (as scripts/start.sh does for its pre-migrate copy); the
+# two paths are passed as positional arguments, never interpolated into the
+# sh -c string.
+# shellcheck disable=SC2016  # $1 and $2 expand in the container's sh, not here.
+if ! compose exec -T app sh -c 'umask 077 && sqlite3 "$1" ".backup '"'"'$2'"'"'"' sh "$db" "$container_tmp"; then
   die "sqlite3 .backup of $db failed in the app container (the database is locked, or the volume is full). Nothing was written."
 fi
 if ! compose exec -T app test -s "$container_tmp"; then
