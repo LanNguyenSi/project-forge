@@ -39,6 +39,9 @@ project-forge/
 │   │   └── dashboard/            # profile (route.ts), API tokens (tokens/), GitHub PAT (pat/)
 │   ├── docs/page.tsx             # Swagger UI API docs
 │   ├── styleguide/page.tsx       # UI primitives showcase
+│   ├── page.tsx                  # Public landing page (sends signed-in users to /dashboard)
+│   ├── fonts/                    # Vendored woff2 fonts loaded with next/font/local
+│   ├── icon.svg                  # App Router site icon (the ember flame mark)
 │   ├── layout.tsx                # Root layout
 │   └── globals.css               # Global styles + Swagger dark overrides
 │
@@ -65,12 +68,18 @@ project-forge/
 │   ├── github.ts                 # Minimal GitHub /user helper for the registration broker
 │   ├── publish-error.ts          # User-facing summaries of publish failures
 │   ├── subprocess.ts             # Child-process runner with timeout
-│   └── v1-shared.ts              # Public v1 session helpers (generate/preview/publish, 1h TTL)
+│   ├── v1-shared.ts              # Public v1 session helpers (generate/preview/publish, 1h TTL)
+│   ├── scrub-secrets.ts          # Mask GitHub credentials in free text before logging or returning it
+│   ├── server-error.ts           # UserFacingError + scrubbed 500 logging with a reference id
+│   └── startup-checks.ts         # Production start-up guard for placeholder NEXTAUTH_SECRET/NEXTAUTH_URL
 │
 ├── types/next-auth.d.ts          # NextAuth type extensions
 ├── tests/                        # Integration (tests/integration/) & unit (tests/unit/) tests
 ├── prisma/schema.prisma          # Database schema
 ├── middleware.ts                  # X-API-Key presence check on /api/v1, login redirect for pages
+├── instrumentation.ts            # Next.js register() hook: runs the production start-up check
+├── public/openapi.json           # OpenAPI spec served at /docs
+├── public/favicon.svg            # Browser favicon (the ember flame mark)
 ├── Dockerfile                    # Multi-stage build
 ├── docker-compose.yml            # Container orchestration
 └── AI_CONTEXT.md                 # This file
