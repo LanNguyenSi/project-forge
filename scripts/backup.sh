@@ -45,7 +45,7 @@
 # Any failure exits non-zero without publishing: a partial file never carries
 # the final name. The temporary file inside the container is removed on every
 # path, including a failure or a signal (trap); only SIGKILL can leave one
-# behind (`rm <database file>.tmp-backup-*` in that case).
+# behind (`rm <database file>.tmp-backup.*` in that case).
 #
 # Tested in tests/integration/backup-script.test.ts with a stub `docker`
 # binary on PATH (compose exec runs the given command against a real SQLite

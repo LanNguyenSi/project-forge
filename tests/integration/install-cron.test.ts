@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 /**
- * scripts/install-cron.sh puts the prune and backup cron entries into one
- * marked block of the invoking user's crontab. It is tested with a stub
+ * scripts/install-cron.sh puts the prune, backup and freshness-check cron
+ * entries into one marked block of the invoking user's crontab. It is tested with a stub
  * `crontab` on PATH backed by a plain file: `-l` prints it (or answers "no
  * crontab for user" when the file is missing), `<file>` replaces it. The real
  * crontab of the machine is never touched.
@@ -110,8 +110,9 @@ describe("scripts/install-cron.sh", () => {
     expect(backupLine(out)).toBe(
       `15 3 * * * cd '${ROOT}' && FORGE_BACKUP_DIR='${BACKUP_DIR}' sh ./scripts/backup.sh >> '${BACKUP_DIR}/cron.log' 2>&1`,
     );
+    expect(backupLine(out)).not.toContain("--check-fresh");
     expect(checkLine(out)).toBe(
-      `15 4 * * * cd '${ROOT}' && FORGE_BACKUP_DIR='${BACKUP_DIR}' sh ./scripts/backup.sh --check-fresh 26 >> '${BACKUP_DIR}/cron.log' 2>&1`,
+      `15 4 * * * cd '${ROOT}' && FORGE_BACKUP_DIR='${BACKUP_DIR}' sh ./scripts/backup.sh --check-fresh 2 >> '${BACKUP_DIR}/cron.log' 2>&1`,
     );
     expect(c.calls()).toEqual(["-l", expect.stringMatching(/crontab\.\w+$|next$/)]);
   });
@@ -256,7 +257,7 @@ describe("scripts/install-cron.sh", () => {
 
   describe("the --check-fresh freshness entry (one hour after the backup, wrapping 23 to 00)", () => {
     const checkFor = (t: string, dir = BACKUP_DIR) =>
-      `${t} * * * cd '${ROOT}' && FORGE_BACKUP_DIR='${dir}' sh ./scripts/backup.sh --check-fresh 26 >> '${dir}/cron.log' 2>&1`;
+      `${t} * * * cd '${ROOT}' && FORGE_BACKUP_DIR='${dir}' sh ./scripts/backup.sh --check-fresh 2 >> '${dir}/cron.log' 2>&1`;
 
     it("dry-run prints exactly three entries between the markers, the last being the freshness check", () => {
       const c = newCron();
@@ -333,13 +334,15 @@ describe("scripts/install-cron.sh", () => {
         c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, ...env });
         expect(backupLine(c.content())).toContain(`>> '${BACKUP_DIR}/cron.log' 2>&1`);
         expect(pruneLine(c.content())).toContain(`>> '${BACKUP_DIR}/cron.log' 2>&1`);
+        expect(checkLine(c.content())).toContain(`>> '${BACKUP_DIR}/cron.log' 2>&1`);
       }
     });
-    it("set: both entries log there", () => {
+    it("set: all three entries log there", () => {
       const c = newCron();
       c.run({ FORGE_BACKUP_DIR: BACKUP_DIR, FORGE_BACKUP_LOG: path.join(BACKUP_ROOT, "forge.log") });
       expect(backupLine(c.content())).toContain(`>> '${path.join(BACKUP_ROOT, "forge.log")}' 2>&1`);
       expect(pruneLine(c.content())).toContain(`>> '${path.join(BACKUP_ROOT, "forge.log")}' 2>&1`);
+      expect(checkLine(c.content())).toContain(`>> '${path.join(BACKUP_ROOT, "forge.log")}' 2>&1`);
     });
     it("a relative path is refused", () => {
       const c = newCron();

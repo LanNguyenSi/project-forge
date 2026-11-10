@@ -79,6 +79,12 @@ check_path() {
 
 # Writes the new block into $work/block.
 build_block() {
+  # Hours handed to the freshness entry's --check-fresh. The check runs one
+  # hour after the backup, so this must stay above the backup's run time plus
+  # slack and below 24: after a missed or failed night the stamp is about
+  # 25 h old at check time and gets flagged the same night (a backup that
+  # runs longer than this would be reported stale).
+  check_fresh_hours=2
   [ -n "${FORGE_BACKUP_DIR:-}" ] || die "FORGE_BACKUP_DIR is unset or empty. Cron runs with the crontab owner's HOME, so the backup directory must be named explicitly, for example FORGE_BACKUP_DIR=/var/backups/project-forge. Nothing was changed."
   check_path FORGE_BACKUP_DIR "$FORGE_BACKUP_DIR"
 
@@ -113,7 +119,7 @@ build_block() {
     printf '%s\n' "$BEGIN"
     printf '0 * * * * cd '"'%s'"' && docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} + >> '"'%s'"' 2>&1\n' "$root" "$logfile"
     printf '%d %d * * * cd '"'%s'"' && FORGE_BACKUP_DIR='"'%s'"' sh ./scripts/backup.sh >> '"'%s'"' 2>&1\n' "$minute" "$hour" "$root" "$FORGE_BACKUP_DIR" "$logfile"
-    printf '%d %d * * * cd '"'%s'"' && FORGE_BACKUP_DIR='"'%s'"' sh ./scripts/backup.sh --check-fresh 26 >> '"'%s'"' 2>&1\n' "$minute" "$check_hour" "$root" "$FORGE_BACKUP_DIR" "$logfile"
+    printf '%d %d * * * cd '"'%s'"' && FORGE_BACKUP_DIR='"'%s'"' sh ./scripts/backup.sh --check-fresh %d >> '"'%s'"' 2>&1\n' "$minute" "$check_hour" "$root" "$FORGE_BACKUP_DIR" "$check_fresh_hours" "$logfile"
     printf '%s\n' "$END"
   } > "$work/block"
 }

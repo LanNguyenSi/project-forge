@@ -224,8 +224,9 @@ periodically, for example:
 docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} +
 ```
 
-`make install-cron` puts this prune (hourly) and the nightly backup into the
-crontab, see [Backup and restore](#backup-and-restore). The command itself,
+`make install-cron` puts this prune (hourly), the nightly backup and the
+daily freshness check that follows it one hour later into the crontab, see
+[Backup and restore](#backup-and-restore). The command itself,
 without the log redirection the installer appends (hourly, from the checkout
 that holds `docker-compose.yml`), is:
 
@@ -725,7 +726,7 @@ directory yourself:
 ```cron
 0 * * * * cd '/path/to/project-forge' && docker compose exec -T app find /tmp/project-forge -mindepth 1 -maxdepth 1 -mmin +120 -exec rm -rf {} + >> '/var/backups/project-forge/cron.log' 2>&1
 15 3 * * * cd '/path/to/project-forge' && FORGE_BACKUP_DIR='/var/backups/project-forge' sh ./scripts/backup.sh >> '/var/backups/project-forge/cron.log' 2>&1
-15 4 * * * cd '/path/to/project-forge' && FORGE_BACKUP_DIR='/var/backups/project-forge' sh ./scripts/backup.sh --check-fresh 26 >> '/var/backups/project-forge/cron.log' 2>&1
+15 4 * * * cd '/path/to/project-forge' && FORGE_BACKUP_DIR='/var/backups/project-forge' sh ./scripts/backup.sh --check-fresh 2 >> '/var/backups/project-forge/cron.log' 2>&1
 ```
 
 Whether backups still run: after every successful, verified backup
@@ -739,9 +740,15 @@ it is missing, empty or older (the reason goes to stderr).
 
 `install-cron.sh` schedules that check for you, as the third entry of the
 block: a daily run one hour after the backup time (`03:15` is checked at
-`04:15`, a `23:30` backup at `00:30`) calling `--check-fresh 26`, so a stale
-reason lands in the same cron log as the backup output. A monitoring probe
-outside cron can call the very same command and alert on its non-zero exit, for
+`04:15`, a `23:30` backup at `00:30`) calling `--check-fresh 2`. One hour
+after a successful backup the stamp is about an hour old and the entry exits
+0; after a backup that did not run (or failed) it is about 25 h old, so the
+stale reason lands in the same cron log as the backup output the same night.
+The threshold must stay above the backup's run time plus slack and below 24,
+so a backup that takes longer than about an hour would be reported stale.
+Cron local-time shifts (a DST change) move both entries together, so the
+one-hour gap is stable. A monitoring probe outside cron can still call the
+very same command with the default 26 h and alert on its non-zero exit, for
 example `FORGE_BACKUP_DIR=/var/backups/project-forge sh ./scripts/backup.sh --check-fresh 26`.
 The entries redirect their output into the log (`>> ... 2>&1`), so cron mails
 nothing about them: to get cron mail for one instead, drop its redirect with
