@@ -124,6 +124,27 @@ services:
     build:
       context: ${PLANFORGE_CONTEXT:-https://github.com/LanNguyenSi/agent-planforge.git#88a5453a49bba5fd63588c5015bb754645d3f74e}
       dockerfile: server/Dockerfile
+    # Privilege hardening, the same settings as the app service above: it
+    # runs the planning and scaffold chain on LLM-driven input, holds
+    # PLANFORGE_SERVICE_TOKEN and shares the traefik network with the public
+    # app, so nothing it starts should gain privileges.
+    #   no-new-privileges: block setuid/setgid and file-capability escalation
+    #     for every process the container starts.
+    #   cap_drop: ALL: remove every capability, none added back. The image is
+    #     built from an external repository at the commit pinned in
+    #     build.context above, so its runtime needs cannot be read from this
+    #     repo; they are established for the pinned commit by the container
+    #     runtime check (the container starts, /healthz answers 200 and a
+    #     scaffold request succeeds), which passed for commit 88a5453a,
+    #     so no capability is added back. When the pinned commit
+    #     changes (docs/deployment.md, "Planforge version"), re-run that
+    #     check and watch the planforge logs for a capability error (EPERM /
+    #     "Operation not permitted"); if one appears, add back only the one
+    #     capability the new commit needs with cap_add and a reason here.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       PLANFORGE_SERVICE_TOKEN: ${PLANFORGE_SERVICE_TOKEN:?set PLANFORGE_SERVICE_TOKEN in .env (openssl rand -hex 32)}
     # No ports: — traffic stays on the internal docker network. No Traefik
