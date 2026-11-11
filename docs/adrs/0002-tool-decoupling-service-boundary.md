@@ -186,3 +186,25 @@ If the agent-planforge maintainer rejects that expanded scope — e.g. on ground
 - This spike: agent-tasks `fb21d97e-2a49-43d8-afbf-9782c31de66d`.
 - Pattern reference for stdio MCP facade over a REST service: `ops-mcp/packages/mcp/src/server.ts`. Note: ops-mcp is MCP-only (calls a remote REST gateway); there is no existing REST+MCP dual-facade pattern in the codebase today.
 - Follow the `## Status / ## Context / ## Decision / ## Consequences` format.
+
+## Addendum: privilege hardening of the planforge container
+
+The `planforge` service in `docker-compose.yml` carries the same privilege
+hardening as `app`: `security_opt: [no-new-privileges:true]` (no process the
+container starts can gain privileges through setuid/setgid or file
+capabilities) and `cap_drop: [ALL]` with no capability added back. This
+matters more here than for `app`: planforge runs the planning and scaffold
+chain on LLM-driven input, holds `PLANFORGE_SERVICE_TOKEN`, and sits on the
+same `traefik` network as the public app.
+
+The image is built from the external agent-planforge repository at the commit
+pinned in `PLANFORGE_CONTEXT`, so its runtime needs cannot be verified by
+reading source in this repo. They are established for the pinned commit by a
+container runtime check (the container starts, `/healthz` answers 200, a
+scaffold request succeeds); see [deployment.md](../deployment.md), "Planforge
+version", for the check and for what to do when the pinned commit changes (a
+capability error in the planforge logs, `EPERM` / `Operation not permitted`,
+then add back only the one capability with `cap_add` and a reason). This
+supersedes the earlier note that planforge was "left unchanged because its
+external image's runtime needs cannot be verified from this repo": they are
+verified per pinned commit, by the deployed container, not by source review.

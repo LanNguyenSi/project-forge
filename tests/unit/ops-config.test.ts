@@ -167,13 +167,20 @@ describe("docker-compose.yml defaults", () => {
     expect(app).not.toHaveProperty("cap_add");
   });
 
-  // planforge builds from an external image whose runtime needs (scaffoldkit,
-  // tar packing as root) cannot be verified from this repo, so it is left
-  // unchanged on purpose.
-  it("leaves planforge without the hardening keys, so the change is scoped to the app", () => {
-    for (const key of ["security_opt", "cap_drop", "cap_add"]) {
-      expect(planforge).not.toHaveProperty(key);
-    }
+  // planforge carries the same hardening as the app. Its image is built from
+  // an external repository at a pinned commit, so the settings are verified
+  // for that commit by the container runtime check (docs/deployment.md,
+  // "Planforge version"), not by reading the image's source from this repo.
+  it("runs planforge with no-new-privileges, so no process gains privileges after start", () => {
+    expect(planforge.security_opt).toEqual(["no-new-privileges:true"]);
+  });
+
+  it("drops every Linux capability from planforge", () => {
+    expect(planforge.cap_drop).toEqual(["ALL"]);
+  });
+
+  it("adds no capability back to planforge, verified for the pinned commit", () => {
+    expect(planforge).not.toHaveProperty("cap_add");
   });
 });
 

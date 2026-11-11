@@ -11,7 +11,10 @@ The root `docker-compose.yml` ships two services:
   [Planforge version](#planforge-version)). Runs both the planforge CLI and scaffoldkit
   in-container. **Internal-only**, no Traefik labels, no published ports.
   `app` reaches it via the shared `traefik` docker network at
-  `http://planforge:8223`.
+  `http://planforge:8223`. Carries the same privilege hardening as `app`
+  (`security_opt: [no-new-privileges:true]`, `cap_drop: [ALL]`, no capability
+  added back; the check that established it for the pinned commit is under
+  [Planforge version](#planforge-version)).
 
 Copy `docker-compose.override.example.yml` to `docker-compose.override.yml`
 before the first manual deploy and replace its two placeholders: `NEXTAUTH_SECRET`
@@ -50,6 +53,24 @@ To update planforge, change the ref after `#` to another release tag or a full
 40-character commit SHA (a one-line change), then deploy. Do not use a branch
 name: it would make the build depend on whatever the branch holds at build
 time.
+
+The `planforge` service runs with `security_opt: [no-new-privileges:true]`
+and `cap_drop: [ALL]`, no capability added back (the same hardening as
+`app`). Because the image comes from an external repository at a pinned
+commit, its runtime needs cannot be read from this repo; they are
+established for the pinned commit by a container runtime check: the
+container starts, `/healthz` answers 200, and a scaffold request succeeds.
+That check passed for the commit pinned above. When you change the ref,
+deploy the new pin and re-run the check on the deployed stack:
+`docker compose ps` shows planforge `healthy`;
+`docker compose exec planforge node -e "require('http').get('http://localhost:8223/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"`
+exits 0 (the probe of the service's own healthcheck); then run one real
+scaffold request through the app.
+Watch `docker compose logs planforge` for a capability error (`EPERM` /
+`Operation not permitted`): it means the new commit needs a capability the
+dropped set held, so add back only that one capability with `cap_add` and a
+reason in `docker-compose.yml` (the app's hardening comment shows the
+style), never the whole default set.
 
 For local development against an agent-planforge checkout, set
 `PLANFORGE_CONTEXT=../agent-planforge` in `.env` (or the shell). This is never
