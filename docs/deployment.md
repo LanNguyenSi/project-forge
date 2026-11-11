@@ -60,7 +60,7 @@ and `cap_drop: [ALL]`, no capability added back (the same hardening as
 commit, its runtime needs cannot be read from this repo; they are
 established for the pinned commit by a container runtime check: the
 container starts, `/healthz` answers 200, and a scaffold request succeeds.
-That check passed for the commit pinned above. When you change the ref,
+That check passed for planforge commit `88a5453a` (the pin at the time of writing). When you change the ref,
 deploy the new pin and re-run the check on the deployed stack:
 `docker compose ps` shows planforge `healthy`;
 `docker compose exec planforge node -e "require('http').get('http://localhost:8223/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"`

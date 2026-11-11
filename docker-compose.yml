@@ -135,8 +135,8 @@ services:
     #     build.context above, so its runtime needs cannot be read from this
     #     repo; they are established for the pinned commit by the container
     #     runtime check (the container starts, /healthz answers 200 and a
-    #     scaffold request succeeds), which passed for the commit pinned
-    #     above, so no capability is added back. When the pinned commit
+    #     scaffold request succeeds), which passed for commit 88a5453a,
+    #     so no capability is added back. When the pinned commit
     #     changes (docs/deployment.md, "Planforge version"), re-run that
     #     check and watch the planforge logs for a capability error (EPERM /
     #     "Operation not permitted"); if one appears, add back only the one
