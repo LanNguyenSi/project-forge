@@ -9,6 +9,8 @@ import type { PublishResponse, ErrorResponse } from "../../../lib/types";
 import { summarizePublishError } from "@/lib/publish-error";
 import { runCommand } from "@/lib/subprocess";
 import { SESSION_UUID_RE, readForgeMeta, isSessionExpired } from "@/lib/v1-shared";
+import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
+import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 
@@ -17,7 +19,7 @@ export async function POST(req: NextRequest) {
   // (the PAT may be in .git/config until the post-push set-url + rm run).
   let tempDir = "";
   try {
-    const { sessionId, projectName } = await req.json() as {
+    const { sessionId, projectName } = (await readJsonBody(req, DEFAULT_MAX_BODY_BYTES)) as {
       sessionId: string;
       projectName: string;
     };
@@ -149,6 +151,12 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: "Request body too large" },
+        { status: 413 }
+      );
+    }
     // Client-facing body carries only a known reason sentence or the generic
     // sentence with a reference id; summarizePublishError scrubs PATs (a
     // failed `git push` to an authed remote echoes the URL, and thus the

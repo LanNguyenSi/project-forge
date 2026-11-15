@@ -8,6 +8,8 @@ import { buildPlanforgeInput } from "@/lib/planforge-orchestrator";
 import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from "@/lib/planforge-client";
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { validateProjectName, readPreviewData } from "@/lib/v1-shared";
+import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
+import { GENERATE_MAX_BODY_BYTES, attachmentLimitError } from "@/lib/limits";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 // End-to-end cap for plan + scaffold + tar + SSE + untar. The planforge
@@ -41,7 +43,7 @@ export async function POST(req: NextRequest) {
   let sessionId: string | null = null;
 
   try {
-    const input: GenerateRequest = await req.json();
+    const input: GenerateRequest = (await readJsonBody(req, GENERATE_MAX_BODY_BYTES)) as GenerateRequest;
 
     if (!input.projectName || !input.summary) {
       return NextResponse.json({ ok: false, error: "Missing required fields: projectName, summary" }, { status: 400 });
@@ -49,6 +51,18 @@ export async function POST(req: NextRequest) {
 
     if (!validateProjectName(input.projectName)) {
       return NextResponse.json({ ok: false, error: "Invalid projectName. Use only letters, numbers, dots, hyphens, underscores (max 100 chars)." }, { status: 400 });
+    }
+
+    // Same attachment caps as the web route (lib/limits.ts), checked
+    // before mkdir: this route ignores `attachments` today, but an
+    // oversized one still gets a clean 413 instead of being silently
+    // accepted on the wire.
+    const attachmentError = attachmentLimitError((input as { attachments?: unknown }).attachments);
+    if (attachmentError) {
+      return NextResponse.json(
+        { ok: false, error: "Attachments exceed the size limits", details: attachmentError },
+        { status: 413 },
+      );
     }
 
     sessionId = randomUUID();
@@ -104,6 +118,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, sessionId, preview });
   } catch (error: unknown) {
     console.error("Generation failed:", error);
+
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: "Request body too large" },
+        { status: 413 },
+      );
+    }
 
     if (sessionId) {
       const tempDir = path.join(TEMP_ROOT, sessionId);

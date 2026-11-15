@@ -2,15 +2,13 @@
 
 import { useState, useEffect } from "react";
 import type { ProjectInput, Attachment } from "@/lib/types";
+// MAX_ATTACHMENT_CHARS lives in lib/limits.ts and backs the server-side
+// per-file attachment check in /api/generate and /api/v1/generate, so the
+// UI and the API cannot drift apart on that limit. The server's total and
+// count checks use the separate MAX_ATTACHMENT_TOTAL_CHARS and
+// MAX_ATTACHMENTS constants in the same module.
+import { MAX_ATTACHMENT_CHARS } from "@/lib/limits";
 import { Button, Input, Textarea, Label, Field, Alert } from "@/components/ui/primitives";
-
-/**
- * Matches planforge's 50_000-char total-inlineText cap (v0.1b). We enforce
- * it client-side too so oversized uploads fail instantly in the UI instead
- * of making the round-trip just to be rejected. v0.1c only supports a
- * single file, so per-file === total.
- */
-const MAX_ATTACHMENT_CHARS = 50_000;
 
 /**
  * v0.1c text-tier only. `.adoc` is asciidoc — the CLI prompt templates

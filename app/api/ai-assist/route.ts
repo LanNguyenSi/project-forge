@@ -4,6 +4,12 @@ import { authOptions } from "@/lib/auth";
 import type { ProjectInput } from "@/lib/types";
 import { getAiCapabilities, generateStructuredJson } from "@/lib/ai-provider";
 import { internalErrorDetails } from "@/lib/server-error";
+import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
+import {
+  AI_ASSIST_MAX_BODY_BYTES,
+  FILE_MODE_MAX_CHARS,
+  PROMPT_MODE_MAX_CHARS,
+} from "@/lib/limits";
 
 const PROMPT_SYSTEM_PROMPT = `You are a project specification assistant. Extract project details from user descriptions and return structured JSON.
 
@@ -76,11 +82,8 @@ interface AiAssistRequest {
   fileName?: string;
 }
 
-// Server-side cap on file-mode content. Mirrors the UI's 50k char limit
-// so a direct API caller (bypassing the browser) can't drive unbounded
-// token costs at our provider. Matches the same cap planforge's v0.1b
-// ingest enforces further down the pipeline.
-const FILE_MODE_MAX_CHARS = 50_000;
+// FILE_MODE_MAX_CHARS / PROMPT_MODE_MAX_CHARS live in lib/limits.ts so
+// the byte cap below and any future UI mirror share one source.
 // Filename is user-controlled and goes verbatim into the userPrompt.
 // Strip newlines (prevents in-prompt instruction smuggling via a crafted
 // filename that fakes a system-prompt break) and truncate so a pathologically
@@ -94,7 +97,7 @@ export async function POST(req: NextRequest) {
   try {
     const denied = await requireSession();
     if (denied) return denied;
-    const body = (await req.json()) as AiAssistRequest;
+    const body = (await readJsonBody(req, AI_ASSIST_MAX_BODY_BYTES)) as AiAssistRequest;
     // Back-compat: an older client that sends only `{ prompt }` is
     // treated as mode="prompt". New clients explicitly pass mode.
     const mode: "prompt" | "file" = body.mode === "file" ? "file" : "prompt";
@@ -130,6 +133,16 @@ export async function POST(req: NextRequest) {
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
       if (prompt.length === 0) {
         return NextResponse.json({ ok: false, error: "Prompt is required" }, { status: 400 });
+      }
+      if (prompt.length > PROMPT_MODE_MAX_CHARS) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "prompt exceeds size limit",
+            details: `${prompt.length.toLocaleString()} chars; limit is ${PROMPT_MODE_MAX_CHARS.toLocaleString()}`,
+          },
+          { status: 413 },
+        );
       }
       systemPrompt = PROMPT_SYSTEM_PROMPT;
       userPrompt = prompt;
@@ -169,6 +182,16 @@ export async function POST(req: NextRequest) {
       model: result.model,
     });
   } catch (error: unknown) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Request body too large",
+          details: `limit is ${error.maxBytes.toLocaleString()} bytes`,
+        },
+        { status: 413 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: "AI assist failed", details: internalErrorDetails("AI assist error", error) },
       { status: 500 }

@@ -11,6 +11,16 @@ across all of the user's tokens. Only `POST /api/v1/publish` and the one-shot
 unmetered. Repositories published from the web UI are not counted and are not
 returned by `GET /api/v1/projects`.
 
+Request bodies are size-capped: 64 KiB for `publish` and broker
+registration; 601,712 bytes for `generate` and the one-shot create (which
+covers an attachment of up to 50,000 characters, one file, the same limits
+the web UI enforces) and 361,712 bytes for the web UI's own AI-assist
+endpoint. An oversized body answers `413`, except that a chunked body
+without a `Content-Length` header which exceeds the cap while streaming may
+end in a reset connection instead of a `413` answer; `POST /api/generate`
+and `POST /api/v1/generate` also answer `413` for attachments over the
+per-file, total or count limit before anything is written.
+
 The [project-forge.opentriologue.ai/docs](https://project-forge.opentriologue.ai/docs)
 Swagger UI documents the same six v1 operations interactively.
 
@@ -168,6 +178,7 @@ Errors use the shape `{ ok: false, error: <code>, message }`:
 | Status | Cause |
 |---|---|
 | 400 | Invalid JSON, missing `githubAccessToken`, or a non-string `githubLogin` |
+| 413 | Request body over the 64 KiB cap |
 | 401 | GitHub token verification failed, or `githubLogin` differs from the verified login |
 | 403 | The login is not in `ALLOWED_GITHUB_LOGINS` (when that variable is set) |
 | 409 | An account with the same email already exists and has no linked GitHub id (an email/password account, or one created by an older GitHub sign-in on the web UI; web sign-ins now record the id) |
