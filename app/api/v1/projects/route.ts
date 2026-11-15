@@ -10,7 +10,7 @@ import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { runCommand } from "@/lib/subprocess";
 import { internalErrorDetails, UserFacingError } from "@/lib/server-error";
 import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
-import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
+import { GENERATE_MAX_BODY_BYTES } from "@/lib/limits";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 // End-to-end cap for plan + scaffold + tar + SSE + untar + git push.
@@ -143,7 +143,10 @@ export async function POST(req: NextRequest) {
   let sessionId: string | null = null;
 
   try {
-    const input: ProjectRequest = (await readJsonBody(req, DEFAULT_MAX_BODY_BYTES)) as ProjectRequest;
+    // One-shot create carries the same project shape as the generate
+    // routes, so it reads under GENERATE_MAX_BODY_BYTES, not the 64 KiB
+    // default meant for the small token/PAT-shaped bodies.
+    const input: ProjectRequest = (await readJsonBody(req, GENERATE_MAX_BODY_BYTES)) as ProjectRequest;
 
     if (!input.projectName || !input.summary) {
       return NextResponse.json(

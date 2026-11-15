@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
+import { DEFAULT_MAX_BODY_BYTES, GENERATE_MAX_BODY_BYTES } from "@/lib/limits";
 
 /**
  * Oversized-body coverage for the remaining JSON routes: dashboard
@@ -108,12 +108,40 @@ describe("POST /api/v1/publish body cap", () => {
 });
 
 describe("POST /api/v1/projects body cap", () => {
-  it("413 on an oversized body", async () => {
+  it("413 on a body over the generate cap (the one-shot create reads it, not the 64 KiB default)", async () => {
     const { POST } = await import("../../app/api/v1/projects/route");
-    const res = await POST(jsonReq("http://test/api/v1/projects", BIG_BODY, "pf_test"));
+    const res = await POST(
+      jsonReq(
+        "http://test/api/v1/projects",
+        JSON.stringify({ projectName: "p", summary: "s".repeat(GENERATE_MAX_BODY_BYTES * 2) }),
+        "pf_test"
+      )
+    );
     expect(res.status).toBe(413);
     const body = await res.json();
     expect(body.error).toMatch(/too large/i);
+  });
+
+  it("accepts a legitimate create body above 64 KiB: field validation answers, not 413", async () => {
+    // The create shares GENERATE_MAX_BODY_BYTES with the generate
+    // routes: a ~600 KB body (well over the 64 KiB default, inside the
+    // generate cap) passes the read, and the missing `summary` is what
+    // answers here. With the old 64 KiB default this would be a 413.
+    const { POST } = await import("../../app/api/v1/projects/route");
+    const res = await POST(
+      jsonReq(
+        "http://test/api/v1/projects",
+        JSON.stringify({
+          projectName: "p",
+          filler: "f".repeat(GENERATE_MAX_BODY_BYTES - 100),
+        }),
+        "pf_test"
+      )
+    );
+    expect(res.status).not.toBe(413);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/missing required fields/i);
   });
 
   it("keeps answering invalid JSON with the pre-existing 500", async () => {

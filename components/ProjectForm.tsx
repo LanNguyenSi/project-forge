@@ -2,16 +2,13 @@
 
 import { useState, useEffect } from "react";
 import type { ProjectInput, Attachment } from "@/lib/types";
+// MAX_ATTACHMENT_CHARS lives in lib/limits.ts and backs the server-side
+// per-file attachment check in /api/generate and /api/v1/generate, so the
+// UI and the API cannot drift apart on that limit. The server's total and
+// count checks use the separate MAX_ATTACHMENT_TOTAL_CHARS and
+// MAX_ATTACHMENTS constants in the same module.
 import { MAX_ATTACHMENT_CHARS } from "@/lib/limits";
 import { Button, Input, Textarea, Label, Field, Alert } from "@/components/ui/primitives";
-
-/**
- * MAX_ATTACHMENT_CHARS lives in lib/limits.ts: the same constant backs
- * the server-side per-file / total / count attachment checks in
- * /api/generate and /api/v1/generate, so the UI and the API can never
- * drift apart. v0.1c only supports a single file, so per-file ===
- * total.
- */
 
 /**
  * v0.1c text-tier only. `.adoc` is asciidoc — the CLI prompt templates

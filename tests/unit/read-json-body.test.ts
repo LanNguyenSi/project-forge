@@ -60,6 +60,47 @@ function streamingReq(
   return { req, bodyTouched: () => touched };
 }
 
+/**
+ * A Request stand-in delivering `bytes` as a chunked stream (so no real
+ * Content-Length is implied), optionally with a manually declared one.
+ * The underlying source counts cancel() calls so a test can pin that an
+ * aborted read cancels the reader instead of abandoning the stream.
+ */
+function streamingBytesReq(
+  bytes: Uint8Array,
+  chunkSize: number,
+  contentLength?: string
+): { req: Request; cancelCalls: () => number } {
+  let offset = 0;
+  let cancels = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (offset >= bytes.byteLength) {
+        controller.close();
+        return;
+      }
+      const end = Math.min(offset + chunkSize, bytes.byteLength);
+      controller.enqueue(bytes.slice(offset, end));
+      offset = end;
+    },
+    cancel() {
+      cancels += 1;
+    },
+  });
+  const headers = new Headers(contentLength !== undefined ? { "Content-Length": contentLength } : {});
+  const req = { headers, body: stream } as unknown as Request;
+  return { req, cancelCalls: () => cancels };
+}
+
+/** Valid JSON of exactly `totalBytes` bytes: {"a":"<pad>"} */
+function jsonBytesOfLength(totalBytes: number): Uint8Array {
+  const prefix = '{"a":"';
+  const suffix = '"}';
+  const pad = totalBytes - prefix.length - suffix.length;
+  if (pad < 0) throw new Error(`totalBytes ${totalBytes} too small for the JSON shape`);
+  return new TextEncoder().encode(prefix + "x".repeat(pad) + suffix);
+}
+
 describe("readJsonBody", () => {
   it("resolves the parsed object for a body under the cap", async () => {
     const res = await readJsonBody(stringReq(JSON.stringify({ email: "a@b.com" })), CAP);
@@ -110,5 +151,34 @@ describe("readJsonBody", () => {
 
   it("an empty body throws SyntaxError like req.json() does", async () => {
     await expect(readJsonBody(stringReq(""), CAP)).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it("resolves a stream of exactly CAP bytes with an honest Content-Length of CAP", async () => {
+    // The header boundary: Content-Length equal to the cap must pass.
+    // If the header check used >=, this rejected without touching the
+    // stream, and a legit request at exactly the cap could never be
+    // sent through the declared-length path.
+    const bytes = jsonBytesOfLength(CAP);
+    const { req } = streamingBytesReq(bytes, 512, String(CAP));
+    await expect(readJsonBody(req, CAP)).resolves.toEqual({ a: "x".repeat(CAP - 8) });
+  });
+
+  it("rejects CAP+1 streamed bytes with no Content-Length", async () => {
+    // The stream boundary: one byte past the cap aborts. A checker that
+    // tolerated an extra byte (received > maxBytes + 1) would resolve
+    // this body instead of rejecting, so the 413 boundary is exactly
+    // cap + 1.
+    const bytes = jsonBytesOfLength(CAP + 1);
+    const { req } = streamingBytesReq(bytes, 400);
+    expect(req.headers.get("content-length")).toBeNull();
+    await expect(readJsonBody(req, CAP)).rejects.toBeInstanceOf(BodyTooLargeError);
+  });
+
+  it("cancels the reader when the streamed read aborts over the cap", async () => {
+    // Abandoning the read without cancel() would leave the producer
+    // running (and the socket draining) behind a rejected promise.
+    const { req, cancelCalls } = streamingBytesReq(new Uint8Array(2048), 512);
+    await expect(readJsonBody(req, CAP)).rejects.toBeInstanceOf(BodyTooLargeError);
+    expect(cancelCalls()).toBe(1);
   });
 });
