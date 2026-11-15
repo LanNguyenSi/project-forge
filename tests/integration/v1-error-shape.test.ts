@@ -30,16 +30,18 @@ vi.mock("@/lib/db", async () => {
       },
     },
     validateApiToken: vi.fn(),
-    checkRateLimit: vi.fn(),
+    reserveUsage: vi.fn(),
+    confirmUsage: vi.fn().mockResolvedValue(undefined),
+    releaseUsage: vi.fn().mockResolvedValue(undefined),
   };
 });
 
-import { validateApiToken, checkRateLimit } from "@/lib/db";
+import { validateApiToken, reserveUsage } from "@/lib/db";
 import { GET as projectsGET, DELETE as projectsDELETE, POST as projectsPOST } from "@/app/api/v1/projects/route";
 import { GET as previewGET } from "@/app/api/v1/preview/route";
 
 const mValidateToken = vi.mocked(validateApiToken);
-const mCheckRateLimit = vi.mocked(checkRateLimit);
+const mReserveUsage = vi.mocked(reserveUsage);
 
 function tokenRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -137,7 +139,7 @@ describe("POST /api/v1/projects error shape", () => {
 
   it("429 ok:false when rate limit is exceeded", async () => {
     mValidateToken.mockResolvedValue(tokenRecord() as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: false, used: 10 });
+    mReserveUsage.mockResolvedValue({ allowed: false, used: 10 });
     const res = await projectsPOST(
       makeReq("http://test/api/v1/projects", "pf_test", {
         method: "POST",
@@ -152,7 +154,7 @@ describe("POST /api/v1/projects error shape", () => {
 
   it("400 ok:false when required fields are missing", async () => {
     mValidateToken.mockResolvedValue(tokenRecord() as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+    mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" });
     const res = await projectsPOST(
       makeReq("http://test/api/v1/projects", "pf_test", { method: "POST", body: JSON.stringify({}) }),
     );
@@ -164,7 +166,7 @@ describe("POST /api/v1/projects error shape", () => {
 
   it("400 ok:false when GitHub PAT is not configured", async () => {
     mValidateToken.mockResolvedValue(tokenRecord({ user: { id: "user-1", email: "u@example.com", githubPat: null } }) as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+    mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" });
     const res = await projectsPOST(
       makeReq("http://test/api/v1/projects", "pf_test", {
         method: "POST",

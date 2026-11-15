@@ -36,7 +36,9 @@ function mockPrisma() {
       },
       createApiToken: vi.fn(),
       validateApiToken: vi.fn().mockResolvedValue({ id: "tok-1", userId: "user-1", user: { githubPat: "ghp_x" } }),
-      checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, used: 0 }),
+      reserveUsage: vi.fn().mockResolvedValue({ allowed: true, reservationId: "res-1" }),
+      confirmUsage: vi.fn().mockResolvedValue(undefined),
+      releaseUsage: vi.fn().mockResolvedValue(undefined),
     };
   });
 }

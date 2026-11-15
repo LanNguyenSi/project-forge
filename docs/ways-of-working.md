@@ -46,8 +46,12 @@ These rules govern the HTTP surface. All contributors must follow them.
 ### Rate limiting
 
 - The publish path and `POST /api/v1/projects` consume the per-user publish
-  quota (10 in a rolling 24 hours, `checkRateLimit`); `generate`, `preview`, and list/delete do not. Keep that
+  quota (10 in a rolling 24 hours, `reserveUsage`, then `confirmUsage` or `releaseUsage`); `generate`, `preview`, and list/delete do not. Keep that
   split intact when adding endpoints.
+- Failed credentials sign-ins are limited per email (10 per 15 minutes) and per
+  client address (30 per 15 minutes, the last `X-Forwarded-For` entry) by
+  `lib/signin-rate-limit.ts`; the counters are in process memory, so they are
+  per process and reset on restart.
 
 ## Components and Styling
 

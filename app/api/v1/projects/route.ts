@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateApiToken, checkRateLimit, prisma } from "@/lib/db";
+import { validateApiToken, reserveUsage, confirmUsage, releaseUsage, prisma } from "@/lib/db";
 import { randomUUID } from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
@@ -46,8 +46,11 @@ export async function GET(req: NextRequest) {
   const offset = Math.trunc(Math.max(0, offsetParam || 0));
   const includeDeleted = req.nextUrl.searchParams.get("includeDeleted") === "true";
 
+  // repoUrl NULL is a reservation of a publish still in flight (see
+  // reserveUsage in lib/db.ts), not a project yet.
   const where = {
     userId: tokenRecord.userId,
+    repoUrl: { not: null },
     ...(!includeDeleted && { deletedAt: null }),
   };
 
@@ -126,19 +129,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
   }
 
-  // Check rate limit
-  const rateLimit = await checkRateLimit(tokenRecord.userId);
+  // Check the quota and take a slot in one atomic step, before the slow
+  // generate + push. Every exit that does not publish releases the slot in
+  // the finally below, so a failed attempt does not count.
+  const reservation = await reserveUsage(tokenRecord.userId, tokenRecord.id);
 
-  if (!rateLimit.allowed) {
+  if (!reservation.allowed) {
     return NextResponse.json(
       {
         ok: false,
         error: "Rate limit exceeded",
-        details: `Maximum 10 projects per rolling 24 hours. Used: ${rateLimit.used}/10`,
+        details: `Maximum 10 projects per rolling 24 hours. Used: ${reservation.used}/10`,
       },
       { status: 429 }
     );
   }
+  let usageConfirmed = false;
 
   let sessionId: string | null = null;
 
@@ -206,14 +212,9 @@ export async function POST(req: NextRequest) {
       user.githubOwner || user.githubLogin || user.email?.split("@")[0] || "user"
     );
 
-    // Log usage
-    await prisma.usageLog.create({
-      data: {
-        userId: tokenRecord.userId,
-        tokenId: tokenRecord.id,
-        repoUrl,
-      },
-    });
+    // Turn the reserved slot into the usage row of the published repo
+    await confirmUsage(reservation.reservationId, repoUrl);
+    usageConfirmed = true;
 
     // Cleanup temp directory
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -247,6 +248,8 @@ export async function POST(req: NextRequest) {
       },
       { status: 500 }
     );
+  } finally {
+    if (!usageConfirmed) await releaseUsage(reservation.reservationId);
   }
 }
 

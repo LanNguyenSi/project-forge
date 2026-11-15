@@ -15,7 +15,9 @@ vi.mock("@/lib/db", async () => {
       apiToken: { findUnique: vi.fn(), update: vi.fn() },
     },
     validateApiToken: vi.fn(),
-    checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, used: 0 }),
+    reserveUsage: vi.fn().mockResolvedValue({ allowed: true, reservationId: "res-1" }),
+    confirmUsage: vi.fn().mockResolvedValue(undefined),
+    releaseUsage: vi.fn().mockResolvedValue(undefined),
   };
 });
 

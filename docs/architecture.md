@@ -167,11 +167,11 @@ sequenceDiagram
   A->>T: owner and 1h TTL check (404, expired dir removed)
   A-->>C: ok, sessionId, preview
   C->>A: POST /api/v1/publish with sessionId
-  A->>D: checkRateLimit (429 at 10 in 24h)
+  A->>D: reserveUsage (429 at 10 in 24h)
   A->>T: owner and TTL check (404, expired dir removed)
   A->>T: create .forge-published (409 if present)
   A->>G: POST /user/repos (public), then git push
-  A->>D: insert UsageLog row
+  A->>D: confirmUsage (releaseUsage on any failure)
   A->>T: remove session dir
   A-->>C: ok, result with repoUrl, cloneUrl, projectName
 ```
@@ -213,11 +213,23 @@ also the basis for rate limiting).
 
 ### 6. Rate limiting
 
-`checkRateLimit(userId)` in `lib/db.ts` counts `UsageLog` rows for the user in
-the trailing 24 hours against `RATE_LIMIT_PER_DAY` (10). It is consumed only by
-the publish path (`app/api/v1/publish`) and the one-shot
-`POST /api/v1/projects`; `generate`, `preview`, and the list/delete endpoints
-are unmetered.
+`reserveUsage(userId, tokenId)` in `lib/db.ts` checks the quota and takes a
+slot in one SQL statement (`INSERT ... SELECT ... WHERE count < 10`), so
+parallel requests cannot all pass the same count. It counts `UsageLog` rows
+for the user in the trailing 24 hours against `RATE_LIMIT_PER_DAY` (10). The
+inserted row has no `repoUrl` yet (a reservation, hidden from the project
+list). `confirmUsage` sets the `repoUrl` after a successful push;
+`releaseUsage` deletes the reservation when the request fails, so a failed
+attempt does not count. A reservation also stops counting after
+`RESERVATION_TTL_MS` (15 minutes), so a request killed without releasing it
+(process crash) cannot burn quota for the whole window. The atomicity relies
+on SQLite serializing writers. It is consumed only by the publish path
+(`app/api/v1/publish`) and the one-shot `POST /api/v1/projects`; `generate`,
+`preview`, and the list/delete endpoints are unmetered.
+
+Failed credentials sign-ins are limited separately by `lib/signin-rate-limit.ts`:
+per submitted email and per client address, with counters in process memory (per
+process, reset on restart).
 
 ### 7. Secret handling
 

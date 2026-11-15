@@ -4,6 +4,12 @@ import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
 import { githubEmailStatus, githubPrimaryVerifiedEmail } from "./github-verified-email";
 import bcrypt from "bcryptjs";
+import {
+  clientAddressFromHeaders,
+  consumeSignInAttempt,
+  emailLimiterKey,
+  releaseSignInAttempt,
+} from "./signin-rate-limit";
 
 // Where a refused GitHub sign-in lands. The login page maps this code to a
 // fixed message ("already registered with a different sign-in method"); the
@@ -177,8 +183,17 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
+        // Failed attempts are limited per submitted email (the exact string,
+        // as the lookup matches it) and per client address
+        // (lib/signin-rate-limit.ts). The attempt is counted here, before any
+        // await, and handed back on success. A refusal returns null like any
+        // failed sign-in, before the database read and the bcrypt run, and is
+        // the same for known and unknown emails.
+        const emailKey = emailLimiterKey(credentials.email);
+        const address = clientAddressFromHeaders(req?.headers);
+        if (!consumeSignInAttempt(emailKey, address)) return null;
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
@@ -187,6 +202,7 @@ export const authOptions: NextAuthOptions = {
         if (!user || !user.passwordHash || !user.email) return null;
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!valid) return null;
+        releaseSignInAttempt(emailKey, address);
         return { id: user.id, email: user.email };
       },
     }),
