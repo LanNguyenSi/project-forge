@@ -43,6 +43,8 @@ import {
   GitHubAuthError,
   GitHubUnreachableError,
 } from "@/lib/github";
+import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
+import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
 
 interface RegisterBody {
   githubAccessToken: unknown;
@@ -52,8 +54,18 @@ interface RegisterBody {
 export async function POST(req: NextRequest) {
   let body: RegisterBody;
   try {
-    body = (await req.json()) as RegisterBody;
-  } catch {
+    body = (await readJsonBody(req, DEFAULT_MAX_BODY_BYTES)) as RegisterBody;
+  } catch (err) {
+    if (err instanceof BodyTooLargeError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "payload_too_large",
+          message: `Request body exceeds the ${err.maxBytes.toLocaleString()} byte limit`,
+        },
+        { status: 413 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: "bad_request", message: "Invalid JSON body" },
       { status: 400 },

@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { internalErrorDetails } from "@/lib/server-error";
+import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
+import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
 
 // Settings-only: the caller's own raw GitHub PAT. The shared GET /api/dashboard
 // response only exposes a `githubPatConnected` boolean (see app/api/dashboard/route.ts)
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { githubPat } = await req.json();
+    const { githubPat } = (await readJsonBody(req, DEFAULT_MAX_BODY_BYTES)) as { githubPat?: string };
 
     if (!githubPat || !githubPat.startsWith("ghp_")) {
       return NextResponse.json(
@@ -55,6 +57,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json({ ok: false, error: "Request body too large" }, { status: 413 });
+    }
     return NextResponse.json(
       { ok: false, error: "Failed to save PAT", details: internalErrorDetails("Save PAT failed", error) },
       { status: 500 }

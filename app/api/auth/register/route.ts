@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { internalErrorDetails } from "@/lib/server-error";
+import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
+import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json();
+    const { email, password } = (await readJsonBody(req, DEFAULT_MAX_BODY_BYTES)) as {
+      email?: string;
+      password?: string;
+    };
 
     if (!email || !password) {
       return NextResponse.json(
@@ -52,6 +57,12 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json(
+        { ok: false, error: "Request body too large" },
+        { status: 413 }
+      );
+    }
     return NextResponse.json(
       { ok: false, error: "Registration failed", details: internalErrorDetails("Registration error", error) },
       { status: 500 }

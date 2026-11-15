@@ -7,6 +7,8 @@ import type { ErrorResponse } from "@/lib/types";
 import { summarizePublishError } from "@/lib/publish-error";
 import { runCommand } from "@/lib/subprocess";
 import { SESSION_UUID_RE, readForgeMeta, isSessionExpired } from "@/lib/v1-shared";
+import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
+import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 
@@ -31,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   let tempDir = "";
   try {
-    const { sessionId } = (await req.json()) as { sessionId?: string };
+    const { sessionId } = (await readJsonBody(req, DEFAULT_MAX_BODY_BYTES)) as { sessionId?: string };
 
     if (!sessionId || !SESSION_UUID_RE.test(sessionId)) {
       return NextResponse.json({ ok: false, error: "Missing or invalid sessionId" }, { status: 400 });
@@ -98,6 +100,12 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: "Request body too large" },
+        { status: 413 },
+      );
+    }
     const raw = error instanceof Error ? error.message : String(error);
     // Client-facing body carries only a known reason sentence or the generic
     // sentence with a reference id. summarizePublishError scrubs PATs with

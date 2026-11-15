@@ -18,6 +18,8 @@ import { readPostScaffoldReview, runPostScaffoldReview, toScaffoldFitPreview } f
 import { writeAttachmentsToScaffold } from '@/lib/scaffold-attachments';
 import { resolveDependsOn, validateProjectName } from '@/lib/v1-shared';
 import { internalErrorDetails } from "@/lib/server-error";
+import { readJsonBody, BodyTooLargeError } from '@/lib/read-json-body';
+import { GENERATE_MAX_BODY_BYTES, attachmentLimitError } from '@/lib/limits';
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? '/tmp/project-forge';
 // End-to-end cap for plan + scaffold + tar + SSE + untar. Server-side
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const input: ProjectInput = await req.json();
+    const input: ProjectInput = (await readJsonBody(req, GENERATE_MAX_BODY_BYTES)) as ProjectInput;
 
     if (!input.projectName || !input.summary) {
       return NextResponse.json<ErrorResponse>(
@@ -52,6 +54,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json<ErrorResponse>(
         { ok: false, error: 'Invalid projectName. Use only letters, numbers, dots, hyphens, underscores (max 100 chars).' },
         { status: 400 }
+      );
+    }
+
+    // Enforce the UI's attachment caps (lib/limits.ts) server-side,
+    // before mkdir or writeAttachmentsToScaffold touches the disk:
+    // a direct API caller must not be able to persist bodies the
+    // browser would have refused.
+    const attachmentError = attachmentLimitError(input.attachments);
+    if (attachmentError) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: 'Attachments exceed the size limits', details: attachmentError },
+        { status: 413 }
       );
     }
 
@@ -218,6 +232,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error: unknown) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: 'Request body too large' },
+        { status: 413 }
+      );
+    }
+
     if (sessionId) {
       const tempDir = path.join(TEMP_ROOT, sessionId);
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});

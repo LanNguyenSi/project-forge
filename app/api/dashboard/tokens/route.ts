@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma, createApiToken } from "@/lib/db";
 import { internalErrorDetails } from "@/lib/server-error";
+import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
+import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -12,7 +14,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { name } = await req.json();
+    const { name } = (await readJsonBody(req, DEFAULT_MAX_BODY_BYTES)) as { name?: string };
 
     if (!name || !name.trim()) {
       return NextResponse.json({ ok: false, error: "Token name is required" }, { status: 400 });
@@ -33,6 +35,9 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json({ ok: false, error: "Request body too large" }, { status: 413 });
+    }
     return NextResponse.json(
       { ok: false, error: "Failed to create token", details: internalErrorDetails("Create token failed", error) },
       { status: 500 }
