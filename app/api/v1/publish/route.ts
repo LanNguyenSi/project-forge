@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateApiToken, checkRateLimit, prisma } from "@/lib/db";
+import { validateApiToken, reserveUsage, confirmUsage, releaseUsage } from "@/lib/db";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { excludePlanforgeArtifactsFromPublish, prunePublishedPlanforgeIndex } from "@/lib/planforge-output";
@@ -23,13 +23,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid or revoked API token" }, { status: 401 });
   }
 
-  const rateLimit = await checkRateLimit(tokenRecord.userId);
-  if (!rateLimit.allowed) {
+  // Check the quota and take a slot in one atomic step, before the slow
+  // GitHub create + push. Every exit that does not publish releases the slot
+  // in the finally below, so a failed attempt does not count.
+  const reservation = await reserveUsage(tokenRecord.userId, tokenRecord.id);
+  if (!reservation.allowed) {
     return NextResponse.json(
-      { ok: false, error: "Rate limit exceeded", details: `Used: ${rateLimit.used}/10` },
+      { ok: false, error: "Rate limit exceeded", details: `Used: ${reservation.used}/10` },
       { status: 429 },
     );
   }
+  let usageConfirmed = false;
 
   let tempDir = "";
   try {
@@ -79,14 +83,9 @@ export async function POST(req: NextRequest) {
     // Create GitHub repo and push
     const repoUrl = await createAndPushRepo(tempDir, meta.projectName, user.githubPat);
 
-    // Log usage
-    await prisma.usageLog.create({
-      data: {
-        userId: tokenRecord.userId,
-        tokenId: tokenRecord.id,
-        repoUrl,
-      },
-    });
+    // Turn the reserved slot into the usage row of the published repo
+    await confirmUsage(reservation.reservationId, repoUrl);
+    usageConfirmed = true;
 
     // Cleanup temp dir
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -128,6 +127,8 @@ export async function POST(req: NextRequest) {
       { ok: false, error: `Publish failed: ${summary}`, details: summary },
       { status: 500 },
     );
+  } finally {
+    if (!usageConfirmed) await releaseUsage(reservation.reservationId);
   }
 }
 

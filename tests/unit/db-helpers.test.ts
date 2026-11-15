@@ -27,7 +27,6 @@ vi.mock("@prisma/client", () => ({
 
 import {
   validateApiToken,
-  checkRateLimit,
   generateApiToken,
   hashApiToken,
   tokenPrefixOf,
@@ -228,40 +227,6 @@ describe("createApiToken", () => {
 
     const validated = await validateApiToken(raw);
     expect(validated).not.toBeNull();
-  });
-});
-
-describe("checkRateLimit", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("allowed:true when usage count is 9 (one below limit)", async () => {
-    mocks.usageLog.count.mockResolvedValue(9);
-    const result = await checkRateLimit("user-1");
-    expect(result.allowed).toBe(true);
-    expect(result.used).toBe(9);
-  });
-
-  it("allowed:false when usage count is exactly 10 (at limit)", async () => {
-    mocks.usageLog.count.mockResolvedValue(10);
-    const result = await checkRateLimit("user-1");
-    expect(result.allowed).toBe(false);
-    expect(result.used).toBe(10);
-  });
-
-  it("allowed:false when usage count exceeds 10", async () => {
-    mocks.usageLog.count.mockResolvedValue(15);
-    const result = await checkRateLimit("user-1");
-    expect(result.allowed).toBe(false);
-    expect(result.used).toBe(15);
-  });
-
-  it("allowed:true when usage count is 0 (first use)", async () => {
-    mocks.usageLog.count.mockResolvedValue(0);
-    const result = await checkRateLimit("user-1");
-    expect(result.allowed).toBe(true);
-    expect(result.used).toBe(0);
   });
 });
 

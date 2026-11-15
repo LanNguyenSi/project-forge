@@ -25,7 +25,9 @@ vi.mock("@/lib/db", async () => {
       usageLog: { create: vi.fn() },
     },
     validateApiToken: vi.fn(),
-    checkRateLimit: vi.fn(),
+    reserveUsage: vi.fn(),
+    confirmUsage: vi.fn().mockResolvedValue(undefined),
+    releaseUsage: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -34,11 +36,11 @@ vi.mock("@/lib/subprocess", () => ({
   runCommand: vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
 }));
 
-import { validateApiToken, checkRateLimit } from "@/lib/db";
+import { validateApiToken, reserveUsage, releaseUsage } from "@/lib/db";
 import { POST } from "@/app/api/v1/publish/route";
 
 const mValidateToken = vi.mocked(validateApiToken);
-const mCheckRateLimit = vi.mocked(checkRateLimit);
+const mReserveUsage = vi.mocked(reserveUsage);
 
 // The route reads FORGE_TEMP_DIR at module-load time, so we must use the same value.
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
@@ -146,22 +148,25 @@ describe("POST /api/v1/publish — missing-path coverage", () => {
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    expect(mCheckRateLimit).not.toHaveBeenCalled();
+    expect(mReserveUsage).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
   // Rate limiting
   // -------------------------------------------------------------------------
 
-  it("429 when checkRateLimit returns { allowed: false }", async () => {
+  it("429 when reserveUsage returns { allowed: false }", async () => {
     mValidateToken.mockResolvedValue(tokenRecord() as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: false, used: 10 });
+    mReserveUsage.mockResolvedValue({ allowed: false, used: 10 });
 
     const res = await POST(makeReq("pf_test", { sessionId: "aaaaaaaa-0000-0000-0000-000000000003" }));
     expect(res.status).toBe(429);
     const body = await res.json();
     expect(body.ok).toBe(false);
     expect(body.error).toMatch(/rate limit/i);
+    expect(body.details).toBe("Used: 10/10");
+    // A refused request holds no slot, so there is nothing to release.
+    expect(vi.mocked(releaseUsage)).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
@@ -170,7 +175,7 @@ describe("POST /api/v1/publish — missing-path coverage", () => {
 
   it("409 when .forge-published marker file already exists", async () => {
     mValidateToken.mockResolvedValue(tokenRecord() as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+    mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" });
 
     const sessionId = "bbbbbbbb-0000-0000-0000-000000000001";
     const sessionDir = await session(sessionId);
@@ -206,7 +211,7 @@ describe("POST /api/v1/publish — missing-path coverage", () => {
       },
     });
     mValidateToken.mockResolvedValue(record as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+    mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" });
 
     const sessionId = "cccccccc-0000-0000-0000-000000000001";
     await session(sessionId);
@@ -233,7 +238,7 @@ describe("POST /api/v1/publish — missing-path coverage", () => {
       },
     });
     mValidateToken.mockResolvedValue(record as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+    mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" });
 
     const sessionId = "dddddddd-0000-0000-0000-000000000001";
     await session(sessionId);
@@ -263,7 +268,7 @@ describe("POST /api/v1/publish — missing-path coverage", () => {
       },
     });
     mValidateToken.mockResolvedValue(record as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+    mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" });
 
     const sessionId = "eeeeeeee-0000-0000-0000-000000000001";
     await session(sessionId);
@@ -289,7 +294,7 @@ describe("POST /api/v1/publish — missing-path coverage", () => {
   it("500 response body must not expose x-access-token:PAT@ push URL form", async () => {
     const record = tokenRecord();
     mValidateToken.mockResolvedValue(record as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+    mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" });
 
     const sessionId = "ffffffff-0000-0000-0000-000000000001";
     await session(sessionId);
@@ -328,7 +333,7 @@ describe("POST /api/v1/publish — missing-path coverage", () => {
       },
     });
     mValidateToken.mockResolvedValue(record as never);
-    mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 });
+    mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" });
 
     const sessionId = "aaaaaaaa-0000-0000-0000-000000000099";
     await session(sessionId);

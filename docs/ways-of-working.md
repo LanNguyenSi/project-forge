@@ -46,7 +46,7 @@ These rules govern the HTTP surface. All contributors must follow them.
 ### Rate limiting
 
 - The publish path and `POST /api/v1/projects` consume the per-user publish
-  quota (10 in a rolling 24 hours, `checkRateLimit`); `generate`, `preview`, and list/delete do not. Keep that
+  quota (10 in a rolling 24 hours, `reserveUsage`, then `confirmUsage` or `releaseUsage`); `generate`, `preview`, and list/delete do not. Keep that
   split intact when adding endpoints.
 
 ## Components and Styling

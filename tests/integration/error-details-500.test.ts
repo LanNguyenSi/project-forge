@@ -97,7 +97,9 @@ describe("POST /api/v1/projects 500 body", () => {
           userId: "user-1",
           user: { id: "user-1", email: "u@example.com", githubPat: "ghp_userPat", githubOwner: "o", githubLogin: "o" },
         }),
-        checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, used: 0 }),
+        reserveUsage: vi.fn().mockResolvedValue({ allowed: true, reservationId: "res-1" }),
+        confirmUsage: vi.fn().mockResolvedValue(undefined),
+        releaseUsage: vi.fn().mockResolvedValue(undefined),
       };
     });
     vi.doMock("@/lib/planforge-orchestrator", () => ({

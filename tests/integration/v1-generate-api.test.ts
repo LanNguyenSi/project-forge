@@ -17,7 +17,9 @@ vi.mock('@/lib/db', async () => {
     ...actual,
     prisma: { usageLog: { create: vi.fn() } },
     validateApiToken: vi.fn(),
-    checkRateLimit: vi.fn(),
+    reserveUsage: vi.fn(),
+    confirmUsage: vi.fn().mockResolvedValue(undefined),
+    releaseUsage: vi.fn().mockResolvedValue(undefined),
   };
 });
 
