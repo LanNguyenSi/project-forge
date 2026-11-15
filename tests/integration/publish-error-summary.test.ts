@@ -27,7 +27,9 @@ vi.mock("@/lib/db", async () => {
       usageLog: { create: vi.fn() },
     },
     validateApiToken: vi.fn(),
-    checkRateLimit: vi.fn(),
+    reserveUsage: vi.fn(),
+    confirmUsage: vi.fn().mockResolvedValue(undefined),
+    releaseUsage: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -39,7 +41,7 @@ vi.mock("@/lib/subprocess", () => ({
   runCommand: vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
 }));
 
-import { prisma, validateApiToken, checkRateLimit } from "@/lib/db";
+import { prisma, validateApiToken, reserveUsage } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { POST as legacyPublish } from "@/app/api/publish/route";
 import { POST as v1Publish } from "@/app/api/v1/publish/route";
@@ -47,7 +49,7 @@ import { POST as v1Publish } from "@/app/api/v1/publish/route";
 const mSession = vi.mocked(getServerSession);
 const mFindUnique = vi.mocked(prisma.user.findUnique);
 const mValidateToken = vi.mocked(validateApiToken);
-const mCheckRateLimit = vi.mocked(checkRateLimit);
+const mReserveUsage = vi.mocked(reserveUsage);
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 
@@ -120,7 +122,7 @@ beforeEach(() => {
   mSession.mockResolvedValue({ user: { id: "user-1" } } as never);
   mFindUnique.mockResolvedValue({ id: "user-1", githubPat: "ghp_userPatForTests" } as never);
   mValidateToken.mockResolvedValue(tokenRecord("ghp_userPatForTests") as never);
-  mCheckRateLimit.mockResolvedValue({ allowed: true, used: 0 } as never);
+  mReserveUsage.mockResolvedValue({ allowed: true, reservationId: "res-1" } as never);
 });
 
 afterEach(async () => {
@@ -243,7 +245,7 @@ describe("POST /api/v1/publish: status codes pinned", () => {
   });
 
   it("429 when the rate limit is exhausted", async () => {
-    mCheckRateLimit.mockResolvedValue({ allowed: false, used: 10 } as never);
+    mReserveUsage.mockResolvedValue({ allowed: false, used: 10 } as never);
     const res = await v1Publish(v1Req({ sessionId: "b2222222-0000-4000-8000-000000000003" }));
     expect(res.status).toBe(429);
   });

@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, randomUUID } from "crypto";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
@@ -12,12 +12,96 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 // Rate limit: max 10 projects per user in any rolling 24-hour window
 export const RATE_LIMIT_PER_DAY = 10;
 
-export async function checkRateLimit(userId: string): Promise<{ allowed: boolean; used: number }> {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const used = await prisma.usageLog.count({
-    where: { userId, createdAt: { gte: since } },
+// A reservation (UsageLog row with repoUrl NULL) is written when a publish
+// request starts and filled in when the repo was pushed. The slowest request
+// (generate + push) takes a few minutes, so a reservation counts against the
+// quota for this long. A reservation older than that belongs to a request
+// that died without releasing it (process crash, restart) and stops counting,
+// so a crash cannot burn quota for the whole 24 hours.
+export const RESERVATION_TTL_MS = 15 * 60 * 1000;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Narrow client shape so a test can hand in its own PrismaClient (separate
+// connections to one SQLite file) instead of the module singleton.
+type UsageClient = Pick<PrismaClient, "$executeRaw" | "usageLog">;
+
+export type UsageReservation =
+  | { allowed: true; reservationId: string }
+  | { allowed: false; used: number };
+
+/**
+ * Checks the quota and reserves one slot in a single step.
+ *
+ * The count and the insert are ONE statement (`INSERT ... SELECT ... WHERE
+ * (SELECT count(*) ...) < limit`). SQLite takes the write lock when such a
+ * statement starts, so the count is read under that lock and two parallel
+ * requests can never both see "9 used" and both insert. A count-then-create
+ * pair of statements would not give that: the slot would be taken only after
+ * the slow git push, and N parallel requests would all read the same count.
+ *
+ * Counted rows: every row of the last 24 hours that has a repoUrl (a finished
+ * publish, soft-deleted ones included, as before), plus reservations younger
+ * than RESERVATION_TTL_MS. The reservation is released with releaseUsage()
+ * when the request fails, so a failed attempt does not burn quota, and is
+ * completed with confirmUsage() when it succeeds.
+ *
+ * Relies on the datasource being SQLite (a single writer at a time); on an
+ * MVCC database the statement alone would not serialize concurrent callers.
+ */
+export async function reserveUsage(
+  userId: string,
+  tokenId: string,
+  client: UsageClient = prisma
+): Promise<UsageReservation> {
+  const now = Date.now();
+  const id = randomUUID();
+  const inserted = await client.$executeRaw`
+    INSERT INTO "UsageLog" ("id", "userId", "tokenId", "createdAt")
+    SELECT ${id}, ${userId}, ${tokenId}, ${new Date(now)}
+    WHERE (
+      SELECT count(*) FROM "UsageLog"
+      WHERE "userId" = ${userId}
+        AND "createdAt" >= ${new Date(now - DAY_MS)}
+        AND ("repoUrl" IS NOT NULL OR "createdAt" >= ${new Date(now - RESERVATION_TTL_MS)})
+    ) < ${RATE_LIMIT_PER_DAY}`;
+  if (inserted === 1) return { allowed: true, reservationId: id };
+
+  // Refused. The number is only shown to the caller (429 details), the
+  // decision above is already made.
+  const used = await client.usageLog.count({
+    where: {
+      userId,
+      createdAt: { gte: new Date(now - DAY_MS) },
+      OR: [{ repoUrl: { not: null } }, { createdAt: { gte: new Date(now - RESERVATION_TTL_MS) } }],
+    },
   });
-  return { allowed: used < RATE_LIMIT_PER_DAY, used };
+  return { allowed: false, used };
+}
+
+/** Turns a reservation into the normal usage row of the published repo. */
+export async function confirmUsage(
+  reservationId: string,
+  repoUrl: string,
+  client: Pick<PrismaClient, "usageLog"> = prisma
+): Promise<void> {
+  await client.usageLog.update({ where: { id: reservationId }, data: { repoUrl } });
+}
+
+/**
+ * Gives a reservation back after a failed request. Never throws: it runs on
+ * error paths, where a second failure must not replace the response; a
+ * release that fails leaves the reservation to expire after RESERVATION_TTL_MS.
+ */
+export async function releaseUsage(
+  reservationId: string,
+  client: Pick<PrismaClient, "usageLog"> = prisma
+): Promise<void> {
+  try {
+    await client.usageLog.deleteMany({ where: { id: reservationId, repoUrl: null } });
+  } catch (error) {
+    console.error("releaseUsage failed; the reservation expires on its own", error);
+  }
 }
 
 // API tokens are hashed at rest (keyed SHA-256 / HMAC-SHA256) rather than

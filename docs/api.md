@@ -7,6 +7,9 @@ header. Broker registration itself takes a GitHub access token instead.
 Rate limit: 10 publishes per user in any rolling 24-hour window, counted
 across all of the user's tokens. Only `POST /api/v1/publish` and the one-shot
 `POST /api/v1/projects` count; entries removed with `DELETE` still count.
+The slot is taken when the request starts, so parallel requests cannot
+exceed the limit, and it is given back when the request fails (a `4xx` or
+`5xx` answer): only a repository that was published counts.
 `generate`, `preview`, and the project list and delete endpoints are
 unmetered. Repositories published from the web UI are not counted and are not
 returned by `GET /api/v1/projects`.
