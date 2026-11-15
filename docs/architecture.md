@@ -227,6 +227,10 @@ on SQLite serializing writers. It is consumed only by the publish path
 (`app/api/v1/publish`) and the one-shot `POST /api/v1/projects`; `generate`,
 `preview`, and the list/delete endpoints are unmetered.
 
+Failed credentials sign-ins are limited separately by `lib/signin-rate-limit.ts`:
+per submitted email and per client address, with counters in process memory (per
+process, reset on restart).
+
 ### 7. Secret handling
 
 The publish path sanitizes any embedded GitHub PAT with the shared
