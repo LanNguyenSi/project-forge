@@ -38,7 +38,12 @@ The stored credential is the last one saved by one of these:
 
 - GitHub sign-in: the OAuth token, requested with the scopes `repo`,
   `workflow`, and `user:email`. The account is matched by the GitHub account id
-  (stored as `githubId`), never by the email alone: a sign-in whose email
+  (stored as `githubId`), never by the email alone. The email counts only
+  when GitHub lists it as verified for that account; otherwise the account
+  gets the placeholder `github-<id>@noreply`. When GitHub reported no email,
+  the verified primary address from the account's address list is used, or the
+  placeholder if there is none. If GitHub cannot be asked (an error or
+  timeout), the sign-in fails without writing anything and can be retried. A sign-in whose verified email
   belongs to an email/password account, or to an account linked to another
   GitHub id, is refused and writes no token.
 - Settings: a classic personal access token (prefix `ghp_`). The Settings form
