@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 
 /**
@@ -14,7 +15,12 @@ import { isIP } from "node:net";
  * counters are per process and reset on restart or redeploy; a second instance
  * would have its own counters. Memory is bounded: expired entries are pruned
  * whenever a map is full, and a map never holds more than MAX_TRACKED_KEYS
- * entries (the oldest entry is evicted for a new key).
+ * entries. When a full map has no expired entry, the entry with the lowest
+ * count (the oldest on a tie) among those still below their limit is evicted
+ * for the new key; an entry at its limit is never evicted, so a flood of junk
+ * keys cannot unlock a locked one. If every entry is at its limit, the new key
+ * is simply not tracked (its attempt is allowed but uncounted) until a window
+ * ends.
  */
 
 /** Failed attempts allowed per email within the window. */
@@ -25,17 +31,21 @@ export const ADDRESS_MAX_FAILURES = 30;
 export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
 /** Hard cap on tracked keys per map (email and address maps are separate). */
 export const MAX_TRACKED_KEYS = 10_000;
-/** Longest email kept as a key; a longer one is cut (it cannot be a real address). */
-const MAX_EMAIL_KEY_LENGTH = 254;
-
 type Entry = { count: number; windowEnd: number };
 
 const emailFailures = new Map<string, Entry>();
 const addressFailures = new Map<string, Entry>();
 
-/** Lower-cased, trimmed, length-bounded limiter key for an email. */
-export function normalizeEmailKey(email: string): string {
-  return email.trim().toLowerCase().slice(0, MAX_EMAIL_KEY_LENGTH);
+/**
+ * Limiter key for an email: a digest of the EXACT submitted string, the value
+ * the database lookup matches. No trimming and no case folding: the user table
+ * matches the email byte for byte, so "Victim@x.com" and "victim@x.com" are
+ * different accounts, and a shared counter would let a success on one account
+ * clear the failures counted against the other. The digest only bounds the
+ * key size; two different strings never share a key.
+ */
+export function emailLimiterKey(email: string): string {
+  return createHash("sha256").update(email).digest("hex");
 }
 
 /**
@@ -73,20 +83,33 @@ function prune(map: Map<string, Entry>, now: number): void {
   }
 }
 
-function bump(map: Map<string, Entry>, key: string, now: number): void {
+/** Makes room in a full map; false when every entry is at its limit. */
+function makeRoom(map: Map<string, Entry>, now: number, limit: number): boolean {
+  if (map.size < MAX_TRACKED_KEYS) return true;
+  prune(map, now);
+  if (map.size < MAX_TRACKED_KEYS) return true;
+  // Lowest count below the limit; the first one found is the oldest (Map
+  // keeps insertion order), so a tie goes to the oldest entry.
+  let victim: string | undefined;
+  let lowest = limit;
+  for (const [key, entry] of map) {
+    if (entry.count < lowest) {
+      lowest = entry.count;
+      victim = key;
+    }
+  }
+  if (victim === undefined) return false;
+  map.delete(victim);
+  return true;
+}
+
+function bump(map: Map<string, Entry>, key: string, now: number, limit: number): void {
   const entry = live(map, key, now);
   if (entry) {
     entry.count += 1;
     return;
   }
-  if (map.size >= MAX_TRACKED_KEYS) {
-    prune(map, now);
-    if (map.size >= MAX_TRACKED_KEYS) {
-      // Still full of live entries: drop the oldest (Map keeps insertion order).
-      const oldest = map.keys().next();
-      if (!oldest.done) map.delete(oldest.value);
-    }
-  }
+  if (!makeRoom(map, now, limit)) return;
   map.set(key, { count: 1, windowEnd: now + SIGNIN_WINDOW_MS });
 }
 
@@ -110,8 +133,8 @@ export function consumeSignInAttempt(
   if (address !== null && (live(addressFailures, address, now)?.count ?? 0) >= ADDRESS_MAX_FAILURES) {
     return false;
   }
-  bump(emailFailures, emailKey, now);
-  if (address !== null) bump(addressFailures, address, now);
+  bump(emailFailures, emailKey, now, EMAIL_MAX_FAILURES);
+  if (address !== null) bump(addressFailures, address, now, ADDRESS_MAX_FAILURES);
   return true;
 }
 

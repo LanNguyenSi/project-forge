@@ -30,6 +30,8 @@ const USERS: Record<string, { id: string; email: string; passwordHash: string | 
   "known@example.com": { id: "u1", email: "known@example.com", passwordHash: "hash" },
   "other@example.com": { id: "u2", email: "other@example.com", passwordHash: "hash" },
   "oauth@example.com": { id: "u3", email: "oauth@example.com", passwordHash: null },
+  "victim@example.com": { id: "u4", email: "victim@example.com", passwordHash: "hash" },
+  "VICTIM@example.com": { id: "u5", email: "VICTIM@example.com", passwordHash: "hash" },
 };
 
 const ADDR = "203.0.113.9";
@@ -147,14 +149,46 @@ describe("credentials sign-in rate limit", () => {
     }
   });
 
-  it("treats case and surrounding spaces of the email as the same key", async () => {
-    for (let i = 0; i < EMAIL_MAX_FAILURES; i++) {
-      const variant = i % 2 ? "KNOWN@Example.com" : " Known@example.com ";
-      await signIn(variant, "wrong");
+  it("keys the exact submitted string: case and space variants are separate counters", async () => {
+    // Failures on variants of the address do not count against "known@example.com" ...
+    for (let i = 0; i < EMAIL_MAX_FAILURES * 2; i++) {
+      await signIn(i % 2 ? "KNOWN@Example.com" : " known@example.com ", "wrong", via(`198.51.100.${i}`));
     }
     findUnique.mockClear();
-    expect(await signIn("known@example.com", "right")).toBeNull();
+    expect(await signIn("known@example.com", "right", via("203.0.113.77"))).not.toBeNull();
+    expect(findUnique).toHaveBeenCalledTimes(1);
+
+    // ... and the variants are limited on their own, each by its exact string.
+    resetSignInLimiter();
+    for (let i = 0; i < EMAIL_MAX_FAILURES; i++) {
+      await signIn("KNOWN@Example.com", "wrong", via(`198.51.100.${i}`));
+    }
+    findUnique.mockClear();
+    expect(await signIn("KNOWN@Example.com", "right", via("203.0.113.78"))).toBeNull();
     expect(findUnique).not.toHaveBeenCalled();
+  });
+
+  it("a success on a case variant account does not clear the victim's failure counter", async () => {
+    // Two distinct accounts, as the exact-match lookup and the unique index see them.
+    for (let round = 0; round < 3; round++) {
+      for (let i = 0; i < EMAIL_MAX_FAILURES - 1; i++) {
+        await signIn("victim@example.com", "wrong", via(`198.51.100.${round * 20 + i}`));
+      }
+      // The attacker's own account signs in: it must not reset the victim's counter.
+      expect(await signIn("VICTIM@example.com", "right", via("203.0.113.50"))).toEqual({
+        id: "u5",
+        email: "VICTIM@example.com",
+      });
+      compare.mockClear();
+      findUnique.mockClear();
+      // The victim's 10th attempt is still counted; the 11th is refused with no DB read or bcrypt.
+      expect(await signIn("victim@example.com", "wrong", via("203.0.113.51"))).toBeNull();
+      expect(compare).toHaveBeenCalledTimes(1);
+      expect(await signIn("victim@example.com", "right", via("203.0.113.52"))).toBeNull();
+      expect(compare).toHaveBeenCalledTimes(1);
+      expect(findUnique).toHaveBeenCalledTimes(1);
+      resetSignInLimiter();
+    }
   });
 
   it("counts a burst of parallel attempts, not only the finished ones", async () => {

@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import {
   clientAddressFromHeaders,
   consumeSignInAttempt,
-  normalizeEmailKey,
+  emailLimiterKey,
   releaseSignInAttempt,
 } from "./signin-rate-limit";
 
@@ -122,12 +122,13 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
-        // Failed attempts are limited per normalized email and per client
-        // address (lib/signin-rate-limit.ts). The attempt is counted here,
-        // before any await, and handed back on success. A refusal returns
-        // null like any failed sign-in, before the database read and the
-        // bcrypt run, and is the same for known and unknown emails.
-        const emailKey = normalizeEmailKey(credentials.email);
+        // Failed attempts are limited per submitted email (the exact string,
+        // as the lookup matches it) and per client address
+        // (lib/signin-rate-limit.ts). The attempt is counted here, before any
+        // await, and handed back on success. A refusal returns null like any
+        // failed sign-in, before the database read and the bcrypt run, and is
+        // the same for known and unknown emails.
+        const emailKey = emailLimiterKey(credentials.email);
         const address = clientAddressFromHeaders(req?.headers);
         if (!consumeSignInAttempt(emailKey, address)) return null;
         const user = await prisma.user.findUnique({
