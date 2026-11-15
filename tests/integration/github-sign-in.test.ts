@@ -17,31 +17,47 @@ const { rows, store } = vi.hoisted(() => {
   let seq = 0;
   const matches = (row: Row, where: Record<string, unknown>) =>
     Object.entries(where).every(([k, v]) => (row as Record<string, unknown>)[k] === v);
+  // The unique indexes on email and githubId, enforced on create, update and
+  // updateMany like the database does (NULL never collides).
+  const assertUnique = (data: Partial<Row>, selfId?: string) => {
+    for (const key of ["email", "githubId"] as const) {
+      if (data[key] != null && rows.some((r) => r.id !== selfId && r[key] === data[key])) {
+        throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+      }
+    }
+  };
   const store = {
+    // Runs after a findUnique has produced its (snapshot) result, so a test
+    // can change the stored rows in the window between the read and the write.
+    afterFind: null as null | ((where: Record<string, unknown>) => void),
     reset() {
       rows.length = 0;
       seq = 0;
+      store.afterFind = null;
     },
     user: {
-      findUnique: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
-        rows.find((r) => matches(r, where)) ?? null,
-      ),
+      // Returns a snapshot, like a database read: later changes to the stored
+      // row do not show up in a result already handed out.
+      findUnique: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+        const found = rows.find((r) => matches(r, where));
+        const snapshot = found ? { ...found } : null;
+        store.afterFind?.(where);
+        return snapshot;
+      }),
       update: vi.fn(async ({ where, data }: { where: { id: string }; data: Partial<Row> }) => {
         const row = rows.find((r) => r.id === where.id)!;
+        assertUnique(data, row.id);
         Object.assign(row, data);
         return row;
       }),
       updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Partial<Row> }) => {
         const hit = rows.filter((r) => matches(r, where));
+        hit.forEach((r) => assertUnique(data, r.id));
         hit.forEach((r) => Object.assign(r, data));
         return { count: hit.length };
       }),
       create: vi.fn(async ({ data }: { data: Partial<Row> }) => {
-        for (const key of ["email", "githubId"] as const) {
-          if (data[key] != null && rows.some((r) => r[key] === data[key])) {
-            throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
-          }
-        }
+        assertUnique(data);
         const row: Row = {
           id: `u${++seq}`,
           email: null,
@@ -251,18 +267,49 @@ describe("GitHub sign-in account matching", () => {
     expect(rows[0].githubId).toBe("1001");
   });
 
-  it("refuses when the legacy row stops being claimable between the read and the write", async () => {
-    const legacy = row({ id: "legacy", email: "legacy@example.com" });
-    store.user.updateMany.mockImplementationOnce(async () => {
-      legacy.passwordHash = "hash"; // a password appears after the read
-      return { count: 0 };
-    });
+  // The email lookup hands out a snapshot of the legacy row; the stored row
+  // changes before the claim runs. The claim goes through the fake's real
+  // filtering updateMany, so it is the where clause that must refuse.
+  it.each([
+    ["a password appears", { passwordHash: "hash" }],
+    ["another GitHub identity is linked", { githubId: "2002" }],
+  ] as const)("refuses when the legacy row changes between the read and the claim: %s", async (_name, change) => {
+    const legacy = row({ id: "legacy", email: "legacy@example.com", githubPat: "gho_old" });
+    store.afterFind = (where) => {
+      if (where.email === "legacy@example.com") Object.assign(legacy, change);
+    };
+
+    const { result, user } = await githubSignIn({ id: "1001", email: "legacy@example.com", token: "gho_x" });
+
+    expect(result).toBe(REFUSED);
+    expect(store.user.updateMany).toHaveBeenCalledTimes(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].githubPat).toBe("gho_old");
+    expect(rows[0].githubId).toBe("githubId" in change ? "2002" : null);
+    expect(rows[0].passwordHash).toBe("passwordHash" in change ? "hash" : null);
+    expect(user.id).toBe("1001");
+  });
+
+  it("refuses when the claim hits the githubId unique index (another row got this identity meanwhile)", async () => {
+    row({ id: "legacy", email: "legacy@example.com", githubPat: "gho_old" });
+    store.afterFind = (where) => {
+      // The identity is taken by another row after the identity lookup.
+      if (where.email === "legacy@example.com") row({ id: "taken", email: "other@example.com", githubId: "1001" });
+    };
 
     const { result } = await githubSignIn({ id: "1001", email: "legacy@example.com", token: "gho_x" });
 
     expect(result).toBe(REFUSED);
-    expect(rows[0].githubPat).toBeNull();
-    expect(rows[0].githubId).toBeNull();
+    expect(rows.find((r) => r.id === "legacy")).toMatchObject({ githubId: null, githubPat: "gho_old" });
+  });
+
+  it("rethrows other database errors from the claim", async () => {
+    row({ id: "legacy", email: "legacy@example.com" });
+    store.user.updateMany.mockImplementationOnce(async () => {
+      throw new Error("db down");
+    });
+
+    await expect(githubSignIn({ id: "1001", email: "legacy@example.com" })).rejects.toThrow("db down");
   });
 
   it("refuses when a concurrent sign-in created the row first (unique violation on create)", async () => {

@@ -61,11 +61,19 @@ async function signInWithGithub(
     // Conditional write: the row must still be unlinked and password-less when
     // it is claimed, so a change between the read and the write cannot hand
     // the token to a different kind of account.
-    const claimed = await prisma.user.updateMany({
-      where: { id: byEmail.id, githubId: null, passwordHash: null },
-      data: { githubId, ...tokenFields },
-    });
-    if (claimed.count !== 1) return GITHUB_SIGN_IN_REFUSED;
+    try {
+      const claimed = await prisma.user.updateMany({
+        where: { id: byEmail.id, githubId: null, passwordHash: null },
+        data: { githubId, ...tokenFields },
+      });
+      if (claimed.count !== 1) return GITHUB_SIGN_IN_REFUSED;
+    } catch (error) {
+      // Another row got this githubId between the identity lookup and the
+      // write. Refuse with the fixed redirect: a thrown Prisma error would put
+      // its message into the error URL.
+      if (isUniqueViolation(error)) return GITHUB_SIGN_IN_REFUSED;
+      throw error;
+    }
     user.id = byEmail.id;
     return true;
   }
