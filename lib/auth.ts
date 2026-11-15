@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
+import { isGithubEmailVerified } from "./github-verified-email";
 import bcrypt from "bcryptjs";
 
 // Where a refused GitHub sign-in lands. The login page maps this code to a
@@ -22,15 +23,24 @@ function isUniqueViolation(error: unknown): boolean {
  * stored in `User.githubId`), never the email alone: `POST /api/auth/register`
  * does not verify the email, so an email match says nothing about who owns the
  * row. Matching rules, in order:
- *   1. A row with this githubId: that is the account. Token refreshed.
- *   2. No such row, but a row with this email:
+ *   1. A row with this githubId: that is the account. Token refreshed. The
+ *      email is not looked at and GitHub is not asked about it.
+ *   2. No such row: the email GitHub reports is only used if GitHub says the
+ *      account owns it as a verified address (`GET /user/emails`, see
+ *      `isGithubEmailVerified`; the NextAuth GitHub provider fills
+ *      `user.email` without checking `verified`). If it is not verified, if
+ *      the lookup fails (network error, non-200, bad body) or if GitHub gave
+ *      no email, the placeholder `github-<id>@noreply` stands in for it, so
+ *      an unverified or failed lookup never claims, collides with or refuses
+ *      on a real person's row. Then the row with that email, if any:
  *      - it has a passwordHash (a local account) or another githubId: refused,
  *        the row is not touched and no token is written;
  *      - it has neither (a row an earlier GitHub-only sign-in created, before
  *        githubId was recorded here): claimed, githubId is set. Such a row can
  *        only come from the GitHub sign-in itself, because registration always
  *        sets a password.
- *   3. Neither: a new row is created with the identity.
+ *   3. Neither: a new row is created with the identity, under the verified
+ *      email or the placeholder.
  */
 async function signInWithGithub(
   user: { id: string; email?: string | null },
@@ -38,22 +48,30 @@ async function signInWithGithub(
   profile: unknown,
 ): Promise<true | string> {
   const githubId = String(account.providerAccountId);
-  const email = user.email ?? `github-${githubId}@noreply`;
-  const githubUsername = (user as { login?: string }).login ?? email.split("@")[0];
+  const placeholderEmail = `github-${githubId}@noreply`;
   const login = (profile as { login?: unknown } | null | undefined)?.login;
   const githubLogin = typeof login === "string" && login ? login : undefined;
-  const tokenFields = {
+  const tokenFieldsFor = (email: string) => ({
     githubPat: account.access_token,
-    githubOwner: githubUsername,
+    githubOwner: (user as { login?: string }).login ?? email.split("@")[0],
     ...(githubLogin ? { githubLogin } : {}),
-  };
+  });
 
   const byIdentity = await prisma.user.findUnique({ where: { githubId } });
   if (byIdentity) {
-    await prisma.user.update({ where: { id: byIdentity.id }, data: tokenFields });
+    await prisma.user.update({
+      where: { id: byIdentity.id },
+      data: tokenFieldsFor(user.email ?? placeholderEmail),
+    });
     user.id = byIdentity.id;
     return true;
   }
+
+  const email =
+    user.email && (await isGithubEmailVerified(account.access_token, user.email))
+      ? user.email
+      : placeholderEmail;
+  const tokenFields = tokenFieldsFor(email);
 
   const byEmail = await prisma.user.findUnique({ where: { email } });
   if (byEmail) {
