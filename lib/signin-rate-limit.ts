@@ -4,7 +4,7 @@ import { isIP } from "node:net";
 /**
  * Failure limiter for the credentials sign-in (`authorize` in lib/auth.ts).
  *
- * Failed attempts are counted per normalized email and per client address in a
+ * Failed attempts are counted per submitted email (the exact string) and per client address in a
  * fixed window that starts at the first attempt of a key. Once a key has
  * reached its limit, every further attempt on it is refused until the window
  * has passed, without a database read or a bcrypt run. An attempt is counted

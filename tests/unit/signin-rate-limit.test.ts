@@ -199,7 +199,41 @@ describe("bounded memory", () => {
     }
     expect(consumeSignInAttempt("n-last@x.com", "9.9.9.9", 0)).toBe(false);
   });
+
+  it("a locked address survives an address-map full of locked addresses, and a new one goes untracked", () => {
+    const fill = (address: string, attempts: number) => {
+      for (let j = 0; j < attempts; j++) {
+        consumeSignInAttempt("same@x.com", address, 0);
+        resetEmail();
+      }
+    };
+    fill("8.8.8.8", ADDRESS_MAX_FAILURES);
+    for (let i = 0; i < MAX_TRACKED_KEYS - 1; i++) fill(addr(i), ADDRESS_MAX_FAILURES);
+    expect(trackedKeyCounts().addresses).toBe(MAX_TRACKED_KEYS);
+    // Every entry is at its limit: the new address is not tracked, nothing is evicted.
+    expect(consumeSignInAttempt("other@x.com", "9.9.9.9", 1)).toBe(true);
+    expect(trackedKeyCounts().addresses).toBe(MAX_TRACKED_KEYS);
+    expect(consumeSignInAttempt("again@x.com", "8.8.8.8", 1)).toBe(false);
+  });
+
+  it("an address below its limit can be evicted, so a new address is tracked and limited", () => {
+    // Entries at 10 attempts are below the address limit (30) and evictable.
+    for (let i = 0; i < MAX_TRACKED_KEYS; i++) {
+      for (let j = 0; j < 10; j++) {
+        consumeSignInAttempt("same@x.com", addr(i), 0);
+        resetEmail();
+      }
+    }
+    for (let i = 0; i < ADDRESS_MAX_FAILURES; i++) {
+      expect(consumeSignInAttempt(`m${i}@x.com`, "9.9.9.9", 0)).toBe(true);
+    }
+    expect(consumeSignInAttempt("m-last@x.com", "9.9.9.9", 0)).toBe(false);
+  });
 });
+
+function addr(i: number): string {
+  return `10.${i >> 16}.${(i >> 8) & 255}.${i & 255}`;
+}
 
 function resetEmail() {
   releaseSignInAttempt("same@x.com", null, 0);
