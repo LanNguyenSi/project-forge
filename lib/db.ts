@@ -76,7 +76,10 @@ export async function reserveUsage(
       OR: [{ repoUrl: { not: null } }, { createdAt: { gte: new Date(now - RESERVATION_TTL_MS) } }],
     },
   });
-  return { allowed: false, used };
+  // The insert was refused because the limit was reached; a request that
+  // released its slot in between can make the fresh count read lower, so the
+  // reported number never drops below the limit.
+  return { allowed: false, used: Math.max(used, RATE_LIMIT_PER_DAY) };
 }
 
 /** Turns a reservation into the normal usage row of the published repo. */

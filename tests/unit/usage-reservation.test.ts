@@ -38,6 +38,8 @@ beforeAll(async () => {
     cwd: ROOT,
     env: { ...process.env, DATABASE_URL: url },
     stdio: "pipe",
+    timeout: 60_000,
+    killSignal: "SIGKILL",
   });
   clients = [newClient(url), newClient(url), newClient(url)];
   db = clients[0];
@@ -126,6 +128,60 @@ describe("reserveUsage: quota boundary", () => {
     await addRows(a.userId, a.tokenId, RATE_LIMIT_PER_DAY);
     expect((await reserveUsage(a.userId, a.tokenId, db)).allowed).toBe(false);
     expect((await reserveUsage(b.userId, b.tokenId, db)).allowed).toBe(true);
+  });
+});
+
+describe("reserveUsage: the reported count on refusal", () => {
+  it("is the number of rows at the limit", async () => {
+    const { userId, tokenId } = await seed();
+    await addRows(userId, tokenId, RATE_LIMIT_PER_DAY);
+    expect(await reserveUsage(userId, tokenId, db)).toEqual({ allowed: false, used: RATE_LIMIT_PER_DAY });
+  });
+
+  it("is the real count when the user is already over the limit", async () => {
+    const { userId, tokenId } = await seed();
+    await addRows(userId, tokenId, RATE_LIMIT_PER_DAY + 5);
+    expect(await reserveUsage(userId, tokenId, db)).toEqual({ allowed: false, used: RATE_LIMIT_PER_DAY + 5 });
+  });
+
+  it("leaves out rows older than 24 hours", async () => {
+    const { userId, tokenId } = await seed();
+    await addRows(userId, tokenId, RATE_LIMIT_PER_DAY);
+    await addRows(userId, tokenId, 4, { createdAt: new Date(Date.now() - 25 * HOUR) });
+    expect(await reserveUsage(userId, tokenId, db)).toEqual({ allowed: false, used: RATE_LIMIT_PER_DAY });
+  });
+
+  it("leaves out reservations older than the reservation TTL", async () => {
+    const { userId, tokenId } = await seed();
+    await addRows(userId, tokenId, RATE_LIMIT_PER_DAY);
+    await addRows(userId, tokenId, 4, {
+      repoUrl: null,
+      createdAt: new Date(Date.now() - RESERVATION_TTL_MS - 60_000),
+    });
+    expect(await reserveUsage(userId, tokenId, db)).toEqual({ allowed: false, used: RATE_LIMIT_PER_DAY });
+  });
+
+  it("counts fresh reservations next to finished rows", async () => {
+    const { userId, tokenId } = await seed();
+    await addRows(userId, tokenId, RATE_LIMIT_PER_DAY);
+    await addRows(userId, tokenId, 3, { repoUrl: null });
+    expect(await reserveUsage(userId, tokenId, db)).toEqual({ allowed: false, used: RATE_LIMIT_PER_DAY + 3 });
+  });
+
+  it("leaves out other users' rows", async () => {
+    const a = await seed();
+    const b = await seed();
+    await addRows(a.userId, a.tokenId, RATE_LIMIT_PER_DAY);
+    await addRows(b.userId, b.tokenId, 5);
+    expect(await reserveUsage(a.userId, a.tokenId, db)).toEqual({ allowed: false, used: RATE_LIMIT_PER_DAY });
+  });
+
+  it("never reports less than the limit when a slot was released between the refusal and the count", async () => {
+    const racing = {
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      usageLog: { count: vi.fn().mockResolvedValue(RATE_LIMIT_PER_DAY - 1) },
+    } as unknown as Parameters<typeof reserveUsage>[2];
+    expect(await reserveUsage("u", "t", racing)).toEqual({ allowed: false, used: RATE_LIMIT_PER_DAY });
   });
 });
 
