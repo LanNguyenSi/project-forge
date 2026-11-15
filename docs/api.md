@@ -24,7 +24,10 @@ to `main`. There is no option for a private repository.
 The stored credential is the last one saved by one of these:
 
 - GitHub sign-in: the OAuth token, requested with the scopes `repo`,
-  `workflow`, and `user:email`.
+  `workflow`, and `user:email`. The account is matched by the GitHub account id
+  (stored as `githubId`), never by the email alone: a sign-in whose email
+  belongs to an email/password account, or to an account linked to another
+  GitHub id, is refused and writes no token.
 - Settings: a classic personal access token (prefix `ghp_`). The Settings form
   rejects other token formats, including fine-grained tokens (`github_pat_`).
 - [Broker registration](#broker-registration): the GitHub access token it was
@@ -167,6 +170,6 @@ Errors use the shape `{ ok: false, error: <code>, message }`:
 | 400 | Invalid JSON, missing `githubAccessToken`, or a non-string `githubLogin` |
 | 401 | GitHub token verification failed, or `githubLogin` differs from the verified login |
 | 403 | The login is not in `ALLOWED_GITHUB_LOGINS` (when that variable is set) |
-| 409 | An account with the same email already exists and has no linked GitHub id (an email/password account, or one created by GitHub sign-in on the web UI) |
+| 409 | An account with the same email already exists and has no linked GitHub id (an email/password account, or one created by an older GitHub sign-in on the web UI; web sign-ins now record the id) |
 | 503 | GitHub could not be reached |
 | 500 | Unexpected error during verification |
