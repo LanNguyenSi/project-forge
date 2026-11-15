@@ -669,6 +669,29 @@ describe("GitHub sign-in email verification", () => {
       },
     );
 
+    it.each([
+      ["a primary without verified", [{ email: "main@example.com", primary: true }]],
+      ["a primary with verified as a string", [{ email: "main@example.com", primary: true, verified: "true" }]],
+      ["a verified entry without primary", [{ email: "main@example.com", verified: true }]],
+    ])("uses the placeholder for %s", async (_name, emails) => {
+      const { result } = await githubSignIn({ id: "1001", email: null, emails: emails as unknown as EmailsAnswer });
+
+      expect(result).toBe(true);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
+    });
+
+    it("skips a non-object entry and still finds the verified primary", async () => {
+      const { result } = await githubSignIn({
+        id: "1001",
+        email: null,
+        emails: [null, { email: "main@example.com", primary: true, verified: true }] as unknown as EmailsAnswer,
+      });
+
+      expect(result).toBe(true);
+      expect(rows[0]).toMatchObject({ email: "main@example.com", githubId: "1001" });
+    });
+
     it("creates the user under the verified primary address GitHub lists", async () => {
       const { result } = await githubSignIn({
         id: "1001",
