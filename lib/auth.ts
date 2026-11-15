@@ -2,7 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
-import { isGithubEmailVerified } from "./github-verified-email";
+import { githubEmailStatus } from "./github-verified-email";
 import bcrypt from "bcryptjs";
 
 // Where a refused GitHub sign-in lands. The login page maps this code to a
@@ -27,12 +27,18 @@ function isUniqueViolation(error: unknown): boolean {
  *      email is not looked at and GitHub is not asked about it.
  *   2. No such row: the email GitHub reports is only used if GitHub says the
  *      account owns it as a verified address (`GET /user/emails`, see
- *      `isGithubEmailVerified`; the NextAuth GitHub provider fills
- *      `user.email` without checking `verified`). If it is not verified, if
- *      the lookup fails (network error, non-200, bad body) or if GitHub gave
- *      no email, the placeholder `github-<id>@noreply` stands in for it, so
- *      an unverified or failed lookup never claims, collides with or refuses
- *      on a real person's row. Then the row with that email, if any:
+ *      `githubEmailStatus`; the NextAuth GitHub provider fills `user.email`
+ *      without checking `verified`). Three answers:
+ *      - verified: the email is used;
+ *      - unverified (GitHub answered and the address is not verified) or no
+ *        email at all: the placeholder `github-<id>@noreply` stands in for it,
+ *        so an unverified address never claims, collides with or refuses on a
+ *        real person's row;
+ *      - unknown (the lookup failed: network error, timeout, non-200, bad
+ *        body): the sign-in is refused and nothing is written, so a retry can
+ *        still claim the legacy row. A placeholder row would bind the githubId
+ *        to a new account for good.
+ *      Then the row with the resulting email, if any:
  *      - it has a passwordHash (a local account) or another githubId: refused,
  *        the row is not touched and no token is written;
  *      - it has neither (a row an earlier GitHub-only sign-in created, before
@@ -51,9 +57,13 @@ async function signInWithGithub(
   const placeholderEmail = `github-${githubId}@noreply`;
   const login = (profile as { login?: unknown } | null | undefined)?.login;
   const githubLogin = typeof login === "string" && login ? login : undefined;
+  // The GitHub login is the owner name; an email local part is only a last
+  // resort for a new row, and an existing identity row keeps its owner unless
+  // a login says otherwise, so the value does not flip between sign-ins.
+  const ownerFromLogin = (user as { login?: string }).login ?? githubLogin;
   const tokenFieldsFor = (email: string) => ({
     githubPat: account.access_token,
-    githubOwner: (user as { login?: string }).login ?? email.split("@")[0],
+    githubOwner: ownerFromLogin ?? email.split("@")[0],
     ...(githubLogin ? { githubLogin } : {}),
   });
 
@@ -61,16 +71,23 @@ async function signInWithGithub(
   if (byIdentity) {
     await prisma.user.update({
       where: { id: byIdentity.id },
-      data: tokenFieldsFor(user.email ?? placeholderEmail),
+      data: {
+        githubPat: account.access_token,
+        ...(ownerFromLogin ? { githubOwner: ownerFromLogin } : {}),
+        ...(githubLogin ? { githubLogin } : {}),
+      },
     });
     user.id = byIdentity.id;
     return true;
   }
 
-  const email =
-    user.email && (await isGithubEmailVerified(account.access_token, user.email))
-      ? user.email
-      : placeholderEmail;
+  let email = placeholderEmail;
+  if (user.email) {
+    const status = await githubEmailStatus(account.access_token, user.email);
+    // Could not ask GitHub: write nothing, a retry decides.
+    if (status === "unknown") return GITHUB_SIGN_IN_REFUSED;
+    if (status === "verified") email = user.email;
+  }
   const tokenFields = tokenFieldsFor(email);
 
   const byEmail = await prisma.user.findUnique({ where: { email } });
