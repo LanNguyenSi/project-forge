@@ -81,6 +81,8 @@ vi.mock("@/lib/db", () => ({ prisma: { user: store.user } }));
 import { authOptions } from "@/lib/auth";
 
 const REFUSED = "/login?error=OAuthAccountNotLinked";
+// GitHub could not be asked: nothing was written, the user retries.
+const FAILED = "/login?error=Callback";
 
 function row(over: Partial<Row>): Row {
   const r: Row = {
@@ -542,7 +544,7 @@ describe("GitHub sign-in email verification", () => {
 
       const failed = await githubSignIn({ id: "1001", email: LEGACY, token: TOKEN, emails: emails as EmailsAnswer });
 
-      expect(failed.result).toBe(REFUSED);
+      expect(failed.result).toBe(FAILED);
       expect(failed.user.id).toBe("1001");
       expect(rows).toEqual([before]);
       expect(store.user.create).not.toHaveBeenCalled();
@@ -564,7 +566,7 @@ describe("GitHub sign-in email verification", () => {
 
     const failed = await githubSignIn({ id: "1001", email: "new@example.com", emails: { status: 503 } });
 
-    expect(failed.result).toBe(REFUSED);
+    expect(failed.result).toBe(FAILED);
     expect(rows).toHaveLength(0);
     expect(store.user.create).not.toHaveBeenCalled();
 
@@ -575,22 +577,29 @@ describe("GitHub sign-in email verification", () => {
     expect(rows[0]).toMatchObject({ email: "new@example.com", githubId: "1001" });
   });
 
-  it("refuses when the sign-in carries no access token (GitHub cannot be asked)", async () => {
+  it.each([
+    ["an email", LEGACY],
+    ["no email", null],
+  ] as const)("fails when the sign-in carries no access token and %s was reported (GitHub cannot be asked)", async (_name, email) => {
     const legacy = row({ id: "legacy", email: LEGACY });
     const before = { ...legacy };
 
-    const { result } = await githubSignIn({ id: "1001", email: LEGACY, token: null });
+    const { result } = await githubSignIn({ id: "1001", email, token: null });
 
-    expect(result).toBe(REFUSED);
+    expect(result).toBe(FAILED);
     expect(rows).toEqual([before]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("gives the lookup an abort signal that has not fired", async () => {
+  it("gives the lookup the 5 second timeout signal", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+
     await githubSignIn({ id: "1001", email: "new@example.com" });
 
+    expect(timeout).toHaveBeenCalledTimes(1);
+    expect(timeout).toHaveBeenCalledWith(5000);
     const init = (fetchMock.mock.calls[0] as [string, RequestInit])[1];
-    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal).toBe(timeout.mock.results[0].value);
     expect(init.signal!.aborted).toBe(false);
   });
 
@@ -604,9 +613,11 @@ describe("GitHub sign-in email verification", () => {
       VERIFIED_LIST,
     ];
 
-    for (const emails of outcomes) {
-      store.reset();
-      await githubSignIn({ id: "1001", email: LEGACY, token: TOKEN, emails });
+    for (const email of [LEGACY, null]) {
+      for (const emails of outcomes) {
+        store.reset();
+        await githubSignIn({ id: "1001", email, token: TOKEN, emails });
+      }
     }
 
     const logged = JSON.stringify(channels.flatMap((spy) => spy.mock.calls));
@@ -631,12 +642,93 @@ describe("GitHub sign-in email verification", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("does not ask GitHub when it reported no email (placeholder path)", async () => {
-    const { result } = await githubSignIn({ id: "1001", email: null });
+  describe("when the provider reported no email", () => {
+    // next-auth leaves user.email empty when its own /user/emails call failed
+    // or the account has no public address, so GitHub is asked again here.
+    it.each(UNKNOWN_ANSWERS)(
+      "fails and writes nothing when the lookup gives %s; a healthy retry claims the legacy row by the verified primary address",
+      async (_name, emails) => {
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        const legacy = row({ id: "legacy", email: LEGACY, githubPat: "gho_old" });
+        const before = { ...legacy };
 
-    expect(result).toBe(true);
-    expect(rows[0].email).toBe("github-1001@noreply");
-    expect(fetchMock).not.toHaveBeenCalled();
+        const failed = await githubSignIn({ id: "1001", email: null, token: TOKEN, emails: emails as EmailsAnswer });
+
+        expect(failed.result).toBe(FAILED);
+        expect(rows).toEqual([before]);
+        expect(store.user.create).not.toHaveBeenCalled();
+        expect(store.user.update).not.toHaveBeenCalled();
+        expect(store.user.updateMany).not.toHaveBeenCalled();
+
+        const retry = await githubSignIn({ id: "1001", email: null, token: "gho_retry", emails: VERIFIED_LIST });
+
+        expect(retry.result).toBe(true);
+        expect(retry.user.id).toBe("legacy");
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ githubId: "1001", githubPat: "gho_retry" });
+      },
+    );
+
+    it("creates the user under the verified primary address GitHub lists", async () => {
+      const { result } = await githubSignIn({
+        id: "1001",
+        email: null,
+        emails: [
+          { email: "second@example.com", primary: false, verified: true },
+          { email: "main@example.com", primary: true, verified: true },
+        ],
+      });
+
+      expect(result).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ email: "main@example.com", githubId: "1001" });
+    });
+
+    it("still refuses a password account that owns the verified primary address", async () => {
+      const victim = row({ id: "v", email: "main@example.com", passwordHash: "hash" });
+      const before = { ...victim };
+
+      const { result } = await githubSignIn({
+        id: "1001",
+        email: null,
+        emails: [{ email: "main@example.com", primary: true, verified: true }],
+      });
+
+      expect(result).toBe(REFUSED);
+      expect(rows).toEqual([before]);
+    });
+
+    it.each([
+      ["an empty list", []],
+      ["an unverified primary address", [{ email: LEGACY, primary: true, verified: false }]],
+      ["only a verified address that is not primary", [{ email: LEGACY, primary: false, verified: true }]],
+    ] as const)("uses the placeholder for a definite answer with no verified primary address: %s", async (_name, emails) => {
+      const legacy = row({ id: "legacy", email: LEGACY });
+      const before = { ...legacy };
+
+      const { result } = await githubSignIn({ id: "1001", email: null, emails: emails as never });
+
+      expect(result).toBe(true);
+      expect(rows[0]).toEqual(before);
+      expect(rows[1]).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
+    });
+  });
+
+  it.each([
+    ["an unverified email", LEGACY, UNVERIFIED],
+    ["no email", null, []],
+  ] as const)("refuses a password-protected placeholder row untouched for %s", async (_name, email, emails) => {
+    const placeholder = row({ id: "p", email: "github-1001@noreply", passwordHash: "hash", githubPat: "ghp_manual" });
+    const before = { ...placeholder };
+
+    const { result, user } = await githubSignIn({ id: "1001", email, emails: emails as never });
+
+    expect(result).toBe(REFUSED);
+    expect(rows).toEqual([before]);
+    expect(user.id).toBe("1001");
+    expect(store.user.updateMany).not.toHaveBeenCalled();
+    expect(store.user.create).not.toHaveBeenCalled();
   });
 
   it("asks GitHub for the email list with the account's token and nothing else on the URL", async () => {

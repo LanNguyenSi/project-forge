@@ -1,34 +1,20 @@
 const GITHUB_EMAILS_URL = "https://api.github.com/user/emails";
 const LOOKUP_TIMEOUT_MS = 5000;
 
-/**
- * What GitHub says about an email address of a signed-in account:
- *  - `verified`: `GET /user/emails` lists the address with `verified: true`;
- *  - `unverified`: GitHub answered and the address is not listed as verified
- *    (not listed at all, or listed with `verified` other than `true`);
- *  - `unknown`: GitHub could not be asked or did not give a usable answer (no
- *    token, network error, timeout, any status but 200, a body that is not
- *    JSON or not a list). A retry may give another result.
- */
-export type GithubEmailStatus = "verified" | "unverified" | "unknown";
+type EmailEntry = { email?: unknown; verified?: unknown; primary?: unknown };
 
 /**
- * Looks `email` up in the address list of the account that owns `accessToken`
- * (`GET /user/emails`, needs the `user:email` scope).
- *
- * Any verified address counts, primary or not: what matters is that the
- * account holder proved they control it, and a verified secondary address
- * proves that as well as the primary one. The comparison ignores case on both
- * sides.
+ * Fetches the address list of the account that owns `accessToken`
+ * (`GET /user/emails`, needs the `user:email` scope). Returns the list, or
+ * `null` when GitHub could not be asked or gave no usable answer: no token,
+ * network error, timeout, any status but 200, a body that is not JSON or not a
+ * list. A retry may give another result.
  *
  * The token and the response body are never logged or returned; the only
  * thing logged is a fixed message and, for a non-200 answer, its HTTP status.
  */
-export async function githubEmailStatus(
-  accessToken: string | undefined,
-  email: string,
-): Promise<GithubEmailStatus> {
-  if (!accessToken || !email) return "unknown";
+async function fetchEmailList(accessToken: string | undefined): Promise<EmailEntry[] | null> {
+  if (!accessToken) return null;
   let response: Response;
   try {
     response = await fetch(GITHUB_EMAILS_URL, {
@@ -41,31 +27,79 @@ export async function githubEmailStatus(
     });
   } catch {
     console.warn("GitHub email verification failed: request did not complete");
-    return "unknown";
+    return null;
   }
   if (response.status !== 200) {
     console.warn(`GitHub email verification failed: HTTP ${response.status}`);
-    return "unknown";
+    return null;
   }
   let body: unknown;
   try {
     body = await response.json();
   } catch {
     console.warn("GitHub email verification failed: unreadable response");
-    return "unknown";
+    return null;
   }
   if (!Array.isArray(body)) {
     console.warn("GitHub email verification failed: unexpected response");
-    return "unknown";
+    return null;
   }
+  return body.map((entry) => (entry && typeof entry === "object" ? (entry as EmailEntry) : {}));
+}
+
+/**
+ * What GitHub says about an email address of a signed-in account:
+ *  - `verified`: the address is listed with `verified: true`;
+ *  - `unverified`: GitHub answered and the address is not listed as verified
+ *    (not listed at all, or listed with `verified` other than `true`);
+ *  - `unknown`: GitHub could not be asked or gave no usable answer.
+ */
+export type GithubEmailStatus = "verified" | "unverified" | "unknown";
+
+/**
+ * Looks `email` up in the account's address list.
+ *
+ * Any verified address counts, primary or not: what matters is that the
+ * account holder proved they control it, and a verified secondary address
+ * proves that as well as the primary one. The comparison ignores case on both
+ * sides.
+ */
+export async function githubEmailStatus(
+  accessToken: string | undefined,
+  email: string,
+): Promise<GithubEmailStatus> {
+  if (!email) return "unknown";
+  const list = await fetchEmailList(accessToken);
+  if (!list) return "unknown";
   const wanted = email.toLowerCase();
-  const verified = body.some((entry) => {
-    const item = entry as { email?: unknown; verified?: unknown } | null;
-    return (
-      typeof item?.email === "string" &&
-      item.email.toLowerCase() === wanted &&
-      item.verified === true
-    );
-  });
+  const verified = list.some(
+    (item) =>
+      typeof item.email === "string" && item.email.toLowerCase() === wanted && item.verified === true,
+  );
   return verified ? "verified" : "unverified";
+}
+
+/**
+ * The account's own primary address, for a sign-in where the provider
+ * reported no email (its own `/user/emails` call may have failed):
+ *  - `found`: an address listed with `primary: true` and `verified: true`
+ *    (the primary one only; a verified secondary address is not picked,
+ *    because choosing among several would be a guess);
+ *  - `none`: GitHub answered and the account has no verified primary address;
+ *  - `unknown`: GitHub could not be asked or gave no usable answer.
+ */
+export type GithubPrimaryEmail =
+  | { status: "found"; email: string }
+  | { status: "none" }
+  | { status: "unknown" };
+
+export async function githubPrimaryVerifiedEmail(
+  accessToken: string | undefined,
+): Promise<GithubPrimaryEmail> {
+  const list = await fetchEmailList(accessToken);
+  if (!list) return { status: "unknown" };
+  const primary = list.find(
+    (item) => typeof item.email === "string" && item.email && item.primary === true && item.verified === true,
+  );
+  return primary ? { status: "found", email: primary.email as string } : { status: "none" };
 }

@@ -2,7 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
-import { githubEmailStatus } from "./github-verified-email";
+import { githubEmailStatus, githubPrimaryVerifiedEmail } from "./github-verified-email";
 import bcrypt from "bcryptjs";
 
 // Where a refused GitHub sign-in lands. The login page maps this code to a
@@ -10,8 +10,36 @@ import bcrypt from "bcryptjs";
 // reason for the refusal is never put in the URL.
 const GITHUB_SIGN_IN_REFUSED = "/login?error=OAuthAccountNotLinked";
 
+// Where a GitHub sign-in lands when GitHub could not be asked about the email
+// (the login page maps this code to "Sign-in failed ... Please try again").
+// Nothing was written, so the retry decides.
+const GITHUB_SIGN_IN_FAILED = "/login?error=Callback";
+
 function isUniqueViolation(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === "P2002";
+}
+
+/**
+ * The email a new or claimed row is keyed on, or null when GitHub could not be
+ * asked. Every row that is created or claimed goes through this: a non-null
+ * result is an address GitHub lists as verified for the account, or the
+ * placeholder, and the placeholder is returned only after GitHub gave a
+ * definite answer (the reported address is not verified, or the account has no
+ * verified primary address). An inconclusive lookup is always null.
+ */
+async function resolveGithubEmail(
+  reported: string | null | undefined,
+  accessToken: string | undefined,
+  placeholder: string,
+): Promise<string | null> {
+  if (reported) {
+    const status = await githubEmailStatus(accessToken, reported);
+    if (status === "unknown") return null;
+    return status === "verified" ? reported : placeholder;
+  }
+  const primary = await githubPrimaryVerifiedEmail(accessToken);
+  if (primary.status === "unknown") return null;
+  return primary.status === "found" ? primary.email : placeholder;
 }
 
 /**
@@ -25,19 +53,23 @@ function isUniqueViolation(error: unknown): boolean {
  * row. Matching rules, in order:
  *   1. A row with this githubId: that is the account. Token refreshed. The
  *      email is not looked at and GitHub is not asked about it.
- *   2. No such row: the email GitHub reports is only used if GitHub says the
- *      account owns it as a verified address (`GET /user/emails`, see
- *      `githubEmailStatus`; the NextAuth GitHub provider fills `user.email`
- *      without checking `verified`). Three answers:
- *      - verified: the email is used;
- *      - unverified (GitHub answered and the address is not verified) or no
- *        email at all: the placeholder `github-<id>@noreply` stands in for it,
- *        so an unverified address never claims, collides with or refuses on a
- *        real person's row;
- *      - unknown (the lookup failed: network error, timeout, non-200, bad
- *        body): the sign-in is refused and nothing is written, so a retry can
- *        still claim the legacy row. A placeholder row would bind the githubId
- *        to a new account for good.
+ *   2. No such row: the email the row is keyed on comes from
+ *      `resolveGithubEmail`, which only trusts what GitHub itself lists for the
+ *      account (`GET /user/emails`; the NextAuth GitHub provider fills
+ *      `user.email` without checking `verified`, and leaves it empty when its
+ *      own call failed). Three outcomes:
+ *      - a verified address: the reported email if GitHub lists it as
+ *        verified, or, when none was reported, the account's verified primary
+ *        address;
+ *      - a definite "no verified address" (the reported email is not verified,
+ *        or the account has no verified primary address): the placeholder
+ *        `github-<id>@noreply`, so an unverified address never claims,
+ *        collides with or refuses on a real person's row;
+ *      - unknown (the lookup could not be completed: no token, network error,
+ *        timeout, non-200, bad body): the sign-in fails with
+ *        GITHUB_SIGN_IN_FAILED and nothing is written, so a retry can still
+ *        claim the legacy row. A placeholder row would bind the githubId to a
+ *        new account for good.
  *      Then the row with the resulting email, if any:
  *      - it has a passwordHash (a local account) or another githubId: refused,
  *        the row is not touched and no token is written;
@@ -81,13 +113,9 @@ async function signInWithGithub(
     return true;
   }
 
-  let email = placeholderEmail;
-  if (user.email) {
-    const status = await githubEmailStatus(account.access_token, user.email);
-    // Could not ask GitHub: write nothing, a retry decides.
-    if (status === "unknown") return GITHUB_SIGN_IN_REFUSED;
-    if (status === "verified") email = user.email;
-  }
+  const email = await resolveGithubEmail(user.email, account.access_token, placeholderEmail);
+  // Could not ask GitHub: write nothing, a retry decides.
+  if (email === null) return GITHUB_SIGN_IN_FAILED;
   const tokenFields = tokenFieldsFor(email);
 
   const byEmail = await prisma.user.findUnique({ where: { email } });
