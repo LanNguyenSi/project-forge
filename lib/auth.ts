@@ -4,6 +4,93 @@ import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
 import bcrypt from "bcryptjs";
 
+// Where a refused GitHub sign-in lands. The login page maps this code to a
+// fixed message ("already registered with a different sign-in method"); the
+// reason for the refusal is never put in the URL.
+const GITHUB_SIGN_IN_REFUSED = "/login?error=OAuthAccountNotLinked";
+
+function isUniqueViolation(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === "P2002";
+}
+
+/**
+ * GitHub sign-in: find the local user for this GitHub identity and store the
+ * OAuth token on it. Returns true to let the sign-in continue, or the redirect
+ * target of a refusal.
+ *
+ * The identity is the stable GitHub account id (`account.providerAccountId`,
+ * stored in `User.githubId`), never the email alone: `POST /api/auth/register`
+ * does not verify the email, so an email match says nothing about who owns the
+ * row. Matching rules, in order:
+ *   1. A row with this githubId: that is the account. Token refreshed.
+ *   2. No such row, but a row with this email:
+ *      - it has a passwordHash (a local account) or another githubId: refused,
+ *        the row is not touched and no token is written;
+ *      - it has neither (a row an earlier GitHub-only sign-in created, before
+ *        githubId was recorded here): claimed, githubId is set. Such a row can
+ *        only come from the GitHub sign-in itself, because registration always
+ *        sets a password.
+ *   3. Neither: a new row is created with the identity.
+ */
+async function signInWithGithub(
+  user: { id: string; email?: string | null },
+  account: { providerAccountId: string; access_token?: string },
+  profile: unknown,
+): Promise<true | string> {
+  const githubId = String(account.providerAccountId);
+  const email = user.email ?? `github-${githubId}@noreply`;
+  const githubUsername = (user as { login?: string }).login ?? email.split("@")[0];
+  const login = (profile as { login?: unknown } | null | undefined)?.login;
+  const githubLogin = typeof login === "string" && login ? login : undefined;
+  const tokenFields = {
+    githubPat: account.access_token,
+    githubOwner: githubUsername,
+    ...(githubLogin ? { githubLogin } : {}),
+  };
+
+  const byIdentity = await prisma.user.findUnique({ where: { githubId } });
+  if (byIdentity) {
+    await prisma.user.update({ where: { id: byIdentity.id }, data: tokenFields });
+    user.id = byIdentity.id;
+    return true;
+  }
+
+  const byEmail = await prisma.user.findUnique({ where: { email } });
+  if (byEmail) {
+    if (byEmail.passwordHash || byEmail.githubId) return GITHUB_SIGN_IN_REFUSED;
+    // Conditional write: the row must still be unlinked and password-less when
+    // it is claimed, so a change between the read and the write cannot hand
+    // the token to a different kind of account.
+    const claimed = await prisma.user.updateMany({
+      where: { id: byEmail.id, githubId: null, passwordHash: null },
+      data: { githubId, ...tokenFields },
+    });
+    if (claimed.count !== 1) return GITHUB_SIGN_IN_REFUSED;
+    user.id = byEmail.id;
+    return true;
+  }
+
+  try {
+    const created = await prisma.user.create({
+      data: {
+        email,
+        // OAuth users have no local password. passwordHash stays null so
+        // the Credentials provider's `!user.passwordHash` guard can
+        // reject them cleanly without a sentinel-string collision.
+        passwordHash: null,
+        githubId,
+        ...tokenFields,
+      },
+    });
+    user.id = created.id;
+    return true;
+  } catch (error) {
+    // A concurrent sign-in created the row first; refuse, the retry matches it.
+    if (isUniqueViolation(error)) return GITHUB_SIGN_IN_REFUSED;
+    throw error;
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GitHubProvider({
@@ -36,32 +123,9 @@ export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   callbacks: {
-    async signIn({ user, account }) {
+    async signIn({ user, account, profile }) {
       if (account?.provider === "github") {
-        // Upsert user with GitHub OAuth token
-        const email = user.email ?? `github-${account.providerAccountId}@noreply`;
-        const githubUsername = (user as { login?: string }).login ?? 
-          email.split("@")[0];
-        
-        await prisma.user.upsert({
-          where: { email },
-          update: {
-            githubPat: account.access_token,
-            githubOwner: githubUsername,
-          },
-          create: {
-            email,
-            // OAuth users have no local password. passwordHash stays null so
-            // the Credentials provider's `!user.passwordHash` guard can
-            // reject them cleanly without a sentinel-string collision.
-            passwordHash: null,
-            githubPat: account.access_token,
-            githubOwner: githubUsername,
-          },
-        });
-        // Set user.id for JWT
-        const dbUser = await prisma.user.findUnique({ where: { email } });
-        if (dbUser) user.id = dbUser.id;
+        return signInWithGithub(user, account, profile);
       }
       return true;
     },
