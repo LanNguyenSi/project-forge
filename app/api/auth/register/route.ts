@@ -26,6 +26,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Placeholder addresses like `github-<id>@noreply` are reserved for the
+    // GitHub sign-in (lib/auth.ts). Registering one first would lock that
+    // sign-in out, so refuse them here. The domain check is after trimming
+    // and case-insensitive, and covers any domain ending in `noreply`.
+    const trimmedEmail = email.trim();
+    const at = trimmedEmail.indexOf("@");
+    const domain = at === -1 ? "" : trimmedEmail.slice(at + 1).toLowerCase();
+    if (domain.endsWith("noreply")) {
+      return NextResponse.json(
+        { ok: false, error: "This email address cannot be used for registration" },
+        { status: 400 }
+      );
+    }
+
     // Check if user already exists
     const existing = await prisma.user.findUnique({
       where: { email },
