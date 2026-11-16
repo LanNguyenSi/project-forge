@@ -39,7 +39,8 @@ vi.mock("@/lib/post-scaffold-review", () => ({
   runPostScaffoldReview: vi.fn().mockResolvedValue({}),
 }));
 
-import { validateApiToken, reserveUsage, confirmUsage, releaseUsage, GITHUB_REPO_CREATE_TIMEOUT_MS } from "@/lib/db";
+import { validateApiToken, reserveUsage, confirmUsage, releaseUsage, GITHUB_REPO_CREATE_TIMEOUT_MS, GENERATION_TIMEOUT_MS, GIT_COMMAND_TIMEOUT_MS, GIT_PUSH_TIMEOUT_MS, GIT_COMMANDS_AT_DEFAULT_TIMEOUT } from "@/lib/db";
+import { runCommand } from "@/lib/subprocess";
 import { runPlanforgeViaHttp } from "@/lib/planforge-client";
 import { POST as publishPOST } from "@/app/api/v1/publish/route";
 import { POST as projectsPOST, GET as projectsGET } from "@/app/api/v1/projects/route";
@@ -307,6 +308,63 @@ describe("timeout bounds on the GitHub repo-create fetch", () => {
     expect(mConfirm).not.toHaveBeenCalled();
     expect(mRelease).toHaveBeenCalledTimes(1);
     expect(mRelease).toHaveBeenCalledWith("res-1");
+  });
+});
+
+/**
+ * The routes must USE the named bounds, not just have them exported: the
+ * worst-case sum of lib/db.ts is only true while every git call of a route
+ * runs at one of the two named timeouts and the planforge call at
+ * GENERATION_TIMEOUT_MS. `runCommand` is mocked here, so its recorded
+ * options are the timeouts the route actually passed.
+ */
+function gitTimeouts(): { defaults: number[]; pushes: number[] } {
+  const defaults: number[] = [];
+  const pushes: number[] = [];
+  for (const call of vi.mocked(runCommand).mock.calls) {
+    const [cmd, args, options] = call as unknown as [string, string[], { timeoutMs?: number }];
+    expect(cmd).toBe("git");
+    (args[0] === "push" ? pushes : defaults).push(options.timeoutMs as number);
+  }
+  return { defaults, pushes };
+}
+
+function expectNamedGitTimeouts() {
+  const { defaults, pushes } = gitTimeouts();
+  // One push per route, everything else at the default bound, and the count
+  // is the constant the worst-case sum multiplies by GIT_COMMAND_TIMEOUT_MS,
+  // so a new git step in a route fails here instead of drifting from the sum.
+  expect(pushes).toEqual([GIT_PUSH_TIMEOUT_MS]);
+  expect(defaults).toEqual(new Array(GIT_COMMANDS_AT_DEFAULT_TIMEOUT).fill(GIT_COMMAND_TIMEOUT_MS));
+}
+
+describe("timeout bounds on the git calls and the planforge call", () => {
+  const createBody = { projectName: "demo", summary: "A demo project" };
+
+  it("POST /api/v1/projects: every git call runs at a named bound (push at GIT_PUSH_TIMEOUT_MS, GIT_COMMANDS_AT_DEFAULT_TIMEOUT at the default one)", async () => {
+    stubGithub(201, githubOk);
+    const res = await projectsPOST(post("http://test/api/v1/projects", createBody));
+    expect(res.status).toBe(200);
+    expectNamedGitTimeouts();
+  });
+
+  it("POST /api/v1/publish: every git call runs at a named bound (push at GIT_PUSH_TIMEOUT_MS, GIT_COMMANDS_AT_DEFAULT_TIMEOUT at the default one)", async () => {
+    await session();
+    stubGithub(201, githubOk);
+    const res = await publishPOST(post("http://test/api/v1/publish", { sessionId: SESSION_ID }));
+    expect(res.status).toBe(200);
+    expectNamedGitTimeouts();
+  });
+
+  it("POST /api/v1/projects: the planforge call gets timeoutMs: GENERATION_TIMEOUT_MS", async () => {
+    stubGithub(201, githubOk);
+    const res = await projectsPOST(post("http://test/api/v1/projects", createBody));
+    expect(res.status).toBe(200);
+    expect(runPlanforgeViaHttp).toHaveBeenCalledTimes(1);
+    const [options] = vi.mocked(runPlanforgeViaHttp).mock.calls[0] as unknown as [
+      { timeoutMs?: number },
+    ];
+    expect(options.timeoutMs).toBe(GENERATION_TIMEOUT_MS);
   });
 });
 

@@ -26,16 +26,33 @@ export const RESERVATION_TTL_MS = 15 * 60 * 1000;
 // Worst case of the slowest publishing route (POST /api/v1/projects), from
 // reserveUsage() to confirmUsage()/releaseUsage(), as a sum of the named
 // bounds, in milliseconds:
-//   GENERATION_TIMEOUT_MS                             180000  planforge + scaffold HTTP
-//   AI_REQUEST_TIMEOUT_MS * (1 + AI_MAX_RETRIES)       90000  post-scaffold review (lib/ai-provider.ts)
-//   GITHUB_REPO_CREATE_TIMEOUT_MS                      30000  api.github.com repo create
-//   GIT_COMMAND_TIMEOUT_MS * 7 + GIT_PUSH_TIMEOUT_MS  100000  git init..push (7 default + push)
-//   total                                             400000  (~6.7 min)
-// POST /api/v1/publish is the same without the generation step and the AI
-// review (~130000). Against RESERVATION_TTL_MS (900000) the slowest route
-// keeps a margin of 500000 ms (~8.3 min); tests/unit/reservation-window-
-// bounds.test.ts recomputes this sum from the constants themselves and fails
-// if the margin drops below 2 minutes.
+//   GENERATION_TIMEOUT_MS                                   180000  planforge + scaffold HTTP
+//   AI_CALLS_ON_SLOWEST_ROUTE * AI_REQUEST_TIMEOUT_MS
+//     * (1 + AI_MAX_RETRIES)                                 180000  intake enrichment + post-scaffold review (lib/ai-provider.ts)
+//   GITHUB_REPO_CREATE_TIMEOUT_MS                              30000  api.github.com repo create
+//   GIT_COMMAND_TIMEOUT_MS * GIT_COMMANDS_AT_DEFAULT_TIMEOUT
+//     + GIT_PUSH_TIMEOUT_MS                                  100000  git init..push (7 default + push)
+//   total                                                    490000  (~8.2 min)
+// POST /api/v1/publish is the same without the generation step and without
+// either AI call (~130000). Against RESERVATION_TTL_MS (900000) the slowest
+// route keeps a margin of 410000 ms (~6.8 min);
+// tests/unit/reservation-window-bounds.test.ts recomputes this sum from the
+// constants themselves and fails if the margin drops below 2 minutes, and the
+// two counts are pinned to the code:
+// tests/integration/usage-reservation-routes.test.ts for
+// GIT_COMMANDS_AT_DEFAULT_TIMEOUT and
+// tests/integration/projects-route-ai-call-count.test.ts for
+// AI_CALLS_ON_SLOWEST_ROUTE (the margin alone would not notice a count that
+// is too low).
+//
+// What the sum does not count: the OpenAI SDK's retry backoff (before a retry
+// it sleeps, and a `Retry-After` / `retry-after-ms` header can add that much
+// waiting per retry, outside the per-attempt timeout), the request body read,
+// which happens after reserveUsage() and is bounded by the byte caps in
+// lib/limits.ts and the Node server's request timeout rather than by a
+// project timer, and the Prisma and file system calls along the way. The AI
+// term is a bound per attempt up to response headers only, see
+// lib/ai-provider.ts.
 
 // End-to-end cap for plan + scaffold + tar + SSE + untar + git push.
 // Server-side scaffoldkit timeout is 5 min; 3 min here leaves headroom.
@@ -43,6 +60,28 @@ export const GENERATION_TIMEOUT_MS = 3 * 60_000;
 export const GITHUB_REPO_CREATE_TIMEOUT_MS = 30 * 1000;
 export const GIT_COMMAND_TIMEOUT_MS = 10_000;
 export const GIT_PUSH_TIMEOUT_MS = 30_000;
+
+/**
+ * `generateStructuredJson()` calls (lib/ai-provider.ts) a publishing request
+ * can make between reserveUsage() and its release, on the slowest route
+ * (POST /api/v1/projects): the intake enrichment inside `buildPlanforgeInput`
+ * and the post-scaffold review, one each. Both are skipped when no AI
+ * provider is configured; POST /api/v1/publish makes none. Part of the
+ * worst-case sum above; the count is pinned to the code by
+ * tests/integration/projects-route-ai-call-count.test.ts.
+ */
+export const AI_CALLS_ON_SLOWEST_ROUTE = 2;
+
+/**
+ * `runCommand("git", ...)` invocations of `createAndPushRepo()` that run at
+ * the default `GIT_COMMAND_TIMEOUT_MS`: init, `config` x2, add, commit and
+ * the branch / remote steps. The same count in both publishing routes; the
+ * push is the separate `GIT_PUSH_TIMEOUT_MS`. Part of the worst-case sum
+ * above, so adding a git step to a route has to raise this constant (and
+ * grows the sum); tests/integration/usage-reservation-routes.test.ts pins
+ * the count each route actually makes.
+ */
+export const GIT_COMMANDS_AT_DEFAULT_TIMEOUT = 7;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

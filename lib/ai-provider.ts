@@ -60,6 +60,14 @@ const REASONING_TOKEN_HEADROOM = 1024;
 // of one generateStructuredJson() call is AI_REQUEST_TIMEOUT_MS *
 // (1 + AI_MAX_RETRIES). The SDK defaults (10 min timeout, 2 retries) are
 // many times the reservation TTL, so both are pinned explicitly.
+//
+// Two limits of the SDK bound, stated because the reservation math depends
+// on them: the `timeout` is armed per attempt and cleared once the response
+// headers arrive, so a provider that sends headers and then stalls the body
+// is not cut off; and before a retry the SDK sleeps (its own backoff, or the
+// `Retry-After` / `retry-after-ms` header if present), which is waiting
+// outside every attempt's timeout. Both are residuals of the worst-case sum
+// next to RESERVATION_TTL_MS, not covered by the numbers here.
 export const AI_REQUEST_TIMEOUT_MS = 45_000;
 export const AI_MAX_RETRIES = 1;
 
