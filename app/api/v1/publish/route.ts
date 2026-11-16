@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateApiToken, reserveUsage, confirmUsage, releaseUsage } from "@/lib/db";
+import {
+  validateApiToken,
+  reserveUsage,
+  confirmUsage,
+  releaseUsage,
+  GITHUB_REPO_CREATE_TIMEOUT_MS,
+  GIT_COMMAND_TIMEOUT_MS,
+  GIT_PUSH_TIMEOUT_MS,
+} from "@/lib/db";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { excludePlanforgeArtifactsFromPublish, prunePublishedPlanforgeIndex } from "@/lib/planforge-output";
@@ -133,6 +141,9 @@ export async function POST(req: NextRequest) {
 }
 
 async function createAndPushRepo(projectDir: string, repoName: string, githubPat: string): Promise<string> {
+  // The signal bounds the call so the request ends, and the finally releases
+  // the reservation, well before its TTL (see the worst-case sum comment next
+  // to RESERVATION_TTL_MS in lib/db.ts).
   const createRes = await fetch("https://api.github.com/user/repos", {
     method: "POST",
     headers: {
@@ -140,6 +151,7 @@ async function createAndPushRepo(projectDir: string, repoName: string, githubPat
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ name: repoName, private: false, auto_init: false }),
+    signal: AbortSignal.timeout(GITHUB_REPO_CREATE_TIMEOUT_MS),
   });
 
   if (!createRes.ok) {
@@ -169,7 +181,7 @@ async function createAndPushRepo(projectDir: string, repoName: string, githubPat
 
   const gitEnv = { GIT_TERMINAL_PROMPT: "0" };
 
-  const git = (args: string[], timeoutMs = 10_000) =>
+  const git = (args: string[], timeoutMs = GIT_COMMAND_TIMEOUT_MS) =>
     runCommand("git", args, { cwd: projectDir, timeoutMs, env: { ...process.env, ...gitEnv } });
 
   await git(["init", "-b", "main"]);
@@ -180,7 +192,7 @@ async function createAndPushRepo(projectDir: string, repoName: string, githubPat
   await git(["add", "-A"]);
   await git(["commit", "-m", "feat: initial scaffold\n\nGenerated with project-forge\nPlanned with agent-planforge · Scaffolded with scaffoldkit"]);
   await git(["remote", "add", "origin", authedUrl]);
-  await git(["push", "-u", "origin", "main"], 30_000);
+  await git(["push", "-u", "origin", "main"], GIT_PUSH_TIMEOUT_MS);
   // Neutralize PAT from .git/config immediately after push
   await git(["remote", "set-url", "origin", repo.clone_url]);
 

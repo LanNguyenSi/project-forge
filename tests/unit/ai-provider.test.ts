@@ -27,7 +27,7 @@ vi.mock('openai', () => ({
   }),
 }));
 
-import { getAiCapabilities, generateStructuredJson } from '@/lib/ai-provider';
+import { getAiCapabilities, generateStructuredJson, AI_REQUEST_TIMEOUT_MS, AI_MAX_RETRIES } from '@/lib/ai-provider';
 
 // AI env var keys managed by these tests
 const AI_ENV_KEYS = [
@@ -327,12 +327,30 @@ describe('generateStructuredJson', () => {
       expect(mockOpenAiCtor).toHaveBeenCalledWith({
         apiKey: 'gsk_test_key',
         baseURL: 'https://api.groq.com/openai/v1',
+        timeout: AI_REQUEST_TIMEOUT_MS,
+        maxRetries: AI_MAX_RETRIES,
       });
       const callArg = mockCreate.mock.calls[0][0];
       expect(callArg.messages).toEqual([
         { role: 'system', content: 'system prompt text' },
         { role: 'user', content: 'user prompt text' },
       ]);
+    });
+
+    it('pins the client timeout and maxRetries to the exported reservation-window constants', async () => {
+      process.env.OPENAI_API_KEY = 'sk-test-key';
+      mockCreate.mockResolvedValue(completionWith('{"foo":"bounded"}'));
+
+      await generateStructuredJson<Parsed>('sys', 'user');
+
+      const clientOptions = mockOpenAiCtor.mock.calls[0][0] as {
+        timeout?: number;
+        maxRetries?: number;
+      };
+      // The publish quota reservation TTL is 15 min; timeout x attempts is
+      // what a request can spend here (see lib/db.ts and the sum test).
+      expect(clientOptions.timeout).toBe(AI_REQUEST_TIMEOUT_MS);
+      expect(clientOptions.maxRetries).toBe(AI_MAX_RETRIES);
     });
   });
 });
