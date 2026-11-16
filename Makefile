@@ -16,12 +16,17 @@ pull:
 	git pull && docker compose up -d --build
 
 # Host backup of the SQLite database to $FORGE_BACKUP_DIR (default
-# $HOME/project-forge-backups). See docs/deployment.md, "Backup and restore".
+# $HOME/project-forge-backups). An unset FORGE_BACKUP_DIR is refused when the
+# installed project-forge cron block names another directory, so manual and
+# scheduled backups share one directory. See docs/deployment.md, "Backup and
+# restore".
 backup:
 	sh scripts/backup.sh
 
-# Installs the hourly forge_tmp prune and the nightly backup into this user's
-# crontab (needs FORGE_BACKUP_DIR; ARGS=--dry-run prints, ARGS=--remove removes).
+# Installs three entries into this user's crontab: the hourly forge_tmp
+# prune, the nightly scripts/backup.sh and the daily scripts/backup.sh
+# --check-fresh (needs FORGE_BACKUP_DIR, except for --remove, which does not;
+# ARGS=--dry-run prints, ARGS=--remove removes).
 # See docs/deployment.md, "Backup and restore".
 install-cron:
 	sh scripts/install-cron.sh $(ARGS)
