@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { createHmac, randomBytes, randomUUID } from "crypto";
+import { tokenPredatesCutoff } from "./session-cutoff";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
@@ -208,15 +209,24 @@ export async function validateApiToken(token: string) {
   if (!token.startsWith("pf_")) return null;
   const record = await prisma.apiToken.findUnique({
     where: { tokenHash: hashApiToken(token) },
-    include: { user: true },
   });
   if (!record || record.revokedAt) return null;
+  // The user row is read after the token row, on purpose and as its own query
+  // (not `include`, whose order would be up to Prisma). Claiming a legacy
+  // GitHub-only row commits the cutoff, the new owner's token and the revoke
+  // of the older API tokens together, so a user read that sees the claimed
+  // githubPat also sees the cutoff, and a token that existed before the claim
+  // is refused here even when the token read above ran just before the claim
+  // committed. See lib/session-cutoff.ts.
+  const user = await prisma.user.findUnique({ where: { id: record.userId } });
+  if (!user) return null;
+  if (tokenPredatesCutoff(record.createdAt, user.sessionsValidAfter)) return null;
   // Update lastUsedAt
   await prisma.apiToken.update({
     where: { id: record.id },
     data: { lastUsedAt: new Date() },
   });
-  return record;
+  return { ...record, user };
 }
 
 export function generateApiToken(): string {

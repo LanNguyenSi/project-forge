@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isStaleSession } from "@/lib/session-cutoff";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { excludePlanforgeArtifactsFromPublish, prunePublishedPlanforgeIndex } from "@/lib/planforge-output";
@@ -50,6 +51,15 @@ export async function POST(req: NextRequest) {
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
     });
+
+    // The cutoff is part of the row read that supplies the token (see
+    // lib/session-cutoff.ts): a claim after the session check above is seen here.
+    if (isStaleSession(session.authAt, user?.sessionsValidAfter)) {
+      return NextResponse.json<ErrorResponse>(
+        { ok: false, error: "Not authenticated" },
+        { status: 401 }
+      );
+    }
 
     if (!user?.githubPat) {
       return NextResponse.json<ErrorResponse>(

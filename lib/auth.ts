@@ -1,7 +1,8 @@
-import type { NextAuthOptions } from "next-auth";
+import type { NextAuthOptions, Session } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
+import { isStaleSession } from "./session-cutoff";
 import { githubEmailStatus, githubPrimaryVerifiedEmail } from "./github-verified-email";
 import bcrypt from "bcryptjs";
 import {
@@ -80,9 +81,10 @@ async function resolveGithubEmail(
  *      - it has a passwordHash (a local account) or another githubId: refused,
  *        the row is not touched and no token is written;
  *      - it has neither (a row an earlier GitHub-only sign-in created, before
- *        githubId was recorded here): claimed, githubId is set. Such a row can
- *        only come from the GitHub sign-in itself, because registration always
- *        sets a password.
+ *        githubId was recorded here): claimed, githubId is set, and in the same
+ *        transaction its API tokens are revoked and its older sessions are cut
+ *        off. Such a row can only come from the GitHub sign-in itself, because
+ *        registration always sets a password.
  *   3. Neither: a new row is created with the identity, under the verified
  *      email or the placeholder.
  */
@@ -130,12 +132,37 @@ async function signInWithGithub(
     // Conditional write: the row must still be unlinked and password-less when
     // it is claimed, so a change between the read and the write cannot hand
     // the token to a different kind of account.
+    //
+    // The same transaction cuts off whatever the row held before the claim: a
+    // row without githubId and password was made by an earlier GitHub-only
+    // sign-in, possibly by an account holding an unverified copy of this
+    // email, which also left it API tokens and a session. Every API token of
+    // the row is revoked and sessions minted before this instant are refused
+    // (sessionsValidAfter, checked in the session callback and again by the
+    // routes that yield or overwrite a credential, lib/session-cutoff.ts). A
+    // request that already passed the session check when the claim commits is
+    // caught by those routes, not by the callback. All or nothing: a failed
+    // revoke rolls the claim back.
     try {
-      const claimed = await prisma.user.updateMany({
-        where: { id: byEmail.id, githubId: null, passwordHash: null },
-        data: { githubId, ...tokenFields },
+      const claimed = await prisma.$transaction(async (tx) => {
+        const result = await tx.user.updateMany({
+          where: { id: byEmail.id, githubId: null, passwordHash: null },
+          data: { githubId, ...tokenFields },
+        });
+        if (result.count !== 1) return false;
+        // The cutoff is taken only now, after the write above holds SQLite's
+        // write lock: every API token committed before the claim has a
+        // createdAt below it (validateApiToken refuses those), and a token
+        // created later cannot commit until this transaction has.
+        const claimedAt = new Date();
+        await tx.user.update({ where: { id: byEmail.id }, data: { sessionsValidAfter: claimedAt } });
+        await tx.apiToken.updateMany({
+          where: { userId: byEmail.id, revokedAt: null },
+          data: { revokedAt: claimedAt },
+        });
+        return true;
       });
-      if (claimed.count !== 1) return GITHUB_SIGN_IN_REFUSED;
+      if (!claimed) return GITHUB_SIGN_IN_REFUSED;
     } catch (error) {
       // Another row got this githubId between the identity lookup and the
       // write. Refuse with the fixed redirect: a thrown Prisma error would put
@@ -217,14 +244,43 @@ export const authOptions: NextAuthOptions = {
       return true;
     },
     jwt({ token, user, account }) {
-      if (user) token.userId = user.id;
+      if (user) {
+        token.userId = user.id;
+        // When this session was minted. NextAuth's own `iat` moves on every
+        // refresh, so the cutoff in the session callback compares this.
+        token.authAt = Date.now();
+      }
       if (account?.provider === "github") {
         token.githubAccessToken = account.access_token;
       }
       return token;
     },
-    session({ session, token }) {
-      if (token.userId) session.user.id = token.userId as string;
+    async session({ session, token }) {
+      if (token.userId) {
+        // A session minted before the user's cutoff (a legacy row was claimed
+        // since) is refused, and so is one without a mint time once a cutoff
+        // exists. An empty session reads as "not signed in" everywhere
+        // (getServerSession returns null, /api/auth/session returns {}).
+        // A read that fails refuses the session the same way instead of
+        // throwing, because next-auth clears the session cookie on a throw and
+        // would sign the browser out over a transient database error.
+        let cutoff: Date | null | undefined;
+        try {
+          const row = await prisma.user.findUnique({
+            where: { id: token.userId },
+            select: { sessionsValidAfter: true },
+          });
+          cutoff = row?.sessionsValidAfter;
+        } catch {
+          console.error("Session check failed: could not read the session cutoff");
+          return {} as Session;
+        }
+        if (isStaleSession(token.authAt, cutoff)) return {} as Session;
+        session.user.id = token.userId;
+        // The mint time travels with the session so a route that yields a
+        // credential can compare it with the cutoff it reads itself.
+        if (typeof token.authAt === "number") session.authAt = token.authAt;
+      }
       return session;
     },
   },

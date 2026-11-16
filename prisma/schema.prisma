@@ -21,6 +21,9 @@ model User {
   githubLogin  String?
   githubPat    String?
   githubOwner  String?
+  // Sessions (NextAuth JWTs) minted before this instant are refused. Set when a
+  // legacy GitHub-only row is claimed, see signInWithGithub in lib/auth.ts.
+  sessionsValidAfter DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   apiTokens    ApiToken[]

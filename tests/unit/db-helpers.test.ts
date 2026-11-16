@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   usageLog: {
     count: vi.fn(),
   },
+  user: {
+    findUnique: vi.fn(),
+  },
 }));
 
 vi.mock("@prisma/client", () => ({
@@ -22,6 +25,7 @@ vi.mock("@prisma/client", () => ({
   PrismaClient: vi.fn(function MockPrismaClient(this: any) {
     this.apiToken = mocks.apiToken;
     this.usageLog = mocks.usageLog;
+    this.user = mocks.user;
   }),
 }));
 
@@ -88,9 +92,10 @@ describe("validateApiToken", () => {
       id: "tok-2",
       tokenHash: hashApiToken("pf_valid"),
       revokedAt: null,
-      user: { id: "user-2", email: "u@test.com" },
+      userId: "user-2",
     };
     mocks.apiToken.findUnique.mockResolvedValue(record);
+    mocks.user.findUnique.mockResolvedValue({ id: "user-2", email: "u@test.com" });
     mocks.apiToken.update.mockResolvedValue({ ...record, lastUsedAt: new Date() });
 
     await validateApiToken("pf_valid");
@@ -107,13 +112,50 @@ describe("validateApiToken", () => {
       tokenHash: hashApiToken("pf_active"),
       revokedAt: null,
       userId: "user-3",
-      user: { id: "user-3", email: "a@b.com" },
     };
+    const user = { id: "user-3", email: "a@b.com" };
     mocks.apiToken.findUnique.mockResolvedValue(record);
+    mocks.user.findUnique.mockResolvedValue(user);
     mocks.apiToken.update.mockResolvedValue(record);
 
     const result = await validateApiToken("pf_active");
-    expect(result).toEqual(record);
+    expect(result).toEqual({ ...record, user });
+    // The user row is read on its own, after the token row.
+    expect(mocks.user.findUnique).toHaveBeenCalledWith({ where: { id: "user-3" } });
+  });
+
+  it("returns null when the user row is gone", async () => {
+    mocks.apiToken.findUnique.mockResolvedValue({ id: "tok-5", revokedAt: null, userId: "user-5" });
+    mocks.user.findUnique.mockResolvedValue(null);
+
+    expect(await validateApiToken("pf_orphan")).toBeNull();
+    expect(mocks.apiToken.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["before", new Date("2026-01-01T00:00:00.000Z"), null],
+    ["in the same millisecond as", new Date("2026-01-02T00:00:00.000Z"), null],
+    ["after", new Date("2026-01-03T00:00:00.000Z"), "ok"],
+  ])("a token created %s the user's cutoff", async (_name, createdAt, expected) => {
+    const cutoff = new Date("2026-01-02T00:00:00.000Z");
+    const record = { id: "tok-6", revokedAt: null, userId: "user-6", createdAt };
+    mocks.apiToken.findUnique.mockResolvedValue(record);
+    mocks.apiToken.update.mockResolvedValue(record);
+    mocks.user.findUnique.mockResolvedValue({ id: "user-6", sessionsValidAfter: cutoff });
+
+    const result = await validateApiToken("pf_cutoff");
+
+    expect(result === null ? null : "ok").toBe(expected);
+    expect(mocks.apiToken.update).toHaveBeenCalledTimes(expected ? 1 : 0);
+  });
+
+  it("a user without a cutoff keeps every unrevoked token, whatever its createdAt", async () => {
+    const record = { id: "tok-7", revokedAt: null, userId: "user-7", createdAt: new Date(0) };
+    mocks.apiToken.findUnique.mockResolvedValue(record);
+    mocks.apiToken.update.mockResolvedValue(record);
+    mocks.user.findUnique.mockResolvedValue({ id: "user-7", sessionsValidAfter: null });
+
+    expect(await validateApiToken("pf_nocutoff")).not.toBeNull();
   });
 
   it("rejects a wrong/invalid token even when a differently-keyed record exists", async () => {
@@ -121,9 +163,10 @@ describe("validateApiToken", () => {
     // findUnique correctly returns null because the hashes don't match.
     mocks.apiToken.findUnique.mockImplementation(({ where }) =>
       where.tokenHash === hashApiToken("pf_correct_value")
-        ? Promise.resolve({ id: "tok-4", revokedAt: null, user: { id: "user-4" } })
+        ? Promise.resolve({ id: "tok-4", revokedAt: null, userId: "user-4" })
         : Promise.resolve(null)
     );
+    mocks.user.findUnique.mockResolvedValue({ id: "user-4" });
 
     const validResult = await validateApiToken("pf_correct_value");
     const invalidResult = await validateApiToken("pf_wrong_guess");
