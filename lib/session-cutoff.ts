@@ -12,9 +12,11 @@
  * claim can commit between that check and the use. Every path that reads or
  * writes `githubPat` therefore applies the cutoff to the same read (or the
  * same write) that supplies or changes the token. Inventory of those paths
- * (tests/integration/credential-paths.test.ts keeps it complete: a file that reads
- * githubPat, calls validateApiToken or getServerSession and is not listed
- * there fails the test):
+ * (tests/integration/credential-paths.test.ts is a tripwire for it: a file
+ * under app/api or lib that reads githubPat, calls validateApiToken or
+ * getServerSession and is not listed there fails the test; it matches source
+ * text, so a path through getToken, a whole-row user read or a file outside
+ * app/api and lib is not caught and needs a review):
  *
  *   lib/auth.ts signInWithGithub   writes githubPat; authenticated by the
  *                                  verified GitHub sign-in; the claim itself

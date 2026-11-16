@@ -500,6 +500,41 @@ describe("a claim that commits between the two reads of validateApiToken", () =>
     expect(await tokenStatus(first.raw)).toBe(401);
   });
 
+  it("a token created after the claim started but before it took the write lock is refused when read across the commit", async () => {
+    // Pins where the claim takes its cutoff: after its first write holds the
+    // lock. Taken before the transaction, this token's createdAt would lie
+    // above the cutoff and it would be served with the new owner's token.
+    const { row } = await seedLegacyRow();
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => (openGate = resolve));
+    let entered!: () => void;
+    const claimReachedTransaction = new Promise<void>((resolve) => (entered = resolve));
+    const realTransaction = db.$transaction.bind(db) as (...args: unknown[]) => Promise<unknown>;
+    vi.spyOn(db, "$transaction").mockImplementation((async (...args: unknown[]) => {
+      entered();
+      await gate;
+      return realTransaction(...args);
+    }) as never);
+    const claimDone = githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+    await claimReachedTransaction;
+    await new Promise((resolve) => setTimeout(resolve, 3));
+    const late = await createApiToken(db, row.id, "late");
+    await new Promise((resolve) => setTimeout(resolve, 3));
+    const realFind = db.user.findUnique.bind(db.user) as (args: unknown) => Promise<unknown>;
+    const spy = vi.spyOn(db.user, "findUnique").mockImplementation(((args: { where: Record<string, unknown> }) => {
+      if (args.where.id === undefined) return realFind(args);
+      spy.mockImplementation(realFind as never);
+      openGate();
+      return claimDone.then(() => realFind(args));
+    }) as never);
+
+    const record = await validateApiToken(late.raw);
+
+    expect(spy).toHaveBeenCalled();
+    expect(record).toBeNull();
+    expect((await db.user.findFirstOrThrow({ where: { email: LEGACY_EMAIL } })).githubPat).toBe("gho_owner");
+  });
+
   it("a token the owner creates after the claim is served", async () => {
     const { row } = await seedLegacyRow();
     await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
