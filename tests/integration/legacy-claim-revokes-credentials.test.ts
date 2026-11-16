@@ -1,0 +1,288 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { NextRequest } from "next/server";
+import { encode } from "next-auth/jwt";
+import type { PrismaClient } from "@prisma/client";
+
+/**
+ * A claimed legacy row must not keep what it held before the claim. The row
+ * (no githubId, no password) was made by an earlier GitHub-only sign-in, so its
+ * API tokens and its sessions may belong to someone else than the verified
+ * owner who claims it now, and the claim writes the owner's OAuth token into
+ * it. Everything here runs against a real SQLite file built from the committed
+ * migrations: the claim is the real signIn callback, API tokens are checked
+ * through the real GET /api/v1/projects route, and sessions through the real
+ * getServerSession (a signed session cookie) and the real GET /api/dashboard/pat
+ * route.
+ */
+
+const SECRET = "test-secret-for-legacy-claim";
+const ROOT = path.join(__dirname, "..", "..");
+const COOKIE = "next-auth.session-token";
+
+// The cookie of the request that the next getServerSession() call reads.
+const current = vi.hoisted(() => ({ cookie: null as string | null }));
+
+vi.mock("next-auth", async () => {
+  const actual = await vi.importActual<typeof import("next-auth")>("next-auth");
+  return {
+    ...actual,
+    // The route handlers call getServerSession(authOptions) and take the
+    // cookie from the request scope; hand the real implementation the cookie
+    // of the simulated request.
+    getServerSession: (options: import("next-auth").NextAuthOptions) => {
+      const req = { cookies: current.cookie ? { [COOKIE]: current.cookie } : {}, headers: {} };
+      const res = { setHeader() {}, getHeader() {} };
+      return (actual.getServerSession as (...a: unknown[]) => Promise<unknown>)(req, res, options);
+    },
+  };
+});
+
+let tmpDir: string;
+let db: PrismaClient;
+let authOptions: typeof import("@/lib/auth").authOptions;
+let createApiToken: typeof import("@/lib/db").createApiToken;
+let validateApiToken: typeof import("@/lib/db").validateApiToken;
+let projectsGET: typeof import("@/app/api/v1/projects/route").GET;
+let patGET: typeof import("@/app/api/dashboard/pat/route").GET;
+
+const fetchMock = vi.fn();
+
+beforeAll(async () => {
+  tmpDir = mkdtempSync(path.join(tmpdir(), "pf-legacy-claim-"));
+  const url = `file:${path.join(tmpDir, "claim.db")}`;
+  execFileSync(path.join(ROOT, "node_modules", ".bin", "prisma"), ["migrate", "deploy"], {
+    cwd: ROOT,
+    env: { ...process.env, DATABASE_URL: url },
+    stdio: "pipe",
+    timeout: 60_000,
+    killSignal: "SIGKILL",
+  });
+  process.env.DATABASE_URL = url;
+  process.env.NEXTAUTH_SECRET = SECRET;
+  delete process.env.API_TOKEN_HASH_SECRET;
+  delete process.env.NEXTAUTH_URL;
+  // The modules read DATABASE_URL when they are first imported.
+  ({ prisma: db } = await import("@/lib/db"));
+  ({ createApiToken, validateApiToken } = await import("@/lib/db"));
+  ({ authOptions } = await import("@/lib/auth"));
+  ({ GET: projectsGET } = await import("@/app/api/v1/projects/route"));
+  ({ GET: patGET } = await import("@/app/api/dashboard/pat/route"));
+}, 60_000);
+
+afterAll(async () => {
+  await db.$disconnect();
+  rmSync(tmpDir, { recursive: true, force: true });
+});
+
+beforeEach(async () => {
+  current.cookie = null;
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
+  await db.usageLog.deleteMany();
+  await db.apiToken.deleteMany();
+  await db.user.deleteMany();
+});
+
+// GitHub lists `email` as primary and verified for the account.
+function githubListsVerified(email: string) {
+  fetchMock.mockImplementation(
+    async () => new Response(JSON.stringify([{ email, primary: true, verified: true }]), { status: 200 }),
+  );
+}
+
+async function githubSignIn(opts: { githubId: string; email: string; accessToken: string }) {
+  githubListsVerified(opts.email);
+  const user = { id: opts.githubId, email: opts.email };
+  const result = await authOptions.callbacks!.signIn!({
+    user: user as never,
+    account: {
+      provider: "github",
+      type: "oauth",
+      providerAccountId: opts.githubId,
+      access_token: opts.accessToken,
+    } as never,
+    profile: { login: "owner" } as never,
+  });
+  return { result, user };
+}
+
+/** A signed session cookie for a JWT with these claims. */
+async function cookieFor(claims: { userId: string; authAt?: number }): Promise<string> {
+  return encode({ token: { ...claims }, secret: SECRET });
+}
+
+/** The JWT a sign-in mints now: the real jwt callback, then signed. */
+async function mintSessionFor(userId: string): Promise<string> {
+  const token = await authOptions.callbacks!.jwt!({
+    token: {},
+    user: { id: userId, email: "x@example.com" },
+  } as never);
+  return encode({ token, secret: SECRET });
+}
+
+async function tokenStatus(raw: string): Promise<number> {
+  const res = await projectsGET(new NextRequest("http://localhost/api/v1/projects", { headers: { "X-API-Key": raw } }));
+  return res.status;
+}
+
+async function patStatus(cookie: string | null): Promise<{ status: number; pat?: string }> {
+  current.cookie = cookie;
+  const res = await patGET();
+  const body = (await res.json()) as { githubPat?: string };
+  return { status: res.status, pat: body.githubPat };
+}
+
+const LEGACY_EMAIL = "owner@example.com";
+const OLD_AUTH_AT = () => Date.now() - 60_000;
+
+async function seedLegacyRow() {
+  const row = await db.user.create({ data: { email: LEGACY_EMAIL, githubPat: "gho_planted_by_old_holder" } });
+  const first = await createApiToken(db, row.id, "first");
+  const second = await createApiToken(db, row.id, "second");
+  return { row, first, second };
+}
+
+describe("claiming a legacy row", () => {
+  it("revokes every API token of the row, checked through the real route and verify function", async () => {
+    const { row, first, second } = await seedLegacyRow();
+    const alreadyRevoked = await createApiToken(db, row.id, "gone");
+    const revokedAt = new Date("2026-01-02T03:04:05.000Z");
+    await db.apiToken.update({ where: { id: alreadyRevoked.record.id }, data: { revokedAt } });
+    const stranger = await db.user.create({ data: { email: "other@example.com", passwordHash: "hash" } });
+    const strangerToken = await createApiToken(db, stranger.id, "stranger");
+
+    // Before the claim both tokens work.
+    expect(await tokenStatus(first.raw)).toBe(200);
+    expect(await tokenStatus(second.raw)).toBe(200);
+
+    const { result } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+    expect(result).toBe(true);
+
+    expect(await tokenStatus(first.raw)).toBe(401);
+    expect(await tokenStatus(second.raw)).toBe(401);
+    expect(await validateApiToken(first.raw)).toBeNull();
+    expect(await validateApiToken(second.raw)).toBeNull();
+
+    // A token that was revoked earlier keeps its original revocation time, and
+    // another user's token is not touched.
+    const kept = await db.apiToken.findUniqueOrThrow({ where: { id: alreadyRevoked.record.id } });
+    expect(kept.revokedAt?.getTime()).toBe(revokedAt.getTime());
+    expect(await tokenStatus(strangerToken.raw)).toBe(200);
+
+    // The claim itself went through.
+    const claimed = await db.user.findUniqueOrThrow({ where: { id: row.id } });
+    expect(claimed).toMatchObject({ githubId: "1001", githubPat: "gho_owner" });
+    expect(claimed.sessionsValidAfter).toBeInstanceOf(Date);
+  });
+
+  it("a token issued to the owner after the claim works", async () => {
+    const { row } = await seedLegacyRow();
+    await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+
+    const fresh = await createApiToken(db, row.id, "after the claim");
+
+    expect(await tokenStatus(fresh.raw)).toBe(200);
+  });
+
+  it("refuses a session minted before the claim, with and without a mint time, and accepts one minted after", async () => {
+    const { row } = await seedLegacyRow();
+    const oldCookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+    const undatedCookie = await cookieFor({ userId: row.id });
+
+    // Before the claim the old holder's session reads the token on the row.
+    expect(await patStatus(oldCookie)).toEqual({ status: 200, pat: "gho_planted_by_old_holder" });
+    expect(await patStatus(undatedCookie)).toEqual({ status: 200, pat: "gho_planted_by_old_holder" });
+
+    const { result, user } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+    expect(result).toBe(true);
+    expect(user.id).toBe(row.id);
+
+    expect(await patStatus(oldCookie)).toEqual({ status: 401, pat: undefined });
+    expect(await patStatus(undatedCookie)).toEqual({ status: 401, pat: undefined });
+
+    // The owner's own session, minted by the sign-in that claimed the row.
+    expect(await patStatus(await mintSessionFor(user.id))).toEqual({ status: 200, pat: "gho_owner" });
+  });
+
+  it("compares the mint time with the cutoff inclusively", async () => {
+    const { row } = await seedLegacyRow();
+    const cutoff = new Date(Date.now() - 10_000);
+    await db.user.update({ where: { id: row.id }, data: { sessionsValidAfter: cutoff } });
+
+    expect((await patStatus(await cookieFor({ userId: row.id, authAt: cutoff.getTime() - 1 }))).status).toBe(401);
+    expect((await patStatus(await cookieFor({ userId: row.id, authAt: cutoff.getTime() }))).status).toBe(200);
+    expect((await patStatus(await cookieFor({ userId: row.id, authAt: cutoff.getTime() + 1 }))).status).toBe(200);
+  });
+
+  it("revokes nothing and keeps the row as it was when the transaction fails", async () => {
+    const { row, first, second } = await seedLegacyRow();
+    const oldCookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+    // The token revoke fails inside the transaction, after the claim write.
+    await db.$executeRawUnsafe(
+      `CREATE TRIGGER fail_token_revoke BEFORE UPDATE ON "ApiToken" BEGIN SELECT RAISE(ABORT, 'revoke failed'); END`,
+    );
+    try {
+      await expect(
+        githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" }),
+      ).rejects.toThrow();
+    } finally {
+      await db.$executeRawUnsafe(`DROP TRIGGER fail_token_revoke`);
+    }
+
+    const after = await db.user.findUniqueOrThrow({ where: { id: row.id } });
+    expect(after).toMatchObject({ githubId: null, githubPat: "gho_planted_by_old_holder", sessionsValidAfter: null });
+    expect(await tokenStatus(first.raw)).toBe(200);
+    expect(await tokenStatus(second.raw)).toBe(200);
+    expect(await patStatus(oldCookie)).toEqual({ status: 200, pat: "gho_planted_by_old_holder" });
+  });
+});
+
+describe("sign-ins that are not a claim of a legacy row", () => {
+  it("a row that already has this githubId keeps its tokens and its sessions", async () => {
+    const row = await db.user.create({ data: { email: LEGACY_EMAIL, githubId: "1001", githubPat: "gho_old" } });
+    const token = await createApiToken(db, row.id, "mine");
+    const cookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+
+    const { result } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_fresh" });
+
+    expect(result).toBe(true);
+    expect(await tokenStatus(token.raw)).toBe(200);
+    expect(await patStatus(cookie)).toEqual({ status: 200, pat: "gho_fresh" });
+    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).sessionsValidAfter).toBeNull();
+  });
+
+  it("a refused sign-in on a password account keeps its tokens and its sessions", async () => {
+    const row = await db.user.create({ data: { email: LEGACY_EMAIL, passwordHash: "hash", githubPat: "ghp_manual" } });
+    const token = await createApiToken(db, row.id, "mine");
+    const cookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+
+    const { result } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_other" });
+
+    expect(result).toBe("/login?error=OAuthAccountNotLinked");
+    expect(await tokenStatus(token.raw)).toBe(200);
+    expect(await patStatus(cookie)).toEqual({ status: 200, pat: "ghp_manual" });
+    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).sessionsValidAfter).toBeNull();
+  });
+
+  it("a new GitHub account does not touch another user's tokens", async () => {
+    const other = await db.user.create({ data: { email: "other@example.com", passwordHash: "hash" } });
+    const token = await createApiToken(db, other.id, "other");
+
+    const { result } = await githubSignIn({ githubId: "1001", email: "brand-new@example.com", accessToken: "gho_new" });
+
+    expect(result).toBe(true);
+    expect(await tokenStatus(token.raw)).toBe(200);
+    const created = await db.user.findUniqueOrThrow({ where: { email: "brand-new@example.com" } });
+    expect(created.sessionsValidAfter).toBeNull();
+  });
+
+  it("a session without a mint time stays valid while the user has no cutoff", async () => {
+    const row = await db.user.create({ data: { email: "plain@example.com", passwordHash: "hash", githubPat: "ghp_x" } });
+
+    expect(await patStatus(await cookieFor({ userId: row.id }))).toEqual({ status: 200, pat: "ghp_x" });
+  });
+});

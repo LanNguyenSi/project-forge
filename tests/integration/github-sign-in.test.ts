@@ -10,9 +10,10 @@ type Row = {
   githubLogin: string | null;
   githubPat: string | null;
   githubOwner: string | null;
+  sessionsValidAfter?: Date | null;
 };
 
-const { rows, store } = vi.hoisted(() => {
+const { rows, store, prisma } = vi.hoisted(() => {
   const rows: Row[] = [];
   let seq = 0;
   const matches = (row: Row, where: Record<string, unknown>) =>
@@ -73,10 +74,19 @@ const { rows, store } = vi.hoisted(() => {
       }),
     },
   };
-  return { rows, store };
+  // The claim runs in an interactive transaction. This fake has no API tokens
+  // and needs no rollback (the real-database test in
+  // legacy-claim-revokes-credentials.test.ts covers both); it hands the same
+  // fake to the callback.
+  const prisma = {
+    user: store.user,
+    apiToken: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
+  };
+  return { rows, store, prisma };
 });
 
-vi.mock("@/lib/db", () => ({ prisma: { user: store.user } }));
+vi.mock("@/lib/db", () => ({ prisma }));
 
 import { authOptions } from "@/lib/auth";
 
@@ -288,6 +298,14 @@ describe("GitHub sign-in account matching", () => {
     expect(user.id).toBe("legacy");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ githubId: "1001", githubPat: "gho_fresh", githubLogin: "legacy" });
+    // The claim cuts off what the row held: its live API tokens are revoked
+    // and older sessions stop counting, in one transaction.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.apiToken.updateMany).toHaveBeenCalledWith({
+      where: { userId: "legacy", revokedAt: null },
+      data: { revokedAt: rows[0].sessionsValidAfter },
+    });
+    expect(rows[0].sessionsValidAfter).toBeInstanceOf(Date);
 
     // The next sign-in matches by identity.
     store.user.updateMany.mockClear();
@@ -323,6 +341,8 @@ describe("GitHub sign-in account matching", () => {
 
     expect(result).toBe(REFUSED);
     expect(store.user.updateMany).toHaveBeenCalledTimes(1);
+    // A claim that did not happen revokes nothing.
+    expect(prisma.apiToken.updateMany).not.toHaveBeenCalled();
     expect(rows).toHaveLength(1);
     expect(rows[0].githubPat).toBe("gho_old");
     expect(rows[0].githubId).toBe("githubId" in change ? "2002" : null);

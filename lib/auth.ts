@@ -1,4 +1,4 @@
-import type { NextAuthOptions } from "next-auth";
+import type { NextAuthOptions, Session } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
@@ -80,9 +80,10 @@ async function resolveGithubEmail(
  *      - it has a passwordHash (a local account) or another githubId: refused,
  *        the row is not touched and no token is written;
  *      - it has neither (a row an earlier GitHub-only sign-in created, before
- *        githubId was recorded here): claimed, githubId is set. Such a row can
- *        only come from the GitHub sign-in itself, because registration always
- *        sets a password.
+ *        githubId was recorded here): claimed, githubId is set, and in the same
+ *        transaction its API tokens are revoked and its older sessions are cut
+ *        off. Such a row can only come from the GitHub sign-in itself, because
+ *        registration always sets a password.
  *   3. Neither: a new row is created with the identity, under the verified
  *      email or the placeholder.
  */
@@ -130,12 +131,30 @@ async function signInWithGithub(
     // Conditional write: the row must still be unlinked and password-less when
     // it is claimed, so a change between the read and the write cannot hand
     // the token to a different kind of account.
+    //
+    // The same transaction cuts off whatever the row held before the claim: a
+    // row without githubId and password was made by an earlier GitHub-only
+    // sign-in, possibly by an account holding an unverified copy of this
+    // email, which also left it API tokens and a session. Every API token of
+    // the row is revoked and sessions minted before this instant are refused
+    // (sessionsValidAfter, checked in the session callback), so neither can
+    // use or read the OAuth token written here. All or nothing: a failed
+    // revoke rolls the claim back.
     try {
-      const claimed = await prisma.user.updateMany({
-        where: { id: byEmail.id, githubId: null, passwordHash: null },
-        data: { githubId, ...tokenFields },
+      const claimedAt = new Date();
+      const claimed = await prisma.$transaction(async (tx) => {
+        const result = await tx.user.updateMany({
+          where: { id: byEmail.id, githubId: null, passwordHash: null },
+          data: { githubId, ...tokenFields, sessionsValidAfter: claimedAt },
+        });
+        if (result.count !== 1) return false;
+        await tx.apiToken.updateMany({
+          where: { userId: byEmail.id, revokedAt: null },
+          data: { revokedAt: claimedAt },
+        });
+        return true;
       });
-      if (claimed.count !== 1) return GITHUB_SIGN_IN_REFUSED;
+      if (!claimed) return GITHUB_SIGN_IN_REFUSED;
     } catch (error) {
       // Another row got this githubId between the identity lookup and the
       // write. Refuse with the fixed redirect: a thrown Prisma error would put
@@ -217,14 +236,33 @@ export const authOptions: NextAuthOptions = {
       return true;
     },
     jwt({ token, user, account }) {
-      if (user) token.userId = user.id;
+      if (user) {
+        token.userId = user.id;
+        // When this session was minted. NextAuth's own `iat` moves on every
+        // refresh, so the cutoff in the session callback compares this.
+        token.authAt = Date.now();
+      }
       if (account?.provider === "github") {
         token.githubAccessToken = account.access_token;
       }
       return token;
     },
-    session({ session, token }) {
-      if (token.userId) session.user.id = token.userId as string;
+    async session({ session, token }) {
+      if (token.userId) {
+        // A session minted before the user's cutoff (a legacy row was claimed
+        // since) is refused, and so is one without a mint time once a cutoff
+        // exists. An empty session reads as "not signed in" everywhere
+        // (getServerSession returns null, /api/auth/session returns {}).
+        const row = await prisma.user.findUnique({
+          where: { id: token.userId },
+          select: { sessionsValidAfter: true },
+        });
+        const cutoff = row?.sessionsValidAfter;
+        if (cutoff && !(typeof token.authAt === "number" && token.authAt >= cutoff.getTime())) {
+          return {} as Session;
+        }
+        session.user.id = token.userId;
+      }
       return session;
     },
   },
