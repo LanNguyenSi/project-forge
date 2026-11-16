@@ -699,12 +699,15 @@ image the copy step fails with a non-zero exit and nothing is written.
 The output goes to `FORGE_BACKUP_DIR`, default `$HOME/project-forge-backups`,
 which is deliberately outside the checkout (the deploy tree must stay clean).
 A run with `FORGE_BACKUP_DIR` unset prints the target directory it resolved
-and refuses when the installed project-forge crontab block names another one
-(the directory `install-cron` installed is visible in the lines it wrote), so
-a manual copy cannot land somewhere else than the nightly backups and the
-freshness check look for it; with no project-forge entry installed the
-`$HOME` default stands, and an unreadable crontab is refused rather than
-guessed around (`FORGE_CRONTAB` names the crontab program used for the
+and refuses when the installed project-forge cron block names another one
+(the directory `install-cron` installed is visible in the nightly
+`scripts/backup.sh` line it wrote; only that uncommented line between the
+block's `# BEGIN project-forge` and `# END project-forge` markers is read, so
+commented-out lines and other applications' lines never decide), so a manual
+copy cannot land somewhere else than the nightly backups and the freshness
+check look for it; with no project-forge block installed the `$HOME` default
+stands, and an unreadable crontab or a block without its END marker is
+refused rather than guessed around (`FORGE_CRONTAB` names the crontab program used for the
 check, default `crontab`).
 Environment knobs: `FORGE_BACKUP_DIR` (an explicit directory wins; unset or
 empty means the `$HOME` default), `FORGE_BACKUP_KEEP` (how many files to keep,

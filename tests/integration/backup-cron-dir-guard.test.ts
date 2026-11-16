@@ -10,7 +10,8 @@ import path from "node:path";
  * directories: with FORGE_BACKUP_DIR unset it reads the installed
  * project-forge crontab block (`crontab -l`; install-cron.sh writes the
  * directory into its lines as FORGE_BACKUP_DIR='<dir>') and refuses when
- * that block names another directory. Tested with a stub `crontab` on PATH
+ * that block names another directory. Lines outside the BEGIN/END markers
+ * and commented-out lines never decide. Tested with a stub `crontab` on PATH
  * backed by a plain file (the real crontab is never touched) and a stub
  * `docker` that records its calls and then fails the printenv read: any
  * branch that reaches docker proves the guard let the run through, a refusal
@@ -101,6 +102,18 @@ function newGuard(withCrontabStub = true): Guard {
 }
 const envFor = (e: Env): NodeJS.ProcessEnv => e as unknown as NodeJS.ProcessEnv;
 
+// The marker lines of the installed block, read from install-cron.sh so a
+// change there cannot silently detach backup.sh (pinned in the last test).
+const marker = (file: string, name: "BEGIN" | "END") => {
+  const m = readFileSync(path.join(ROOT, "scripts", file), "utf-8").match(new RegExp(`^\\s*${name}='(.*)'$`, "m"));
+  if (!m) throw new Error(`${name} marker not found in ${file}`);
+  return m[1];
+};
+const BEGIN = marker("install-cron.sh", "BEGIN");
+const END = marker("install-cron.sh", "END");
+const block = (...lines: string[]) => `${BEGIN}\n${lines.join("\n")}\n${END}\n`;
+const pruneBlock = (dir: string) => block(pruneLine(dir), backupLine(dir), checkLine(dir));
+
 const backupLine = (dir: string) =>
   `15 3 * * * cd '/home/tester/project-forge' && FORGE_BACKUP_DIR='${dir}' sh ./scripts/backup.sh >> '${dir}/cron.log' 2>&1`;
 const checkLine = (dir: string) =>
@@ -127,7 +140,7 @@ describe("scripts/backup.sh: manual and scheduled backups share one directory", 
 
   it("unset FORGE_BACKUP_DIR, the installed block names another directory: refuses and names both paths and the rerun command", () => {
     const g = newGuard();
-    g.setCrontab(`${pruneLine("/var/backups/project-forge")}\n${backupLine("/var/backups/project-forge")}\n${checkLine("/var/backups/project-forge")}\n`);
+    g.setCrontab(pruneBlock("/var/backups/project-forge"));
     const r = g.run();
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("/var/backups/project-forge");
@@ -140,7 +153,7 @@ describe("scripts/backup.sh: manual and scheduled backups share one directory", 
 
   it("unset FORGE_BACKUP_DIR, the installed block names the same directory as the default: proceeds", () => {
     const g = newGuard();
-    g.setCrontab(`${backupLine(g.backupDir)}\n${checkLine(g.backupDir)}\n`);
+    g.setCrontab(block(backupLine(g.backupDir), checkLine(g.backupDir)));
     const r = g.run();
     expect(r.stderr).toContain("cannot read DATABASE_URL");
     expect(r.stderr).not.toContain("drift apart");
@@ -150,25 +163,25 @@ describe("scripts/backup.sh: manual and scheduled backups share one directory", 
   it("a quoted cron directory containing spaces is read whole", () => {
     const g = newGuard();
     const spaced = path.join(g.home, "my backups");
-    g.setCrontab(backupLine(spaced));
+    g.setCrontab(block(backupLine(spaced)));
     const r = g.run();
     expect(r.status).toBe(1);
     expect(r.stderr).toContain(`FORGE_BACKUP_DIR='${spaced}' make backup`);
     expect(g.dockerCalls()).toEqual([]);
   });
 
-  it("an unquoted FORGE_BACKUP_DIR value on a hand-made line is recognized too", () => {
+  it("an unquoted FORGE_BACKUP_DIR value on a hand-made line inside the block is recognized too", () => {
     const g = newGuard();
-    g.setCrontab("15 3 * * * cd '/checkout' && FORGE_BACKUP_DIR=/var/backups/manual sh ./scripts/backup.sh\n");
+    g.setCrontab(block("15 3 * * * cd '/checkout' && FORGE_BACKUP_DIR=/var/backups/manual sh ./scripts/backup.sh"));
     const r = g.run();
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("/var/backups/manual");
     expect(g.dockerCalls()).toEqual([]);
   });
 
-  it("several entries: the first project-forge line decides", () => {
+  it("several backup lines in the block: the first decides", () => {
     const g = newGuard();
-    g.setCrontab(`${backupLine("/var/backups/first")}\n${checkLine("/var/backups/second")}\n`);
+    g.setCrontab(block(backupLine("/var/backups/first"), backupLine("/var/backups/second")));
     const r = g.run();
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("/var/backups/first");
@@ -177,7 +190,7 @@ describe("scripts/backup.sh: manual and scheduled backups share one directory", 
 
   it("FORGE_BACKUP_DIR set: it wins, the crontab is never consulted", () => {
     const g = newGuard();
-    g.setCrontab(backupLine("/var/backups/project-forge"));
+    g.setCrontab(pruneBlock("/var/backups/project-forge"));
     const custom = path.join(g.home, "chosen");
     const r = g.run({ FORGE_BACKUP_DIR: custom });
     expect(r.stdout).toContain(`backup directory: ${custom}`);
@@ -187,7 +200,7 @@ describe("scripts/backup.sh: manual and scheduled backups share one directory", 
 
   it("FORGE_BACKUP_DIR empty counts as unset: the guard applies", () => {
     const g = newGuard();
-    g.setCrontab(backupLine("/var/backups/project-forge"));
+    g.setCrontab(pruneBlock("/var/backups/project-forge"));
     const r = g.run({ FORGE_BACKUP_DIR: "" });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("drift apart");
@@ -217,7 +230,7 @@ describe("scripts/backup.sh: manual and scheduled backups share one directory", 
     const alt = path.join(path.dirname(g.home), "alt-crontab");
     writeFileSync(alt, `#!/bin/sh\ncat "${g.crontabFile}"\n`);
     chmodSync(alt, 0o755);
-    writeFileSync(g.crontabFile, backupLine("/var/backups/project-forge"));
+    writeFileSync(g.crontabFile, pruneBlock("/var/backups/project-forge"));
     const r = g.run({ FORGE_CRONTAB: alt });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("FORGE_BACKUP_DIR='/var/backups/project-forge' make backup");
@@ -226,10 +239,122 @@ describe("scripts/backup.sh: manual and scheduled backups share one directory", 
 
   it("--check-fresh never consults the crontab", () => {
     const g = newGuard();
-    g.setCrontab(backupLine("/var/backups/project-forge"));
+    g.setCrontab(pruneBlock("/var/backups/project-forge"));
     const r = g.run({}, ["--check-fresh"]);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("no backup stamp");
     expect(g.crontabCalls()).toEqual([]);
+  });
+
+  const OLD = "/old/dir";
+  const commented = `# ${backupLine(OLD)}`;
+
+  it("a commented-out project-forge-style line outside the block does not decide", () => {
+    const g = newGuard();
+    g.setCrontab(`${commented}\n${block(backupLine(g.backupDir))}`);
+    const r = g.run();
+    expect(r.stderr).toContain("cannot read DATABASE_URL");
+    expect(r.stderr).not.toContain(OLD);
+    expect(g.dockerCalls().length).toBeGreaterThan(0);
+  });
+
+  it("a commented-out line inside the block, indented or not, does not decide", () => {
+    const g = newGuard();
+    g.setCrontab(block(commented, `   ${commented}`, backupLine(g.backupDir)));
+    const r = g.run();
+    expect(r.stderr).toContain("cannot read DATABASE_URL");
+    expect(g.dockerCalls().length).toBeGreaterThan(0);
+  });
+
+  it("a foreign line with the same variable outside the block does not decide", () => {
+    const g = newGuard();
+    const foreign = "15 3 * * * FORGE_BACKUP_DIR='/other/app/dir' /usr/bin/other-app-backup";
+    g.setCrontab(`${foreign}\n${block(backupLine(g.backupDir))}${foreign}\n`);
+    const r = g.run();
+    expect(r.stderr).toContain("cannot read DATABASE_URL");
+    expect(r.stderr).not.toContain("/other/app/dir");
+    expect(g.dockerCalls().length).toBeGreaterThan(0);
+  });
+
+  it("a foreign line inside the block that does not run scripts/backup.sh does not decide", () => {
+    const g = newGuard();
+    g.setCrontab(block("15 3 * * * FORGE_BACKUP_DIR='/other/app/dir' /usr/bin/other-app-backup", backupLine(g.backupDir)));
+    const r = g.run();
+    expect(r.stderr).toContain("cannot read DATABASE_URL");
+    expect(g.dockerCalls().length).toBeGreaterThan(0);
+  });
+
+  it("the --check-fresh line does not decide, the backup line does", () => {
+    const g = newGuard();
+    g.setCrontab(block(checkLine("/var/backups/check"), backupLine(g.backupDir)));
+    const r = g.run();
+    expect(r.stderr).toContain("cannot read DATABASE_URL");
+    expect(r.stderr).not.toContain("/var/backups/check");
+  });
+
+  it("a block on the same directory with a stale commented line above it proceeds", () => {
+    const g = newGuard();
+    g.setCrontab(`${commented}\n${block(backupLine(g.backupDir))}`);
+    const r = g.run();
+    expect(r.stderr).not.toContain("drift apart");
+    expect(g.dockerCalls().length).toBeGreaterThan(0);
+  });
+
+  it("a block with a differing directory still refuses, even below a commented old line", () => {
+    const g = newGuard();
+    g.setCrontab(`${commented}\n${block(backupLine("/var/backups/project-forge"))}`);
+    const r = g.run();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("FORGE_BACKUP_DIR='/var/backups/project-forge' make backup");
+    expect(r.stderr).not.toContain(OLD);
+    expect(g.dockerCalls()).toEqual([]);
+  });
+
+  it("an uncommented backup.sh line outside the block (a hand-made twin above it) does not decide", () => {
+    const g = newGuard();
+    g.setCrontab(`${backupLine("/var/backups/outside")}\n${block(backupLine(g.backupDir))}`);
+    const r = g.run();
+    expect(r.stderr).toContain("cannot read DATABASE_URL");
+    expect(r.stderr).not.toContain("/var/backups/outside");
+    expect(g.dockerCalls().length).toBeGreaterThan(0);
+  });
+
+  it("lines after the END marker do not decide", () => {
+    const g = newGuard();
+    g.setCrontab(`${block(backupLine(g.backupDir))}${backupLine("/var/backups/after")}\n`);
+    const r = g.run();
+    expect(r.stderr).not.toContain("/var/backups/after");
+    expect(g.dockerCalls().length).toBeGreaterThan(0);
+  });
+
+  it("a truncated block (BEGIN without END) is refused, even on the same directory", () => {
+    const g = newGuard();
+    g.setCrontab(`${BEGIN}\n${backupLine(g.backupDir)}\n`);
+    const r = g.run();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("without its END marker");
+    expect(r.stderr).toContain("Nothing was written.");
+    expect(g.dockerCalls()).toEqual([]);
+  });
+
+  it("an unquoted value ends at whitespace or a shell metacharacter", () => {
+    for (const [tail, want] of [
+      [";sh ./scripts/backup.sh", "/var/b"],
+      ["&& sh ./scripts/backup.sh", "/var/b"],
+      ["|cat sh ./scripts/backup.sh", "/var/b"],
+      [" sh ./scripts/backup.sh", "/var/b"],
+    ]) {
+      const g = newGuard();
+      g.setCrontab(block(`15 3 * * * cd /x && FORGE_BACKUP_DIR=/var/b${tail}`));
+      const r = g.run();
+      expect(r.status, tail).toBe(1);
+      expect(r.stderr, tail).toContain(`FORGE_BACKUP_DIR='${want}' make backup`);
+    }
+  });
+
+  it("backup.sh carries the same block markers as install-cron.sh", () => {
+    const src = readFileSync(SCRIPT, "utf-8");
+    expect(src).toContain(`cron_begin='${marker("install-cron.sh", "BEGIN")}'`);
+    expect(src).toContain(`cron_end='${marker("install-cron.sh", "END")}'`);
   });
 });

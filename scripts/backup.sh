@@ -108,21 +108,47 @@ resolve_backup_dir || die "FORGE_BACKUP_DIR is unset and HOME is not set: no bac
 log "backup directory: $backup_dir"
 
 # Manual and scheduled backups must share one directory. install-cron.sh
-# writes the directory into the crontab lines of its block
+# writes the directory into the nightly backup line of its marked block
 # (FORGE_BACKUP_DIR='<dir>' sh ./scripts/backup.sh), so `crontab -l` shows
 # what the nightly run uses. With FORGE_BACKUP_DIR unset here, a block
 # installed to another directory would split the backups in two places and
-# let a restore pick the older one, so refuse and name both. No crontab
-# program, no crontab ("no crontab"), no project-forge line, or a block on
-# the same directory keeps the $HOME default; any other failure to read the
+# let a restore pick the older one, so refuse and name both. Only the
+# installed project-forge cron block counts (the lines between the BEGIN and
+# END markers below, which must equal the ones in scripts/install-cron.sh):
+# commented-out lines and lines outside the block, such as another
+# application's, never decide. No crontab program, no crontab ("no
+# crontab"), no block, or a block on the same directory keeps the $HOME
+# default; a block without its END marker or any other failure to read the
 # crontab is refused rather than guessed around. --check-fresh never reaches
 # this: a monitor names its directory itself.
 if [ -z "${FORGE_BACKUP_DIR:-}" ]; then
   crontab_bin=${FORGE_CRONTAB:-crontab}
   if cron_list=$("$crontab_bin" -l 2>&1); then
-    # The first project-forge line decides; the installer quotes the value
-    # ('/my dir' with spaces included), a hand-made line may not.
-    cron_dir=$(printf '%s\n' "$cron_list" | sed -nE "s/.*FORGE_BACKUP_DIR=('[^']*'|[^ ]+).*/\1/p" | sed -n 1p)
+    cron_begin='# BEGIN project-forge (managed by scripts/install-cron.sh, do not edit)'
+    cron_end='# END project-forge'
+    # The first uncommented line of the block that runs scripts/backup.sh
+    # without --check-fresh decides (the nightly backup; the freshness check
+    # carries the same directory but only monitors). The installer quotes the
+    # value ('/my dir' with spaces included); an unquoted one ends at
+    # whitespace or one of ; & |.
+    cron_found=$(printf '%s\n' "$cron_list" | awk -v begin="$cron_begin" -v end="$cron_end" -v q="'" '
+      BEGIN { re = "FORGE_BACKUP_DIR=(" q "[^" q "]*" q "|[^ \t;&|]+)" }
+      $0 == begin { inblock = 1; next }
+      $0 == end { inblock = 0; next }
+      !inblock || found { next }
+      /^[ \t]*#/ { next }
+      index($0, "scripts/backup.sh") == 0 || index($0, "--check-fresh") > 0 { next }
+      match($0, re) { print "dir:" substr($0, RSTART + 17, RLENGTH - 17); found = 1 }
+      END { if (inblock) print "!unterminated" }
+    ')
+    case "
+$cron_found
+" in
+      *"
+!unterminated
+"*) die "the crontab has a project-forge BEGIN marker without its END marker line, so the backup directory of the block cannot be read. Fix it by hand with crontab -e or rerun scripts/install-cron.sh, or name the directory with FORGE_BACKUP_DIR. Nothing was written." ;;
+    esac
+    cron_dir=$(printf '%s\n' "$cron_found" | sed -n 's/^dir://p' | sed -n 1p)
     case "$cron_dir" in
       "'"*"'") cron_dir=${cron_dir#?}; cron_dir=${cron_dir%?} ;;
     esac
