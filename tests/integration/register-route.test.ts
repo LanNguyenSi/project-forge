@@ -82,6 +82,75 @@ describe("POST /api/auth/register", () => {
     expect(user.create).not.toHaveBeenCalled();
   });
 
+  it("400 when email is a GitHub sign-in placeholder address", async () => {
+    user.findUnique.mockResolvedValue(null);
+    const res = await POST(makeReq({ email: "github-1001@noreply", password: "validpass" }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(typeof body.error).toBe("string");
+    expect(body.error).not.toMatch(/github/i);
+    expect(user.create).not.toHaveBeenCalled();
+  });
+
+  it("400 when the placeholder email uses upper-case letters", async () => {
+    user.findUnique.mockResolvedValue(null);
+    const res = await POST(makeReq({ email: "GitHub-1001@NOREPLY", password: "validpass" }));
+    expect(res.status).toBe(400);
+    expect(user.create).not.toHaveBeenCalled();
+  });
+
+  it("400 when the placeholder email has surrounding spaces", async () => {
+    user.findUnique.mockResolvedValue(null);
+    const res = await POST(makeReq({ email: "  github-1001@noreply  ", password: "validpass" }));
+    expect(res.status).toBe(400);
+    expect(user.create).not.toHaveBeenCalled();
+  });
+
+  it("400 when the domain only ends in noreply (suffix rule, not an exact match)", async () => {
+    user.findUnique.mockResolvedValue(null);
+    const res = await POST(makeReq({ email: "someone@mail.noreply", password: "validpass" }));
+    expect(res.status).toBe(400);
+    expect(user.create).not.toHaveBeenCalled();
+  });
+
+  it("400 when the address holds a second @ before a noreply domain", async () => {
+    user.findUnique.mockResolvedValue(null);
+    const res = await POST(makeReq({ email: "a@b@noreply", password: "validpass" }));
+    expect(res.status).toBe(400);
+    expect(user.create).not.toHaveBeenCalled();
+  });
+
+  it("registers an address whose domain merely contains noreply", async () => {
+    user.findUnique.mockResolvedValue(null);
+    user.create.mockResolvedValue({ id: "contains-user", email: "x@noreply.com" });
+
+    const res = await POST(makeReq({ email: "x@noreply.com", password: "validpass" }));
+    expect(res.status).toBe(200);
+    expect(user.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat an address without an @ as a placeholder (reaches the duplicate check)", async () => {
+    user.findUnique.mockResolvedValue(null);
+    user.create.mockResolvedValue({ id: "weird-user", email: "noreply" });
+
+    const res = await POST(makeReq({ email: "noreply", password: "validpass" }));
+    expect(res.status).toBe(200);
+    expect(user.findUnique).toHaveBeenCalledWith({ where: { email: "noreply" } });
+    expect(user.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers normally an address whose domain does not end in noreply", async () => {
+    user.findUnique.mockResolvedValue(null);
+    user.create.mockResolvedValue({ id: "normal-user", email: "person@example.com" });
+
+    const res = await POST(makeReq({ email: "person@example.com", password: "validpass" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.user.email).toBe("person@example.com");
+  });
+
   it("200 on success with password length exactly 8 (boundary)", async () => {
     user.findUnique.mockResolvedValue(null);
     user.create.mockResolvedValue({ id: "new-user", email: "new@example.com" });
