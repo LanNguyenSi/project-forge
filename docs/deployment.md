@@ -911,6 +911,14 @@ Exit 0 and `No difference detected.` means step 3. Exit 2 lists the
 differences: fix them first (recovery step 4) or accept the abort. Also check
 that the volume has room for a copy of the database file.
 
+A direct jump from 0.8.0 or earlier to a release that has a second migration
+after the baseline (the `User.sessionsValidAfter` column is the first) needs the
+manual baseline: the old database matches the baseline schema, not the current
+one, so the check above exits 2 and the start aborts. Follow recovery step 4
+under [Auto-baseline and the abort message](#auto-baseline-and-the-abort-message),
+record the baseline by hand, and the next start applies the later migrations.
+Upgrading from 0.9.0 needs nothing extra.
+
 One-time manual step: none when the check passes. For local development,
 `npm run db:push` is gone: use `npx prisma migrate deploy` for a fresh database
 (see `CONTRIBUTING.md` for a database that `db push` created). Delete the

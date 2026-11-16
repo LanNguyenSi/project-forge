@@ -819,3 +819,32 @@ describe("GitHub sign-in email verification", () => {
     expect(rows[0].githubId).toBe("1001");
   });
 });
+
+describe("session callback cutoff read", () => {
+  it("refuses the session without throwing when the cutoff cannot be read", async () => {
+    store.user.findUnique.mockRejectedValueOnce(new Error("database is locked"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const session = await authOptions.callbacks!.session!({
+      session: { user: {}, expires: "" } as never,
+      token: { userId: "u1", authAt: Date.now() } as never,
+    } as never);
+
+    expect(session).toEqual({});
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(logged.mock.calls)).not.toContain("database is locked");
+  });
+
+  it("serves the session and carries the mint time when the cutoff read succeeds", async () => {
+    row({ id: "u1", email: "me@example.com" });
+    const authAt = Date.now();
+
+    const session = (await authOptions.callbacks!.session!({
+      session: { user: {}, expires: "" } as never,
+      token: { userId: "u1", authAt } as never,
+    } as never)) as { user: { id: string }; authAt?: number };
+
+    expect(session.user.id).toBe("u1");
+    expect(session.authAt).toBe(authAt);
+  });
+});

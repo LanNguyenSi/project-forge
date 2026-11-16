@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isStaleSession } from "@/lib/session-cutoff";
 import { internalErrorDetails } from "@/lib/server-error";
 import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
 import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
@@ -19,11 +20,18 @@ export async function GET() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { githubPat: true },
+    select: { githubPat: true, sessionsValidAfter: true },
   });
 
   if (!user) {
     return NextResponse.json({ ok: false, error: "User not found" }, { status: 404 });
+  }
+
+  // The cutoff comes from the same read as the token: a legacy row claimed
+  // after getServerSession passed would otherwise hand the new owner's token to
+  // the session that was open before the claim.
+  if (isStaleSession(session.authAt, user.sessionsValidAfter)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   // Secret-bearing response: forbid any intermediary/browser caching.
@@ -50,8 +58,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // The write carries the cutoff test itself, so a claim that commits after
+    // the session check cannot have its token overwritten by an older session
+    // (update throws P2025 when no row matches).
     await prisma.user.update({
-      where: { id: session.user.id },
+      where: {
+        id: session.user.id,
+        OR: [
+          { sessionsValidAfter: null },
+          ...(typeof session.authAt === "number" ? [{ sessionsValidAfter: { lte: new Date(session.authAt) } }] : []),
+        ],
+      },
       data: { githubPat },
     });
 
@@ -59,6 +76,9 @@ export async function POST(req: NextRequest) {
   } catch (error: unknown) {
     if (error instanceof BodyTooLargeError) {
       return NextResponse.json({ ok: false, error: "Request body too large" }, { status: 413 });
+    }
+    if ((error as { code?: unknown } | null)?.code === "P2025") {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.json(
       { ok: false, error: "Failed to save PAT", details: internalErrorDetails("Save PAT failed", error) },

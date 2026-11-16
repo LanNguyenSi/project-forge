@@ -267,7 +267,7 @@ describe("GET /api/dashboard/pat", () => {
     expect(user.findUnique).toHaveBeenCalledTimes(1);
     expect(user.findUnique).toHaveBeenCalledWith({
       where: { id: "user-1" },
-      select: { githubPat: true },
+      select: { githubPat: true, sessionsValidAfter: true },
     });
   });
 

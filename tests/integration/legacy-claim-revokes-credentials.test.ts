@@ -24,7 +24,12 @@ const ROOT = path.join(__dirname, "..", "..");
 const COOKIE = "next-auth.session-token";
 
 // The cookie of the request that the next getServerSession() call reads.
-const current = vi.hoisted(() => ({ cookie: null as string | null }));
+const current = vi.hoisted(() => ({
+  cookie: null as string | null,
+  // Runs after the session check passed and before the route goes on: the
+  // window in which a claim can commit.
+  afterSession: null as null | (() => Promise<void>),
+}));
 
 vi.mock("next-auth", async () => {
   const actual = await vi.importActual<typeof import("next-auth")>("next-auth");
@@ -33,10 +38,12 @@ vi.mock("next-auth", async () => {
     // The route handlers call getServerSession(authOptions) and take the
     // cookie from the request scope; hand the real implementation the cookie
     // of the simulated request.
-    getServerSession: (options: import("next-auth").NextAuthOptions) => {
+    getServerSession: async (options: import("next-auth").NextAuthOptions) => {
       const req = { cookies: current.cookie ? { [COOKIE]: current.cookie } : {}, headers: {} };
       const res = { setHeader() {}, getHeader() {} };
-      return (actual.getServerSession as (...a: unknown[]) => Promise<unknown>)(req, res, options);
+      const session = await (actual.getServerSession as (...a: unknown[]) => Promise<unknown>)(req, res, options);
+      await current.afterSession?.();
+      return session;
     },
   };
 });
@@ -48,6 +55,11 @@ let createApiToken: typeof import("@/lib/db").createApiToken;
 let validateApiToken: typeof import("@/lib/db").validateApiToken;
 let projectsGET: typeof import("@/app/api/v1/projects/route").GET;
 let patGET: typeof import("@/app/api/dashboard/pat/route").GET;
+let patPOST: typeof import("@/app/api/dashboard/pat/route").POST;
+let tokensPOST: typeof import("@/app/api/dashboard/tokens/route").POST;
+let publishPOST: typeof import("@/app/api/publish/route").POST;
+let nextAuthApi: typeof import("next-auth").default;
+let sessionOf: typeof import("next-auth").getServerSession;
 
 const fetchMock = vi.fn();
 
@@ -70,7 +82,11 @@ beforeAll(async () => {
   ({ createApiToken, validateApiToken } = await import("@/lib/db"));
   ({ authOptions } = await import("@/lib/auth"));
   ({ GET: projectsGET } = await import("@/app/api/v1/projects/route"));
-  ({ GET: patGET } = await import("@/app/api/dashboard/pat/route"));
+  ({ GET: patGET, POST: patPOST } = await import("@/app/api/dashboard/pat/route"));
+  ({ POST: tokensPOST } = await import("@/app/api/dashboard/tokens/route"));
+  ({ POST: publishPOST } = await import("@/app/api/publish/route"));
+  nextAuthApi = (await import("next-auth")).default;
+  ({ getServerSession: sessionOf } = await import("next-auth"));
 }, 60_000);
 
 afterAll(async () => {
@@ -80,6 +96,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   current.cookie = null;
+  current.afterSession = null;
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   await db.usageLog.deleteMany();
@@ -284,5 +301,165 @@ describe("sign-ins that are not a claim of a legacy row", () => {
     const row = await db.user.create({ data: { email: "plain@example.com", passwordHash: "hash", githubPat: "ghp_x" } });
 
     expect(await patStatus(await cookieFor({ userId: row.id }))).toEqual({ status: 200, pat: "ghp_x" });
+  });
+});
+
+function jsonReq(url: string, body: unknown): NextRequest {
+  return new NextRequest(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("what getServerSession and /api/auth/session say about a session below the cutoff", () => {
+  it("getServerSession returns null, and the session endpoint returns an empty body; a session at the cutoff is served", async () => {
+    const { row } = await seedLegacyRow();
+    const oldCookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+    await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+    const fresh = await mintSessionFor(row.id);
+
+    // GET /api/auth/session as the browser calls it (the pages-style handler,
+    // because the route-handler form reads cookies() from the request scope).
+    const sessionBody = async (cookie: string) => {
+      let body: unknown;
+      const res = {
+        status: () => res,
+        setHeader: () => res,
+        getHeader: () => undefined,
+        end: () => res,
+        json: () => res,
+        send: (b: unknown) => {
+          body = b;
+          return res;
+        },
+      };
+      await (nextAuthApi as unknown as (...a: unknown[]) => Promise<void>)(
+        { query: { nextauth: ["session"] }, method: "GET", cookies: { [COOKIE]: cookie }, headers: {}, body: {} },
+        res,
+        { ...authOptions, secret: SECRET },
+      );
+      return body as Record<string, unknown> & { user?: { id?: string } };
+    };
+
+    current.cookie = oldCookie;
+    expect(await sessionOf(authOptions)).toBeNull();
+    expect(await sessionBody(oldCookie)).toEqual({});
+
+    current.cookie = fresh;
+    expect(await sessionOf(authOptions)).toMatchObject({ user: { id: row.id } });
+    expect((await sessionBody(fresh)).user?.id).toBe(row.id);
+  });
+});
+
+describe("a claim that commits after the session check passed", () => {
+  const claimBetween = () => {
+    current.afterSession = async () => {
+      current.afterSession = null;
+      const { result } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+      expect(result).toBe(true);
+    };
+  };
+
+  it("GET /api/dashboard/pat does not hand the new owner's token to the older session", async () => {
+    const { row } = await seedLegacyRow();
+    const oldCookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+    current.cookie = oldCookie;
+    claimBetween();
+
+    const res = await patGET();
+
+    expect(res.status).toBe(401);
+    expect(await res.text()).not.toContain("gho_owner");
+    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat).toBe("gho_owner");
+  });
+
+  it("GET /api/dashboard/pat still answers a session minted at or after the claim", async () => {
+    const { row } = await seedLegacyRow();
+    await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+
+    expect(await patStatus(await mintSessionFor(row.id))).toEqual({ status: 200, pat: "gho_owner" });
+  });
+
+  it("POST /api/dashboard/pat does not overwrite the new owner's token from the older session", async () => {
+    const { row } = await seedLegacyRow();
+    current.cookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+    claimBetween();
+
+    const res = await patPOST(jsonReq("http://localhost/api/dashboard/pat", { githubPat: "ghp_from_old_session" }));
+
+    expect(res.status).toBe(401);
+    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat).toBe("gho_owner");
+  });
+
+  it("POST /api/dashboard/pat saves for a session minted after the claim, and for a user with no cutoff", async () => {
+    const { row } = await seedLegacyRow();
+    await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+    current.cookie = await mintSessionFor(row.id);
+    expect((await patPOST(jsonReq("http://localhost/api/dashboard/pat", { githubPat: "ghp_after_claim" }))).status).toBe(200);
+    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat).toBe("ghp_after_claim");
+
+    const plain = await db.user.create({ data: { email: "plain@example.com", passwordHash: "hash" } });
+    current.cookie = await cookieFor({ userId: plain.id });
+    expect((await patPOST(jsonReq("http://localhost/api/dashboard/pat", { githubPat: "ghp_plain" }))).status).toBe(200);
+    expect((await db.user.findUniqueOrThrow({ where: { id: plain.id } })).githubPat).toBe("ghp_plain");
+  });
+
+  it("POST /api/dashboard/pat saves for a session minted in the same millisecond as the cutoff", async () => {
+    const { row } = await seedLegacyRow();
+    const cutoff = new Date(Date.now() - 5_000);
+    await db.user.update({ where: { id: row.id }, data: { sessionsValidAfter: cutoff } });
+    current.cookie = await cookieFor({ userId: row.id, authAt: cutoff.getTime() });
+
+    expect((await patPOST(jsonReq("http://localhost/api/dashboard/pat", { githubPat: "ghp_same_ms" }))).status).toBe(200);
+    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat).toBe("ghp_same_ms");
+  });
+
+  it("POST /api/dashboard/tokens gives the older session no usable token, and revokes the one it created", async () => {
+    const { row } = await seedLegacyRow();
+    current.cookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+    claimBetween();
+
+    const res = await tokensPOST(jsonReq("http://localhost/api/dashboard/tokens", { name: "from old session" }));
+
+    expect(res.status).toBe(401);
+    expect(JSON.stringify(await res.json())).not.toContain("pf_");
+    const made = await db.apiToken.findMany({ where: { userId: row.id, name: "from old session" } });
+    expect(made).toHaveLength(1);
+    expect(made[0].revokedAt).toBeInstanceOf(Date);
+    expect(await db.apiToken.count({ where: { userId: row.id, revokedAt: null } })).toBe(0);
+  });
+
+  it("POST /api/dashboard/tokens issues a working token to a session minted after the claim and to a user with no cutoff", async () => {
+    const { row } = await seedLegacyRow();
+    await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+    current.cookie = await mintSessionFor(row.id);
+    const res = await tokensPOST(jsonReq("http://localhost/api/dashboard/tokens", { name: "after claim" }));
+    expect(res.status).toBe(200);
+    expect(await tokenStatus(((await res.json()) as { token: { token: string } }).token.token)).toBe(200);
+
+    const plain = await db.user.create({ data: { email: "plain@example.com", passwordHash: "hash" } });
+    current.cookie = await cookieFor({ userId: plain.id });
+    const res2 = await tokensPOST(jsonReq("http://localhost/api/dashboard/tokens", { name: "plain" }));
+    expect(res2.status).toBe(200);
+    expect(await tokenStatus(((await res2.json()) as { token: { token: string } }).token.token)).toBe(200);
+  });
+
+  it("POST /api/publish refuses the older session before it uses the new owner's token", async () => {
+    const { row } = await seedLegacyRow();
+    current.cookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
+    claimBetween();
+
+    const res = await publishPOST(
+      jsonReq("http://localhost/api/publish", {
+        sessionId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        projectName: "p",
+      }),
+    );
+
+    expect(res.status).toBe(401);
+    // Only the claim's own email lookup went out, nothing was sent to GitHub with the token.
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.every((u) => u.endsWith("/user/emails"))).toBe(true);
   });
 });

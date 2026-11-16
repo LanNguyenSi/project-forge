@@ -2,6 +2,7 @@ import type { NextAuthOptions, Session } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
+import { isStaleSession } from "./session-cutoff";
 import { githubEmailStatus, githubPrimaryVerifiedEmail } from "./github-verified-email";
 import bcrypt from "bcryptjs";
 import {
@@ -137,8 +138,10 @@ async function signInWithGithub(
     // sign-in, possibly by an account holding an unverified copy of this
     // email, which also left it API tokens and a session. Every API token of
     // the row is revoked and sessions minted before this instant are refused
-    // (sessionsValidAfter, checked in the session callback), so neither can
-    // use or read the OAuth token written here. All or nothing: a failed
+    // (sessionsValidAfter, checked in the session callback and again by the
+    // routes that yield or overwrite a credential, lib/session-cutoff.ts). A
+    // request that already passed the session check when the claim commits is
+    // caught by those routes, not by the callback. All or nothing: a failed
     // revoke rolls the claim back.
     try {
       const claimedAt = new Date();
@@ -253,15 +256,25 @@ export const authOptions: NextAuthOptions = {
         // since) is refused, and so is one without a mint time once a cutoff
         // exists. An empty session reads as "not signed in" everywhere
         // (getServerSession returns null, /api/auth/session returns {}).
-        const row = await prisma.user.findUnique({
-          where: { id: token.userId },
-          select: { sessionsValidAfter: true },
-        });
-        const cutoff = row?.sessionsValidAfter;
-        if (cutoff && !(typeof token.authAt === "number" && token.authAt >= cutoff.getTime())) {
+        // A read that fails refuses the session the same way instead of
+        // throwing, because next-auth clears the session cookie on a throw and
+        // would sign the browser out over a transient database error.
+        let cutoff: Date | null | undefined;
+        try {
+          const row = await prisma.user.findUnique({
+            where: { id: token.userId },
+            select: { sessionsValidAfter: true },
+          });
+          cutoff = row?.sessionsValidAfter;
+        } catch {
+          console.error("Session check failed: could not read the session cutoff");
           return {} as Session;
         }
+        if (isStaleSession(token.authAt, cutoff)) return {} as Session;
         session.user.id = token.userId;
+        // The mint time travels with the session so a route that yields a
+        // credential can compare it with the cutoff it reads itself.
+        if (typeof token.authAt === "number") session.authAt = token.authAt;
       }
       return session;
     },
