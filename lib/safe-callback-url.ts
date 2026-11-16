@@ -6,6 +6,8 @@
 
 export const DEFAULT_CALLBACK_URL = "/dashboard";
 
+const RESOLVE_BASE = "http://callback.invalid";
+
 // C0 controls (tab, CR and LF are stripped by URL parsers, which would turn
 // "/\t/evil.test" into "//evil.test") and DEL.
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
@@ -15,7 +17,11 @@ function isSafeRelativePath(value: string): boolean {
   // "//host" is protocol-relative; browsers read "/\host" the same way.
   if (value[1] === "/" || value[1] === "\\") return false;
   if (CONTROL_CHARS.test(value)) return false;
-  return true;
+  // Resolve it the way a browser does: dot segments and backslashes can turn
+  // "/.//evil.test" or "/a\\..\\\\evil.test" into "//evil.test" after the
+  // checks above. Against a base URL a value with a single leading "/" cannot
+  // leave the base's origin, so only the resulting path needs a look.
+  return !new URL(value, RESOLVE_BASE).pathname.startsWith("//");
 }
 
 /**

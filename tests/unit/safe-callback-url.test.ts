@@ -14,6 +14,10 @@ describe("safeCallbackUrl accepts same-origin relative paths", () => {
     expect(safeCallbackUrl("/dashboard/projects/1#top")).toBe("/dashboard/projects/1#top");
   });
 
+  it("keeps a dot segment that stays on the same single-slash path", () => {
+    expect(safeCallbackUrl("/a/../settings")).toBe("/a/../settings");
+  });
+
   it("keeps a percent-encoded query value that decodes to something harmless", () => {
     expect(safeCallbackUrl("/settings?next=%2Fcreate")).toBe("/settings?next=%2Fcreate");
   });
@@ -62,6 +66,30 @@ describe("safeCallbackUrl falls back to the dashboard", () => {
 
   it("for a value that only decodes to a slash-backslash prefix", () => {
     expect(safeCallbackUrl("/%5Cevil.test")).toBe("/dashboard");
+  });
+
+  it("for an encoded slash that only becomes a path after decoding", () => {
+    expect(safeCallbackUrl("%2Fcreate")).toBe("/dashboard");
+  });
+
+  it("for an encoded backslash followed by a slash", () => {
+    expect(safeCallbackUrl("%5C/evil")).toBe("/dashboard");
+  });
+
+  it("for a dot segment that resolves to //host (/.//evil.test)", () => {
+    expect(safeCallbackUrl("/.//evil.test")).toBe("/dashboard");
+  });
+
+  it("for a double dot segment that resolves to //host (/..//evil.test)", () => {
+    expect(safeCallbackUrl("/..//evil.test")).toBe("/dashboard");
+  });
+
+  it("for an encoded dot segment that resolves to //host (/%2e//evil.test)", () => {
+    expect(safeCallbackUrl("/%2e//evil.test")).toBe("/dashboard");
+  });
+
+  it("for backslashes and dot segments that resolve to //host", () => {
+    expect(safeCallbackUrl("/a\\..\\\\evil.test")).toBe("/dashboard");
   });
 
   it("for a leading space", () => {

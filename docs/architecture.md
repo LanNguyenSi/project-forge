@@ -110,10 +110,9 @@ Route handlers under `app/api/` export HTTP-method functions (`GET`, `POST`,
   `app/api/ai-assist`) use NextAuth session auth (email/password credentials
   plus GitHub OAuth, see `lib/auth.ts`).
 - `middleware.ts` gates the protected surfaces. An unauthenticated request for
-  `/dashboard`, `/create` or `/settings` gets a 307 to `/login?callbackUrl=<path and query>`
-  on the host the client used (`X-Forwarded-Host`, else `Host`); after a sign-in
-  the login page goes back to `callbackUrl` when it is a same-origin relative
-  path (`lib/safe-callback-url.ts`), else to `/dashboard`.
+  `/dashboard`, `/create` or `/settings` gets a 307 to `/login?callbackUrl=<path and query>`;
+  after a sign-in the login page goes back to `callbackUrl` when it is a
+  same-origin relative path (`lib/safe-callback-url.ts`), else to `/dashboard`.
 
 Error responses follow the shape `{ ok: false, error: string, details?: string }`.
 
