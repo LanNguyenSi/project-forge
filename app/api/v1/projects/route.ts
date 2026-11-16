@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateApiToken, reserveUsage, confirmUsage, releaseUsage, prisma } from "@/lib/db";
+import {
+  validateApiToken,
+  reserveUsage,
+  confirmUsage,
+  releaseUsage,
+  prisma,
+  GENERATION_TIMEOUT_MS,
+  GITHUB_REPO_CREATE_TIMEOUT_MS,
+  GIT_COMMAND_TIMEOUT_MS,
+  GIT_PUSH_TIMEOUT_MS,
+} from "@/lib/db";
 import { randomUUID } from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
@@ -13,9 +23,6 @@ import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
 import { GENERATE_MAX_BODY_BYTES } from "@/lib/limits";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
-// End-to-end cap for plan + scaffold + tar + SSE + untar + git push.
-// Server-side scaffoldkit timeout is 5 min; 3 min here leaves headroom.
-const GENERATION_TIMEOUT_MS = 3 * 60_000;
 
 interface ProjectRequest {
   projectName: string;
@@ -259,7 +266,9 @@ async function createAndPushRepo(
   githubPat: string,
   owner: string
 ): Promise<string> {
-  // Create GitHub repo via API
+  // Create GitHub repo via API. The signal bounds the call so the request
+  // ends, and the finally releases the reservation, well before its TTL
+  // (see the worst-case sum comment next to RESERVATION_TTL_MS in lib/db.ts).
   const createRes = await fetch("https://api.github.com/user/repos", {
     method: "POST",
     headers: {
@@ -271,6 +280,7 @@ async function createAndPushRepo(
       private: false,
       auto_init: false,
     }),
+    signal: AbortSignal.timeout(GITHUB_REPO_CREATE_TIMEOUT_MS),
   });
 
   if (!createRes.ok) {
@@ -308,7 +318,7 @@ async function createAndPushRepo(
   const pushUrl = repo.clone_url.replace("https://", `https://${githubPat}@`);
 
   // Initialize git and push
-  const git = (args: string[], timeoutMs = 10_000) =>
+  const git = (args: string[], timeoutMs = GIT_COMMAND_TIMEOUT_MS) =>
     runCommand("git", args, { cwd: projectDir, timeoutMs });
 
   await git(["init"]);
@@ -320,7 +330,7 @@ async function createAndPushRepo(
   await git(["commit", "-m", "Initial commit via project-forge"]);
   await git(["branch", "-M", "main"]);
   await git(["remote", "add", "origin", pushUrl]);
-  await git(["push", "-u", "origin", "main"], 30_000);
+  await git(["push", "-u", "origin", "main"], GIT_PUSH_TIMEOUT_MS);
 
   return repoUrl;
 }

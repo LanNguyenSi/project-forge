@@ -13,12 +13,36 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 export const RATE_LIMIT_PER_DAY = 10;
 
 // A reservation (UsageLog row with repoUrl NULL) is written when a publish
-// request starts and filled in when the repo was pushed. The slowest request
-// (generate + push) takes a few minutes, so a reservation counts against the
-// quota for this long. A reservation older than that belongs to a request
-// that died without releasing it (process crash, restart) and stops counting,
-// so a crash cannot burn quota for the whole 24 hours.
+// request starts and filled in when the repo was pushed. A reservation counts
+// against the quota for as long as a publish request may run: every outbound
+// call between reserveUsage() and confirmUsage()/releaseUsage() on both
+// publishing routes is bounded by the named constants below, so a request
+// always ends (and releases) before its reservation goes stale. A reservation
+// older than RESERVATION_TTL_MS belongs to a request that died without
+// releasing it (process crash, restart) and stops counting, so a crash cannot
+// burn quota for the whole 24 hours.
 export const RESERVATION_TTL_MS = 15 * 60 * 1000;
+
+// Worst case of the slowest publishing route (POST /api/v1/projects), from
+// reserveUsage() to confirmUsage()/releaseUsage(), as a sum of the named
+// bounds, in milliseconds:
+//   GENERATION_TIMEOUT_MS                             180000  planforge + scaffold HTTP
+//   AI_REQUEST_TIMEOUT_MS * (1 + AI_MAX_RETRIES)       90000  post-scaffold review (lib/ai-provider.ts)
+//   GITHUB_REPO_CREATE_TIMEOUT_MS                      30000  api.github.com repo create
+//   GIT_COMMAND_TIMEOUT_MS * 7 + GIT_PUSH_TIMEOUT_MS  100000  git init..push (7 default + push)
+//   total                                             400000  (~6.7 min)
+// POST /api/v1/publish is the same without the generation step and the AI
+// review (~130000). Against RESERVATION_TTL_MS (900000) the slowest route
+// keeps a margin of 500000 ms (~8.3 min); tests/unit/reservation-window-
+// bounds.test.ts recomputes this sum from the constants themselves and fails
+// if the margin drops below 2 minutes.
+
+// End-to-end cap for plan + scaffold + tar + SSE + untar + git push.
+// Server-side scaffoldkit timeout is 5 min; 3 min here leaves headroom.
+export const GENERATION_TIMEOUT_MS = 3 * 60_000;
+export const GITHUB_REPO_CREATE_TIMEOUT_MS = 30 * 1000;
+export const GIT_COMMAND_TIMEOUT_MS = 10_000;
+export const GIT_PUSH_TIMEOUT_MS = 30_000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

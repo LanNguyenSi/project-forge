@@ -54,6 +54,15 @@ const OPENAI_MODEL = "gpt-4o-mini";
 // fixed headroom on top, otherwise the JSON gets truncated.
 const REASONING_TOKEN_HEADROOM = 1024;
 
+// Bounds for the client below. A caller that is a publishing request holds a
+// quota reservation for the whole call, so the client must end well inside
+// RESERVATION_TTL_MS (lib/db.ts). Retries multiply the bound: the worst case
+// of one generateStructuredJson() call is AI_REQUEST_TIMEOUT_MS *
+// (1 + AI_MAX_RETRIES). The SDK defaults (10 min timeout, 2 retries) are
+// many times the reservation TTL, so both are pinned explicitly.
+export const AI_REQUEST_TIMEOUT_MS = 45_000;
+export const AI_MAX_RETRIES = 1;
+
 function isReasoningModel(model: string): boolean {
   return model.startsWith("openai/gpt-oss-");
 }
@@ -145,6 +154,8 @@ export async function generateStructuredJson<T>(
   const client = new OpenAI({
     apiKey: config.apiKey ?? "local-dev",
     baseURL: config.baseURL,
+    timeout: AI_REQUEST_TIMEOUT_MS,
+    maxRetries: AI_MAX_RETRIES,
   });
 
   const reasoning = isReasoningModel(config.model);

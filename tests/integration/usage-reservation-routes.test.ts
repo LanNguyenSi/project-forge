@@ -11,13 +11,17 @@ import * as path from "path";
  * file in tests/unit/usage-reservation.test.ts.
  */
 
-vi.mock("@/lib/db", () => ({
-  validateApiToken: vi.fn(),
-  reserveUsage: vi.fn(),
-  confirmUsage: vi.fn(),
-  releaseUsage: vi.fn(),
-  prisma: { usageLog: { findMany: vi.fn(), count: vi.fn() } },
-}));
+vi.mock("@/lib/db", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+  return {
+    ...actual,
+    validateApiToken: vi.fn(),
+    reserveUsage: vi.fn(),
+    confirmUsage: vi.fn(),
+    releaseUsage: vi.fn(),
+    prisma: { usageLog: { findMany: vi.fn(), count: vi.fn() } },
+  };
+});
 
 vi.mock("@/lib/subprocess", () => ({
   runCommand: vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
@@ -35,7 +39,7 @@ vi.mock("@/lib/post-scaffold-review", () => ({
   runPostScaffoldReview: vi.fn().mockResolvedValue({}),
 }));
 
-import { validateApiToken, reserveUsage, confirmUsage, releaseUsage } from "@/lib/db";
+import { validateApiToken, reserveUsage, confirmUsage, releaseUsage, GITHUB_REPO_CREATE_TIMEOUT_MS } from "@/lib/db";
 import { runPlanforgeViaHttp } from "@/lib/planforge-client";
 import { POST as publishPOST } from "@/app/api/v1/publish/route";
 import { POST as projectsPOST, GET as projectsGET } from "@/app/api/v1/projects/route";
@@ -221,6 +225,87 @@ describe("POST /api/v1/projects: quota reservation", () => {
     mValidate.mockResolvedValue(token(null) as never);
     const res = await projectsPOST(post("http://test/api/v1/projects", body));
     expect(res.status).toBe(400);
+    expect(mRelease).toHaveBeenCalledWith("res-1");
+  });
+});
+
+describe("timeout bounds on the GitHub repo-create fetch", () => {
+  // The signal is what keeps a stalled api.github.com call from holding the
+  // quota reservation past its TTL (worst-case sum: lib/db.ts).
+  const createBody = { projectName: "demo", summary: "A demo project" };
+
+  function timeoutRejection(): Error {
+    const error = new Error("The operation was aborted due to timeout");
+    error.name = "TimeoutError";
+    return error;
+  }
+
+  function stubFetchCapturingSignal() {
+    const captured: { signal?: AbortSignal | null } = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        captured.signal = init?.signal;
+        return new Response(JSON.stringify(githubOk), { status: 201 });
+      }),
+    );
+    return captured;
+  }
+
+  function stubFetchTimingOut() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw timeoutRejection();
+      }),
+    );
+  }
+
+  it("POST /api/v1/projects: repo-create fetch gets AbortSignal.timeout(GITHUB_REPO_CREATE_TIMEOUT_MS)", async () => {
+    const captured = stubFetchCapturingSignal();
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    try {
+      const res = await projectsPOST(post("http://test/api/v1/projects", createBody));
+      expect(res.status).toBe(200);
+      expect(timeoutSpy).toHaveBeenCalledWith(GITHUB_REPO_CREATE_TIMEOUT_MS);
+      expect(captured.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("POST /api/v1/publish: repo-create fetch gets AbortSignal.timeout(GITHUB_REPO_CREATE_TIMEOUT_MS)", async () => {
+    await session();
+    const captured = stubFetchCapturingSignal();
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    try {
+      const res = await publishPOST(post("http://test/api/v1/publish", { sessionId: SESSION_ID }));
+      expect(res.status).toBe(200);
+      expect(timeoutSpy).toHaveBeenCalledWith(GITHUB_REPO_CREATE_TIMEOUT_MS);
+      expect(captured.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("POST /api/v1/projects: a repo-create timeout answers the route's 500 and releases the reservation", async () => {
+    stubFetchTimingOut();
+    const res = await projectsPOST(post("http://test/api/v1/projects", createBody));
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("Project generation failed");
+    expect(mConfirm).not.toHaveBeenCalled();
+    expect(mRelease).toHaveBeenCalledTimes(1);
+    expect(mRelease).toHaveBeenCalledWith("res-1");
+  });
+
+  it("POST /api/v1/publish: a repo-create timeout answers the route's 500 and releases the reservation", async () => {
+    await session();
+    stubFetchTimingOut();
+    const res = await publishPOST(post("http://test/api/v1/publish", { sessionId: SESSION_ID }));
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toContain("Publish failed");
+    expect(mConfirm).not.toHaveBeenCalled();
+    expect(mRelease).toHaveBeenCalledTimes(1);
     expect(mRelease).toHaveBeenCalledWith("res-1");
   });
 });
