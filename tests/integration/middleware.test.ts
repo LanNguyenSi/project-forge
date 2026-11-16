@@ -5,7 +5,8 @@ import { NextRequest } from 'next/server';
  * Integration tests for middleware.ts — covers all 5 logic branches:
  *   - /api/v1/* missing X-API-Key → 401
  *   - /api/v1/* key present → 200 pass-through
- *   - protected page no token → 307 redirect to /login?callbackUrl=<pathname>
+ *   - protected page no token → 307 redirect to /login?callbackUrl=<path and query>,
+ *     on the origin of the request itself
  *   - protected page with token → 200 pass-through
  *   - /create path also redirects (exercises another protected-paths entry)
  */
@@ -88,5 +89,60 @@ describe('middleware', () => {
     const location = res.headers.get('location') ?? '';
     expect(location).toContain('/login');
     expect(location).toContain('create');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Redirect target: callbackUrl and origin
+  // ---------------------------------------------------------------------------
+
+  async function redirectLocation(url: string, headers: Record<string, string> = {}) {
+    mGetToken.mockResolvedValue(null);
+    const res = await middleware(new NextRequest(url, { headers }));
+    expect(res.status).toBe(307);
+    return res.headers.get('location');
+  }
+
+  it('callbackUrl keeps the query of the original request', async () => {
+    expect(await redirectLocation('http://test/settings?tab=x')).toBe(
+      'http://test/login?callbackUrl=%2Fsettings%3Ftab%3Dx',
+    );
+  });
+
+  it('callbackUrl keeps a nested path with several query parameters', async () => {
+    expect(await redirectLocation('http://test/settings/tokens?a=1&b=2')).toBe(
+      'http://test/login?callbackUrl=%2Fsettings%2Ftokens%3Fa%3D1%26b%3D2',
+    );
+  });
+
+  it('callbackUrl is the bare path when the request has no query', async () => {
+    expect(await redirectLocation('http://test/create')).toBe(
+      'http://test/login?callbackUrl=%2Fcreate',
+    );
+  });
+
+  it('redirects on the origin of the request itself (scheme, host and port)', async () => {
+    expect(await redirectLocation('https://forge.example.test:8443/settings?tab=x')).toBe(
+      'https://forge.example.test:8443/login?callbackUrl=%2Fsettings%3Ftab%3Dx',
+    );
+  });
+
+  it('does not take the redirect origin from the X-Forwarded-Host header', async () => {
+    const location = await redirectLocation('http://test/settings', {
+      'x-forwarded-host': 'evil.test',
+    });
+    expect(location).toBe('http://test/login?callbackUrl=%2Fsettings');
+  });
+
+  it('does not run the session check for a path that only starts like a protected one', async () => {
+    const res = await middleware(new NextRequest('http://test/settings-old'));
+    expect(res.status).toBe(200);
+    expect(mGetToken).not.toHaveBeenCalled();
+  });
+
+  it('passes an authenticated request on a nested protected path', async () => {
+    mGetToken.mockResolvedValue({ sub: 'user-1' } as never);
+    const res = await middleware(new NextRequest('http://test/settings/tokens?tab=x'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('location')).toBeNull();
   });
 });
