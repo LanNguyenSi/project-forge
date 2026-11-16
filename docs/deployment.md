@@ -673,6 +673,14 @@ same compose file and `.env` apply):
 make backup            # or: sh scripts/backup.sh
 ```
 
+A manual run needs the same `FORGE_BACKUP_DIR` you gave `make install-cron`,
+so export it once per shell (the value below is the one used throughout this
+section):
+
+```bash
+export FORGE_BACKUP_DIR=/var/backups/project-forge
+```
+
 What it does: it reads the database path from the running `app` container
 (`docker compose exec -T app printenv DATABASE_URL`), never from the compose
 file, so a `FORGE_DATABASE_URL` override or an override-file path is picked up
@@ -690,6 +698,14 @@ image the copy step fails with a non-zero exit and nothing is written.
 
 The output goes to `FORGE_BACKUP_DIR`, default `$HOME/project-forge-backups`,
 which is deliberately outside the checkout (the deploy tree must stay clean).
+A run with `FORGE_BACKUP_DIR` unset prints the target directory it resolved
+and refuses when the installed project-forge crontab block names another one
+(the directory `install-cron` installed is visible in the lines it wrote), so
+a manual copy cannot land somewhere else than the nightly backups and the
+freshness check look for it; with no project-forge entry installed the
+`$HOME` default stands, and an unreadable crontab is refused rather than
+guessed around (`FORGE_CRONTAB` names the crontab program used for the
+check, default `crontab`).
 Environment knobs: `FORGE_BACKUP_DIR` (an explicit directory wins; unset or
 empty means the `$HOME` default), `FORGE_BACKUP_KEEP` (how many files to keep,
 default 14; unset or empty means 14, zero or anything non-numeric is refused
@@ -831,7 +847,13 @@ includes what the app wrote while the backup was being taken. Restore with the
 app stopped, so nothing writes between the check and the swap: stop it with
 `docker compose stop` or `docker compose stop app`, never with
 `docker compose down -v` (see [Disk space](#disk-space)), which would delete
-the volume the restore writes into:
+the volume the restore writes into.
+
+Take the backup file from the `FORGE_BACKUP_DIR` you gave `make install-cron`
+and from the same one you take manual backups (`export
+FORGE_BACKUP_DIR=/var/backups/project-forge` in a fresh shell, see [Backup
+and restore](#backup-and-restore)); the steps below name
+`/var/backups/project-forge`:
 
 1. Stop the app: `docker compose stop app`.
 2. Stream the backup onto the volume under a temporary name. Do not use

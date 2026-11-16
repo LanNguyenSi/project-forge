@@ -139,6 +139,15 @@ function newBackup(seedDb = true): Backup {
   mkdirSync(bin);
   writeFileSync(path.join(bin, "docker"), DOCKER_STUB);
   chmodSync(path.join(bin, "docker"), 0o755);
+  // backup.sh reads `crontab -l` when FORGE_BACKUP_DIR is unset (the
+  // manual/cron directory guard, pinned in
+  // tests/integration/backup-cron-dir-guard.test.ts). Answer "no crontab"
+  // here too, so these tests never look at the host's real crontab.
+  writeFileSync(
+    path.join(bin, "crontab"),
+    `#!/bin/sh\necho "crontab: no crontab for tester" >&2\nexit 1\n`,
+  );
+  chmodSync(path.join(bin, "crontab"), 0o755);
   const home = path.join(dir, "home");
   mkdirSync(home);
   const db = path.join(dir, "container", "data", "project-forge.db");

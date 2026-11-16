@@ -15,6 +15,13 @@
 #                      COMPOSE_PATH_SEPARATOR included).
 #   FORGE_BACKUP_DIR   output directory on the host; unset or empty means
 #                      $HOME/project-forge-backups, outside the checkout.
+#                      A run with it unset first checks the installed
+#                      project-forge crontab block (see below), so manual and
+#                      scheduled backups cannot land in two directories.
+#   FORGE_CRONTAB      the crontab program used by that check, same knob as
+#                      install-cron.sh, default `crontab` from PATH. It is
+#                      consulted only when FORGE_BACKUP_DIR is unset, never
+#                      by --check-fresh.
 #   FORGE_BACKUP_KEEP  number of backups to keep, default 14 (an empty value
 #                      counts as unset); anything else than a positive integer
 #                      (zero included) is refused before anything runs.
@@ -95,6 +102,41 @@ case "$keep" in
   0 | *[!0-9]*) die "FORGE_BACKUP_KEEP must be a positive integer, got '${FORGE_BACKUP_KEEP:-}' (unset or empty means the default 14). Nothing was written." ;;
 esac
 
+# Announce the target directory before anything runs, so the operator sees
+# where the backups go even when a later step fails.
+resolve_backup_dir || die "FORGE_BACKUP_DIR is unset and HOME is not set: no backup directory to write to. Nothing was written."
+log "backup directory: $backup_dir"
+
+# Manual and scheduled backups must share one directory. install-cron.sh
+# writes the directory into the crontab lines of its block
+# (FORGE_BACKUP_DIR='<dir>' sh ./scripts/backup.sh), so `crontab -l` shows
+# what the nightly run uses. With FORGE_BACKUP_DIR unset here, a block
+# installed to another directory would split the backups in two places and
+# let a restore pick the older one, so refuse and name both. No crontab
+# program, no crontab ("no crontab"), no project-forge line, or a block on
+# the same directory keeps the $HOME default; any other failure to read the
+# crontab is refused rather than guessed around. --check-fresh never reaches
+# this: a monitor names its directory itself.
+if [ -z "${FORGE_BACKUP_DIR:-}" ]; then
+  crontab_bin=${FORGE_CRONTAB:-crontab}
+  if cron_list=$("$crontab_bin" -l 2>&1); then
+    # The first project-forge line decides; the installer quotes the value
+    # ('/my dir' with spaces included), a hand-made line may not.
+    cron_dir=$(printf '%s\n' "$cron_list" | sed -nE "s/.*FORGE_BACKUP_DIR=('[^']*'|[^ ]+).*/\1/p" | sed -n 1p)
+    case "$cron_dir" in
+      "'"*"'") cron_dir=${cron_dir#?}; cron_dir=${cron_dir%?} ;;
+    esac
+    if [ -n "$cron_dir" ] && [ "$cron_dir" != "$backup_dir" ]; then
+      die "FORGE_BACKUP_DIR is unset but the installed project-forge cron entry writes its backups to $cron_dir: this run would write to $backup_dir instead and the two directories would drift apart. Run it with the cron directory instead: FORGE_BACKUP_DIR='$cron_dir' make backup. Nothing was written."
+    fi
+  else
+    case "$cron_list" in
+      *"no crontab"* | *"not found"*) : ;;
+      *) die "cannot read the current crontab with '$crontab_bin -l' (answer: $(printf '%s' "$cron_list" | tr '\n' ' ')). Nothing was written." ;;
+    esac
+  fi
+fi
+
 # COMPOSE_FILE is left in the environment untouched: the compose CLI reads it
 # there itself, including its list format (split on COMPOSE_PATH_SEPARATOR);
 # a single -f "$COMPOSE_FILE" would break that list.
@@ -134,9 +176,9 @@ case "$db" in
 esac
 log "container database: $db"
 
-# The output directory is only created once the container and its database
-# resolved: a failure above leaves no directory behind.
-resolve_backup_dir || die "FORGE_BACKUP_DIR is unset and HOME is not set: no backup directory to write to. Nothing was written."
+# The output directory (resolved and announced at the start) is only created
+# once the container and its database resolved: a failure above leaves no
+# directory behind.
 mkdir -p "$backup_dir" || die "cannot create the backup directory $backup_dir. Nothing was written."
 [ -d "$backup_dir" ] || die "$backup_dir is not a directory. Nothing was written."
 
