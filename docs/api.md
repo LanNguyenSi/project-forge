@@ -45,7 +45,10 @@ The stored credential is the last one saved by one of these:
   placeholder if there is none. If GitHub cannot be asked (an error or
   timeout), the sign-in fails without writing anything and can be retried. A sign-in whose verified email
   belongs to an email/password account, or to an account linked to another
-  GitHub id, is refused and writes no token.
+  GitHub id, is refused and writes no token. A sign-in that claims an older
+  GitHub-only account (one that has no `githubId` and no password yet) also
+  revokes that account's API tokens and signs out its sessions from before the
+  claim, so those tokens have to be issued again.
 - Settings: a classic personal access token (prefix `ghp_`). The Settings form
   rejects other token formats, including fine-grained tokens (`github_pat_`).
 - [Broker registration](#broker-registration): the GitHub access token it was

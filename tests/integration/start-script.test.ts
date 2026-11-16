@@ -206,11 +206,17 @@ function fakeClock(w: Work, output: string): Env {
 
 const verbs = (calls: string[]) => calls.map((c) => c.split(" ").slice(0, 2).join(" "));
 const started = (w: Work) => existsSync(w.marker);
+/** Every migration committed in prisma/migrations, as `migrate deploy` records them (one name per line). */
+const COMMITTED_MIGRATIONS = readdirSync(path.join(ROOT, "prisma", "migrations"))
+  .filter((f) => statSync(path.join(ROOT, "prisma", "migrations", f)).isDirectory())
+  .sort()
+  .join("\n");
+const COMMITTED_COUNT = COMMITTED_MIGRATIONS.split("\n").length;
 /** A migration the scratch image ships in addition to the baseline. */
 const NEXT = "20261028000000_add_nick";
 
 describe("scripts/start.sh baseline constant", () => {
-  it("names the first and only committed migration, with a sqlite lock file", () => {
+  it("names the first committed migration, with a sqlite lock file", () => {
     expect(BASELINE).toMatch(/^\d{14}_baseline$/);
     const migrations = readdirSync(path.join(ROOT, "prisma", "migrations")).filter((f) =>
       statSync(path.join(ROOT, "prisma", "migrations", f)).isDirectory(),
@@ -2225,7 +2231,7 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     const db = scratch();
     const r = start(db);
     expect(r.status, r.stderr + r.stdout).toBe(0);
-    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(COMMITTED_MIGRATIONS);
     expect(sql(db, "SELECT count(*) FROM sqlite_master WHERE name = 'ApiToken'")).toBe("1");
     expect(siblings(db, "pre-migrate-")).toEqual([]);
     expect(existsSync(`${db}.started`)).toBe(true);
@@ -2252,7 +2258,7 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     const allowed = start(db, { FORGE_ALLOW_NEW_DATABASE: "1" });
     expect(allowed.status, allowed.stderr + allowed.stdout).toBe(0);
     expect(allowed.stderr).toContain("FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates a new, empty database");
-    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(COMMITTED_MIGRATIONS);
     expect(readFileSync(other, "utf-8")).toBe("old data");
     expect(existsSync(`${db}.started`)).toBe(true);
   }, 120_000);
@@ -2274,7 +2280,7 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     const allowed = start(db, { FORGE_ALLOW_NEW_DATABASE: "1" });
     expect(allowed.status, allowed.stderr + allowed.stdout).toBe(0);
     expect(allowed.stderr).toContain("FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy initialises that empty file");
-    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(COMMITTED_MIGRATIONS);
     expect(readFileSync(other, "utf-8")).toBe("old data");
     expect(existsSync(`${db}.started`)).toBe(true);
   }, 120_000);
@@ -2284,7 +2290,7 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     writeFileSync(db, "");
     const r = start(db);
     expect(r.status, r.stderr + r.stdout).toBe(0);
-    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(COMMITTED_MIGRATIONS);
     expect(existsSync(`${db}.started`)).toBe(true);
   }, 120_000);
 
@@ -2300,20 +2306,23 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     const allowed = start(db, { FORGE_ALLOW_NEW_DATABASE: "1" });
     expect(allowed.status, allowed.stderr + allowed.stdout).toBe(0);
     expect(allowed.stderr).toContain("FORGE_ALLOW_NEW_DATABASE=1 is set, so migrate deploy creates the directory and a new, empty database");
-    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
+    expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(COMMITTED_MIGRATIONS);
     expect(existsSync(`${db}.started`)).toBe(true);
   }, 120_000);
 
   it("db-push database equal to the schema: copied, baselined, data kept", () => {
-    const db = scratch();
-    const push = spawnSync(prismaBin, ["db", "push", "--skip-generate"], {
-      cwd: ROOT,
-      encoding: "utf-8",
-      env: realEnv(db) as NodeJS.ProcessEnv,
-    });
+    // The image ships the baseline only. With a later migration committed, a
+    // db-push database of the current schema already holds that migration's
+    // change, so it cannot be baselined and then migrated; the baselining
+    // itself is what this pins.
+    const { dir, db, run, prisma } = scratchApp("pf-start-dbpush-");
+    for (const name of readdirSync(path.join(dir, "prisma", "migrations"))) {
+      if (name !== BASELINE && name !== "migration_lock.toml") rmSync(path.join(dir, "prisma", "migrations", name), { recursive: true });
+    }
+    const push = prisma("db", "push", "--skip-generate");
     expect(push.status, push.stderr).toBe(0);
     sql(db, "INSERT INTO User (id, updatedAt) VALUES ('u1', 0)");
-    const r = start(db);
+    const r = run();
     expect(r.status, r.stderr + r.stdout).toBe(0);
     expect(sql(db, "SELECT migration_name FROM _prisma_migrations")).toBe(BASELINE);
     expect(sql(db, "SELECT id FROM User")).toBe("u1");
@@ -2379,7 +2388,7 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     const fixed = run();
     expect(fixed.status, fixed.stderr + fixed.stdout).toBe(0);
     expect(sql(db, "SELECT count(*) FROM pragma_table_info('User') WHERE name = 'nick'")).toBe("1");
-    expect(sql(db, `SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL`)).toBe("2");
+    expect(sql(db, `SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL`)).toBe(String(COMMITTED_COUNT + 1));
     expect(existsSync(`${db}.started`)).toBe(true);
   }, 240_000);
 
@@ -2461,7 +2470,7 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
         expect(siblings(db, "pre-migrate-"), `start ${n}`).toHaveLength(n);
       }
       // No row was written: this is the loop the failed-row stop cannot see.
-      expect(sql(db, "SELECT count(*) FROM _prisma_migrations")).toBe("1");
+      expect(sql(db, "SELECT count(*) FROM _prisma_migrations")).toBe(String(COMMITTED_COUNT));
       const copies = siblings(db, "pre-migrate-").sort();
       for (const n of [4, 5]) {
         const r = run();
@@ -2481,7 +2490,7 @@ describe("scripts/start.sh with the repo's own prisma and real SQLite files", ()
     const fixed = run();
     expect(fixed.status, fixed.stderr + fixed.stdout).toBe(0);
     expect(sql(db, "SELECT count(*) FROM pragma_table_info('User') WHERE name = 'nick'")).toBe("1");
-    expect(sql(db, "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL")).toBe("2");
+    expect(sql(db, "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL")).toBe(String(COMMITTED_COUNT + 1));
     expect(siblings(db, "pre-migrate-")).toHaveLength(2);
     expect(existsSync(`${db}.started`)).toBe(true);
     // The applied migration resets the bound: a later pending migration copies again.
