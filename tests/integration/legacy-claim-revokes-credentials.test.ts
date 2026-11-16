@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -153,6 +153,9 @@ async function patStatus(cookie: string | null): Promise<{ status: number; pat?:
   return { status: res.status, pat: body.githubPat };
 }
 
+/** Lets the clock move past the claim, so a token made now is later than the cutoff. */
+const afterTheClaim = () => new Promise((r) => setTimeout(r, 5));
+
 const LEGACY_EMAIL = "owner@example.com";
 const OLD_AUTH_AT = () => Date.now() - 60_000;
 
@@ -200,6 +203,7 @@ describe("claiming a legacy row", () => {
     const { row } = await seedLegacyRow();
     await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
 
+    await afterTheClaim();
     const fresh = await createApiToken(db, row.id, "after the claim");
 
     expect(await tokenStatus(fresh.raw)).toBe(200);
@@ -433,6 +437,7 @@ describe("a claim that commits after the session check passed", () => {
   it("POST /api/dashboard/tokens issues a working token to a session minted after the claim and to a user with no cutoff", async () => {
     const { row } = await seedLegacyRow();
     await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+    await afterTheClaim();
     current.cookie = await mintSessionFor(row.id);
     const res = await tokensPOST(jsonReq("http://localhost/api/dashboard/tokens", { name: "after claim" }));
     expect(res.status).toBe(200);
@@ -461,5 +466,48 @@ describe("a claim that commits after the session check passed", () => {
     // Only the claim's own email lookup went out, nothing was sent to GitHub with the token.
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
     expect(urls.every((u) => u.endsWith("/user/emails"))).toBe(true);
+  });
+});
+
+describe("a claim that commits between the two reads of validateApiToken", () => {
+  /** Runs the claim right before the first read of a user row by id (validateApiToken's), once. */
+  function claimBeforeUserRead() {
+    const real = db.user.findUnique.bind(db.user) as (args: unknown) => Promise<unknown>;
+    const spy = vi.spyOn(db.user, "findUnique").mockImplementation(((args: { where: Record<string, unknown> }) => {
+      if (args.where.id === undefined) return real(args);
+      spy.mockImplementation(real as never);
+      return githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" }).then(() => real(args));
+    }) as never);
+    return spy;
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("validateApiToken refuses a token the claim has just revoked, instead of returning it with the new owner's token", async () => {
+    const { first } = await seedLegacyRow();
+    const spy = claimBeforeUserRead();
+
+    expect(await validateApiToken(first.raw)).toBeNull();
+
+    expect(spy).toHaveBeenCalled();
+    expect((await db.user.findFirstOrThrow({ where: { email: LEGACY_EMAIL } })).githubPat).toBe("gho_owner");
+  });
+
+  it("GET /api/v1/projects answers 401 for it", async () => {
+    const { first } = await seedLegacyRow();
+    claimBeforeUserRead();
+
+    expect(await tokenStatus(first.raw)).toBe(401);
+  });
+
+  it("a token the owner creates after the claim is served", async () => {
+    const { row } = await seedLegacyRow();
+    await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
+    await afterTheClaim();
+    const fresh = await createApiToken(db, row.id, "after");
+
+    const record = await validateApiToken(fresh.raw);
+
+    expect(record?.user.githubPat).toBe("gho_owner");
   });
 });

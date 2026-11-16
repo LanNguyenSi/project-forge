@@ -306,6 +306,14 @@ describe("GitHub sign-in account matching", () => {
       data: { revokedAt: rows[0].sessionsValidAfter },
     });
     expect(rows[0].sessionsValidAfter).toBeInstanceOf(Date);
+    // The cutoff is taken after the claim write has run (inside the
+    // transaction, once the write lock is held), not in the claim write itself.
+    expect(store.user.updateMany).toHaveBeenCalledTimes(1);
+    expect(store.user.updateMany.mock.calls[0][0].data).not.toHaveProperty("sessionsValidAfter");
+    expect(store.user.update.mock.calls[0][0]).toMatchObject({ where: { id: "legacy" } });
+    expect(store.user.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      store.user.update.mock.invocationCallOrder[0],
+    );
 
     // The next sign-in matches by identity.
     store.user.updateMany.mockClear();

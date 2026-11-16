@@ -144,13 +144,18 @@ async function signInWithGithub(
     // caught by those routes, not by the callback. All or nothing: a failed
     // revoke rolls the claim back.
     try {
-      const claimedAt = new Date();
       const claimed = await prisma.$transaction(async (tx) => {
         const result = await tx.user.updateMany({
           where: { id: byEmail.id, githubId: null, passwordHash: null },
-          data: { githubId, ...tokenFields, sessionsValidAfter: claimedAt },
+          data: { githubId, ...tokenFields },
         });
         if (result.count !== 1) return false;
+        // The cutoff is taken only now, after the write above holds SQLite's
+        // write lock: every API token committed before the claim has a
+        // createdAt below it (validateApiToken refuses those), and a token
+        // created later cannot commit until this transaction has.
+        const claimedAt = new Date();
+        await tx.user.update({ where: { id: byEmail.id }, data: { sessionsValidAfter: claimedAt } });
         await tx.apiToken.updateMany({
           where: { userId: byEmail.id, revokedAt: null },
           data: { revokedAt: claimedAt },
