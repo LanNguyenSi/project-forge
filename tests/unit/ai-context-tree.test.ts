@@ -15,15 +15,14 @@ import * as path from "path";
  * mistaken for it, e.g. `├── lib/`) and runs until the next top-level
  * entry line or a line outside the tree (the closing fence or prose).
  * Entry names are the text between the `── ` prefix and the `#` comment
- * column; entries ending in `/` are directories and skipped, entries
- * ending in `.ts`/`.tsx` are collected. A missing block header fails
+ * column; entries ending in `/` are directories that open a nesting level,
+ * entries ending in `.ts`/`.tsx` are collected with their directory path. A missing block header fails
  * the test outright -- it is never treated as an empty (passing) block.
  *
- * Real files: `lib/` = the `.ts` files directly in `lib/` (no
- * recursion); `components/` = every `.ts`/`.tsx` file under
- * `components/`, recursively. Comparison is by file name (the tree
- * shows nested files as `layout/AppShell.tsx`, so only the last path
- * segment is compared; the repository has no name collisions).
+ * Real files: every `.ts`/`.tsx` file under `lib/` and `components/`,
+ * recursively. Comparison is by path relative to the block's directory
+ * (`ui/primitives/Button.tsx`), so two files with the same name in
+ * different subdirectories each need their own entry.
  */
 
 const ROOT = path.resolve(__dirname, "../..");
@@ -35,32 +34,49 @@ function isTopLevelEntry(line: string): boolean {
 }
 
 /**
- * Returns the `.ts`/`.tsx` file names listed in the structure-tree block
- * for `dirName` ("lib" or "components"), or null when the block header
- * line is absent (the caller turns that into a failure, never a pass).
+ * Returns the `.ts`/`.tsx` files listed in the structure-tree block for
+ * `dirName` ("lib" or "components") as paths relative to that directory
+ * (`layout/AppShell.tsx`), or null when the block header line is absent
+ * (the caller turns that into a failure, never a pass). Nesting comes from
+ * the indentation: every tree level is four characters (`│   ` or four
+ * spaces) before the `├── `/`└── ` marker, and directory entries (ending in
+ * `/`) open a level for the entries below them.
  */
 function treeEntriesFor(content: string, dirName: string): string[] | null {
-  const lines = content.split("\n");
+  const lines = content.split(/\r?\n/);
   const headerRe = new RegExp(`^[├└]── ${dirName}/(\\s+#.*)?$`);
   const header = lines.findIndex((line) => headerRe.test(line));
   if (header === -1) return null;
   const entries: string[] = [];
+  const dirs: string[] = []; // dirs[d] = directory name opened at depth d (depth 1 = block child)
   for (let i = header + 1; i < lines.length; i++) {
     const line = lines[i];
     if (isTopLevelEntry(line)) break; // next top-level entry: block ended
     if (!line.startsWith("│")) break; // lone column or outside the tree
-    const parsed = /(?:├|└)── (.*)$/.exec(line);
+    const parsed = /^(.*?)(?:├|└)── (.*)$/.exec(line);
     if (!parsed) continue; // subtree continuation without an entry (e.g. "│")
-    const entry = parsed[1].split("#")[0].trim();
-    if (!entry || entry.endsWith("/")) continue; // directory
-    if (/\.tsx?$/.test(entry)) entries.push(path.basename(entry));
+    const depth = parsed[1].length / 4;
+    const entry = parsed[2].split("#")[0].trim();
+    if (!entry) continue;
+    dirs.length = depth; // drop directories of deeper or equal levels
+    if (entry.endsWith("/")) {
+      dirs[depth] = entry.slice(0, -1);
+      continue;
+    }
+    if (/\.tsx?$/.test(entry)) {
+      entries.push([...dirs.slice(1, depth), entry].join("/"));
+    }
   }
   return entries;
 }
 
-/** File names on disk that the tree must list for `dirName`. */
+/**
+ * `.ts`/`.tsx` files on disk under `dirName`, recursively, as paths
+ * relative to that directory. Recursing in `lib/` too means a file in a
+ * new `lib/` subdirectory must be listed as well instead of being ignored.
+ */
 function filesOnDiskFor(dirName: string): string[] {
-  const dir = path.join(ROOT, dirName);
+  const root = path.join(ROOT, dirName);
   const out: string[] = [];
   const walk = (current: string): void => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
@@ -68,17 +84,11 @@ function filesOnDiskFor(dirName: string): string[] {
       if (entry.isDirectory()) {
         walk(full);
       } else if (entry.isFile() && /\.tsx?$/.test(entry.name)) {
-        out.push(entry.name);
+        out.push(path.relative(root, full).split(path.sep).join("/"));
       }
     }
   };
-  if (dirName === "lib") {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isFile() && /\.ts$/.test(entry.name)) out.push(entry.name);
-    }
-    return out;
-  }
-  walk(dir);
+  walk(root);
   return out;
 }
 
