@@ -7,6 +7,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
+    // Per-file FORGE_TEMP_DIR so files never share a session directory.
+    setupFiles: ['./tests/setup/forge-temp-dir.ts'],
     testTimeout: 30000, // Generous for integration tests
     // scripts/audit-gate.test.mjs is a node:test self-test run by the audit
     // workflow (`node --test`); vitest must not collect it.
