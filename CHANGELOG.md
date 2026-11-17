@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-17
+
 ### Added
 
 - **CI starts the built image and checks `/api/health`.** The `docker-build` job in `.github/workflows/ci.yml` now runs the image after building it: detached, with the production hardening flags (`--cap-drop ALL`, `no-new-privileges`), a SQLite file on a tmpfs, a `NEXTAUTH_SECRET` generated in the job (`openssl rand -hex 32`) and a non-placeholder `NEXTAUTH_URL`. It polls `GET /api/health` on a random loopback port until a 90 second deadline while nothing listens (and only while the container is running), fails on any status but 200 or a body other than `{"ok":true}` (also when the container exits first), prints the container logs on failure and always removes the container. The image tag is one job-level `IMAGE` variable, and the job has `timeout-minutes: 15`. A missing secret, a placeholder `NEXTAUTH_URL` or an unusable database path fail the step; before, a broken runtime would pass CI. `tests/unit/ops-config.test.ts` pins the step.
