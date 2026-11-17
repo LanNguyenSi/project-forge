@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.10.0] - 2026-11-17
 
+### Upgrade notes
+
+- Set a real `NEXTAUTH_URL` (the public `https://` URL) in `.env` before deploying: a missing, unparseable or placeholder (`your-forge.example.com`) value makes the production server answer every request with 500 and the container go unhealthy.
+- The database path (`FORGE_DATABASE_URL`) must be under `/data`, the `forge_db` volume; a path outside it stops the container start unless `FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1` is set.
+- The first GitHub sign-in of a legacy GitHub-only account revokes its `pf_` API tokens and its other signed-in sessions once; issue the tokens again from Settings.
+- `make backup` stops when `FORGE_BACKUP_DIR` differs from the directory in the installed cron block; rerun it with the directory the message names (`FORGE_BACKUP_DIR='<cron dir>' make backup`).
+- The new migration (`User.sessionsValidAfter`) applies automatically on the container start when upgrading from 0.9.0; from 0.8.0 or earlier, record the baseline by hand first (`docs/deployment.md`, "Upgrading to committed migrations" and "Auto-baseline and the abort message").
+- The runtime image and CI move to Node 24 (`node:24-slim`); a host that builds the image needs nothing else, a local development setup needs Node 24.
+
 ### Added
 
 - **CI starts the built image and checks `/api/health`.** The `docker-build` job in `.github/workflows/ci.yml` now runs the image after building it: detached, with the production hardening flags (`--cap-drop ALL`, `no-new-privileges`), a SQLite file on a tmpfs, a `NEXTAUTH_SECRET` generated in the job (`openssl rand -hex 32`) and a non-placeholder `NEXTAUTH_URL`. It polls `GET /api/health` on a random loopback port until a 90 second deadline while nothing listens (and only while the container is running), fails on any status but 200 or a body other than `{"ok":true}` (also when the container exits first), prints the container logs on failure and always removes the container. The image tag is one job-level `IMAGE` variable, and the job has `timeout-minutes: 15`. A missing secret, a placeholder `NEXTAUTH_URL` or an unusable database path fail the step; before, a broken runtime would pass CI. `tests/unit/ops-config.test.ts` pins the step.
