@@ -240,16 +240,24 @@
 }
 
 /* At narrow widths the server picker takes a line of its own and the select
-   spans the full width instead of being cut mid-word (the label wrapping, and
-   white-space normal where the browser honours it). A native select cannot
-   wrap its own text in Chromium, so the full URL also rides in the title
-   attribute (see app/docs/patch-server-select.ts). */
+   spans the full width instead of being cut mid-word (the label wrapping and
+   white-space normal below). The select wraps its own text here: swagger-ui
+   sets appearance: none, so white-space normal makes the control grow to two
+   lines (measured in the browser at 320 to 390 px). The label keeps swagger-ui's
+   inline margin (-20px top, 15px right) reset to 0: stacked, that offset would
+   pull the select up over the "Servers" title and make it 15 px narrower. The
+   title attribute from app/docs/patch-server-select.ts supplements the wrapped
+   text for pointer users and assistive tech. */
 @media (max-width: 640px) {
   .swagger-ui .servers,
   .swagger-ui .servers > label {
     display: block !important;
     max-width: 100% !important;
     white-space: normal !important;
+  }
+
+  .swagger-ui .servers > label {
+    margin: 0 !important;
   }
 
   .swagger-ui .servers select {

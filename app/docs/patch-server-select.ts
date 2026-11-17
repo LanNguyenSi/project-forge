@@ -2,9 +2,11 @@
  * Patches one swagger-ui server picker so the selected URL stays readable:
  * - the select keeps the accessible name swagger-ui leaves out (existing ones
  *   are preserved);
- * - its `title` carries the full text of the currently selected option, because
- *   a native select cannot wrap its own text (Chromium clips it at the edge of
- *   the element, so at phone widths the URL is cut mid-word without a title);
+ * - its `title` carries the full text of the currently selected option, as a
+ *   supplement for pointer users (tooltip) and assistive tech; at phone widths
+ *   the select itself wraps the option text (swagger-ui sets `appearance: none`
+ *   and `app/globals.css` sets `white-space: normal`, so the control grows to
+ *   two lines instead of cutting the URL mid-word);
  * - a `change` listener keeps the title in sync with the selection, attached
  *   once per element (guarded by a data attribute) so repeated MutationObserver
  *   callbacks do not stack listeners on the same select.

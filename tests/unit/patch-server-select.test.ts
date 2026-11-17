@@ -76,15 +76,42 @@ describe("server picker narrow-width CSS", () => {
   const css = readFileSync(path.resolve(__dirname, "../../app/globals.css"), "utf8");
   const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
-  it("lets the select wrap onto a full-width line at narrow widths", () => {
-    expect(withoutComments).toMatch(/@media \(max-width:\s*640px\)/);
-
-    const declarations = [...withoutComments.matchAll(/([^{}]*)\{([^{}]*)\}/g)]
-      .filter(([, selector]) => selector.split(",").some((sel) => sel.trim() === ".swagger-ui .servers select"))
+  function declarationsFor(selectorText: string, scope: string): string {
+    return [...scope.matchAll(/([^{}]*)\{([^{}]*)\}/g)]
+      .filter(([, selector]) => selector.split(",").some((sel) => sel.trim() === selectorText))
       .map(([, , body]) => body)
       .join("\n");
+  }
+
+  function mediaBlock(query: RegExp): string {
+    const match = withoutComments.match(query);
+    if (match?.index === undefined) return "";
+    let depth = 0;
+    for (let i = match.index + match[0].length; i < withoutComments.length; i++) {
+      if (withoutComments[i] === "{") depth++;
+      else if (withoutComments[i] === "}") {
+        depth--;
+        if (depth === 0) return withoutComments.slice(match.index + match[0].length, i);
+      }
+    }
+    return "";
+  }
+
+  it("lets the select wrap onto a full-width line at narrow widths", () => {
+    const narrow = mediaBlock(/@media \(max-width:\s*640px\)/);
+    expect(narrow).not.toBe("");
+
+    const declarations = declarationsFor(".swagger-ui .servers select", narrow);
     expect(declarations).toMatch(/max-width:\s*100%\s*!important/);
     expect(declarations).toMatch(/width:\s*100%\s*!important/);
     expect(declarations).toMatch(/white-space:\s*normal\s*!important/);
+  });
+
+  it("resets swagger-ui's label offset inside the 640px media block", () => {
+    const narrow = mediaBlock(/@media \(max-width:\s*640px\)/);
+    expect(narrow).not.toBe("");
+
+    const declarations = declarationsFor(".swagger-ui .servers > label", narrow);
+    expect(declarations).toMatch(/margin:\s*0\s*!important/);
   });
 });
