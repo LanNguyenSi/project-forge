@@ -50,7 +50,7 @@ Prerequisites: Docker with Compose v2.24.0 or newer (`env_file`'s `required:`
 in `docker-compose.yml` needs that release, and `start_interval` needs Docker
 Engine 25 or newer; the planforge service is built from a pinned
 [agent-planforge](https://github.com/LanNguyenSi/agent-planforge)
-release fetched from GitHub, see
+commit (SHA) fetched from GitHub, see
 [docs/deployment.md](docs/deployment.md#planforge-version); no sibling checkout
 is needed), and an existing external Docker network named `traefik`
 (`docker network create traefik`). The app is reachable only through Traefik

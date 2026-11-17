@@ -47,7 +47,20 @@ project-forge/
 │
 ├── components/                   # React components
 │   ├── ui/                       # Primitives (Button, Card, Input, etc.)
-│   ├── layout/AppShell.tsx       # Navigation & sidebar
+│   │   ├── PageShell.tsx         # Page title/subtitle/actions wrapper
+│   │   └── primitives/           # Shared primitives, re-exported via index.ts
+│   │       ├── Alert.tsx         # Inline banner: error/success/warning/info
+│   │       ├── Badge.tsx         # Status pill with variant styles
+│   │       ├── Button.tsx        # Button: variants, sizes, loading state
+│   │       ├── Card.tsx          # Card + CardHeader with tone variants
+│   │       ├── Input.tsx         # Input, Textarea, Label, Field
+│   │       └── index.ts          # Barrel re-export for the primitives
+│   ├── layout/                   # Shell and navigation components
+│   │   ├── AppShell.tsx          # Navigation & sidebar
+│   │   ├── ForgeMark.tsx         # Ember-to-gold flame brand mark
+│   │   ├── PublicNav.tsx         # Top nav shared by the public pages
+│   │   └── SkipLink.tsx          # Skip link (WCAG 2.4.1) + MAIN_CONTENT_ID
+│   ├── SessionProvider.tsx       # Client wrapper for the NextAuth session provider
 │   ├── ProjectForm.tsx           # Main project intake form
 │   ├── PreviewPanel.tsx          # Generated scaffold preview
 │   ├── ConfirmModal.tsx          # Confirmation dialog
@@ -58,6 +71,10 @@ project-forge/
 │   ├── types.ts                  # Shared TypeScript interfaces
 │   ├── db.ts                     # Prisma client, rate limiting, API tokens
 │   ├── auth.ts                   # NextAuth configuration
+│   ├── signin-rate-limit.ts      # Fixed-window limiter for failed sign-in attempts
+│   ├── github-verified-email.ts  # Verified-email lookup (GitHub /user/emails) for sign-in
+│   ├── safe-callback-url.ts      # Keeps the login callbackUrl a same-origin path
+│   ├── session-cutoff.ts         # Stale session/token checks against sessionsValidAfter
 │   ├── ai-provider.ts            # AI provider abstraction (Local/Groq/OpenAI)
 │   ├── planforge-orchestrator.ts # Intake mapping & AI enrichment
 │   ├── planforge-client.ts       # HTTP client for the planforge service (SSE + tarball extract)
@@ -69,6 +86,8 @@ project-forge/
 │   ├── publish-error.ts          # User-facing summaries of publish failures
 │   ├── subprocess.ts             # Child-process runner with timeout
 │   ├── v1-shared.ts              # Public v1 session helpers (generate/preview/publish, 1h TTL)
+│   ├── limits.ts                 # Request-size caps shared by the API routes and the form
+│   ├── read-json-body.ts         # Size-capped JSON body reader (413 above the cap)
 │   ├── scrub-secrets.ts          # Mask GitHub credentials in free text before logging or returning it
 │   ├── server-error.ts           # UserFacingError + scrubbed 500 logging with a reference id
 │   └── startup-checks.ts         # Production start-up guard for placeholder NEXTAUTH_SECRET/NEXTAUTH_URL
@@ -76,7 +95,7 @@ project-forge/
 ├── types/next-auth.d.ts          # NextAuth type extensions
 ├── tests/                        # Integration (tests/integration/) & unit (tests/unit/) tests
 ├── prisma/schema.prisma          # Database schema
-├── middleware.ts                  # X-API-Key presence check on /api/v1, login redirect for pages
+├── middleware.ts                 # X-API-Key presence check on /api/v1, login redirect for pages
 ├── instrumentation.ts            # Next.js register() hook: runs the production start-up check
 ├── public/openapi.json           # OpenAPI spec served at /docs
 ├── public/favicon.svg            # Browser favicon (the ember flame mark)
