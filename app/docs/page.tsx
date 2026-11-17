@@ -9,6 +9,7 @@ import { PageShell } from "@/components/ui/PageShell";
 import { Card, CardHeader, Alert } from "@/components/ui/primitives";
 import { PublicNav } from "@/components/layout/PublicNav";
 import { MAIN_CONTENT_ID } from "@/components/layout/SkipLink";
+import { patchServerSelect } from "./patch-server-select";
 
 const SwaggerUI = dynamic(() => import("swagger-ui-react"), { ssr: false });
 
@@ -17,7 +18,9 @@ const SwaggerUI = dynamic(() => import("swagger-ui-react"), { ssr: false });
  * be re-created), so its accessibility gaps are fixed from an observer instead
  * of by patching swagger-ui:
  * - it renders its server picker as `<label><select id="servers">` with no text
- *   in the label, so the select has no accessible name;
+ *   in the label, so the select has no accessible name and no way to read the
+ *   selected URL once the native select clips it at narrow widths;
+ *   `patchServerSelect` fixes both (title plus a change listener);
  * - it renders the API title as a second `h1` and the tag groups as `h3`, so the
  *   page has two top-level headings and skips the `h2` level. The title is
  *   announced as a level 2 heading (the page's own `h1` stays the only level 1),
@@ -30,9 +33,7 @@ function SwaggerWithNamedServerSelect() {
     const root = rootRef.current;
     if (!root) return;
     const fixSwaggerMarkup = () => {
-      root.querySelectorAll<HTMLSelectElement>(".servers select").forEach((select) => {
-        if (!select.hasAttribute("aria-label")) select.setAttribute("aria-label", "API server");
-      });
+      root.querySelectorAll<HTMLSelectElement>(".servers select").forEach(patchServerSelect);
       root.querySelectorAll<HTMLElement>(".info h1.title").forEach((title) => {
         if (title.getAttribute("aria-level") !== "2") title.setAttribute("aria-level", "2");
       });

@@ -102,6 +102,18 @@ describe("API docs page", () => {
     expect(select.getAttribute("aria-label")).toBe("API server");
   });
 
+  it("titles the server select with the selected option when the observer runs", async () => {
+    const container = await mountWithPicker();
+    const select = container.querySelector("#servers")!;
+    const option = document.createElement("option");
+    option.textContent = "https://project-forge.opentriologue.ai - Production";
+    select.appendChild(option);
+
+    act(() => FakeMutationObserver.instances[0].callback());
+
+    expect(select.getAttribute("title")).toBe("https://project-forge.opentriologue.ai - Production");
+  });
+
   it("names a server select that swagger-ui re-creates later and keeps an existing name", async () => {
     const container = await mountWithPicker();
     const observer = FakeMutationObserver.instances[0];
