@@ -9,12 +9,12 @@ import { afterAll } from "vitest";
  * that picked the same session id raced on one directory (a publish marker
  * written by one file turned the other's 200 into a 409). Setup files run
  * once per test file before its imports, so the env is in place when the
- * routes load. A file that sets FORGE_TEMP_DIR itself still wins.
+ * routes load. The value is set unconditionally, so a FORGE_TEMP_DIR exported in the
+ * shell does not bring the shared directory back. A file that sets it in
+ * code still runs after this setup and wins.
  */
-if (!process.env.FORGE_TEMP_DIR) {
-  const dir = mkdtempSync(path.join(tmpdir(), "pf-test-"));
-  process.env.FORGE_TEMP_DIR = dir;
-  afterAll(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-}
+const dir = mkdtempSync(path.join(tmpdir(), "pf-test-"));
+process.env.FORGE_TEMP_DIR = dir;
+afterAll(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
