@@ -7,7 +7,7 @@ import type { ProjectInput, Attachment } from "@/lib/types";
 // UI and the API cannot drift apart on that limit. The server's total and
 // count checks use the separate MAX_ATTACHMENT_TOTAL_CHARS and
 // MAX_ATTACHMENTS constants in the same module.
-import { MAX_ATTACHMENT_CHARS } from "@/lib/limits";
+import { MAX_ATTACHMENT_CHARS, PROMPT_MODE_MAX_CHARS } from "@/lib/limits";
 import { Button, Input, Textarea, Label, Field, Alert } from "@/components/ui/primitives";
 
 /**
@@ -154,7 +154,12 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
         return;
       }
       if (!res.ok || !data.ok) {
-        setFormError(data.error || "AI assist failed");
+        const message = data.error || "AI assist failed";
+        setFormError(
+          typeof data.details === "string" && data.details
+            ? `${message}: ${data.details}`
+            : message,
+        );
         setMagicLoading(false);
         return;
       }
@@ -259,7 +264,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 <Label className="sr-only">AI seed prompt</Label>
                 <Input
                   value={magicPrompt}
-                  onChange={(e) => setMagicPrompt(e.target.value)}
+                  onChange={(e) => setMagicPrompt(e.target.value.slice(0, PROMPT_MODE_MAX_CHARS))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -268,8 +273,16 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                   }}
                   placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
                   disabled={magicLoading || isLoading}
+                  maxLength={PROMPT_MODE_MAX_CHARS}
+                  aria-describedby="magic-prompt-counter"
                   className="text-sm focus:border-gold focus:ring-gold"
                 />
+                <p
+                  id="magic-prompt-counter"
+                  className="mt-1 text-right text-[11px] tabular-nums text-forge-ash"
+                >
+                  {magicPrompt.length.toLocaleString("en-US")} / {PROMPT_MODE_MAX_CHARS.toLocaleString("en-US")}
+                </p>
               </Field>
               <Button
                 type="button"
