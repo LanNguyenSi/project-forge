@@ -216,7 +216,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
             </svg>
             <h2 className="font-semibold text-gold text-sm">AI Magic Fill</h2>
           </div>
-          <p className="text-xs text-forge-ash mb-3">
+          <p className="text-xs text-forge-mist mb-3">
             Seed the form with a one-line prompt, or upload a document (arc42, RFC, charter) to extract the intake.
           </p>
 
@@ -279,7 +279,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 />
                 <p
                   id="magic-prompt-counter"
-                  className="mt-1 text-right text-[11px] tabular-nums text-forge-ash"
+                  className="mt-1 text-right text-[11px] tabular-nums text-forge-mist"
                 >
                   {magicPrompt.length.toLocaleString("en-US")} / {PROMPT_MODE_MAX_CHARS.toLocaleString("en-US")}
                 </p>
@@ -316,7 +316,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                     <span className="truncate font-mono text-forge-mist" title={attachment.name}>
                       {attachment.name}
                     </span>
-                    <span className="text-xs text-forge-ash shrink-0">
+                    <span className="text-xs text-forge-mist shrink-0">
                       {(attachment.inlineText?.length ?? 0).toLocaleString()} chars
                     </span>
                   </div>
@@ -343,7 +343,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 </Field>
               )}
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-forge-ash">
+                <p className="text-xs text-forge-mist">
                   Accepted: {ACCEPTED_EXTENSIONS.join(", ")} — 50k char limit. The document rides along to the planner after form extraction.
                 </p>
                 <Button

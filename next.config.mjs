@@ -23,7 +23,11 @@ const nextConfig = {
   // number must stay above GENERATE_MAX_BODY_BYTES and within +64 KiB of
   // it; tests/unit/next-config-middleware-body.test.ts pins both bounds
   // against the constant, so raising the cap there without updating this
-  // number fails that test. (.mjs cannot import the TS constant.)
+  // number fails that test. (.mjs cannot import the TS constant.) Above the
+  // limit Next truncates the cloned body instead of rejecting it, so a
+  // chunked oversize body (no Content-Length) reaches the route cut off,
+  // fails JSON.parse and answers 500 rather than 413; clients that send
+  // Content-Length still get the 413.
   experimental: {
     middlewareClientMaxBodySize: 602736,
   },
