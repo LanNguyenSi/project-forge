@@ -7,7 +7,7 @@ import type { ProjectInput, Attachment } from "@/lib/types";
 // UI and the API cannot drift apart on that limit. The server's total and
 // count checks use the separate MAX_ATTACHMENT_TOTAL_CHARS and
 // MAX_ATTACHMENTS constants in the same module.
-import { MAX_ATTACHMENT_CHARS } from "@/lib/limits";
+import { MAX_ATTACHMENT_CHARS, PROMPT_MODE_MAX_CHARS } from "@/lib/limits";
 import { Button, Input, Textarea, Label, Field, Alert } from "@/components/ui/primitives";
 
 /**
@@ -154,7 +154,12 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
         return;
       }
       if (!res.ok || !data.ok) {
-        setFormError(data.error || "AI assist failed");
+        const message = data.error || "AI assist failed";
+        setFormError(
+          typeof data.details === "string" && data.details
+            ? `${message}: ${data.details}`
+            : message,
+        );
         setMagicLoading(false);
         return;
       }
@@ -211,7 +216,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
             </svg>
             <h2 className="font-semibold text-gold text-sm">AI Magic Fill</h2>
           </div>
-          <p className="text-xs text-forge-ash mb-3">
+          <p className="text-xs text-forge-mist mb-3">
             Seed the form with a one-line prompt, or upload a document (arc42, RFC, charter) to extract the intake.
           </p>
 
@@ -259,7 +264,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 <Label className="sr-only">AI seed prompt</Label>
                 <Input
                   value={magicPrompt}
-                  onChange={(e) => setMagicPrompt(e.target.value)}
+                  onChange={(e) => setMagicPrompt(e.target.value.slice(0, PROMPT_MODE_MAX_CHARS))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -268,8 +273,16 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                   }}
                   placeholder="E.g., 'A todo app with React and TypeScript that syncs across devices'"
                   disabled={magicLoading || isLoading}
+                  maxLength={PROMPT_MODE_MAX_CHARS}
+                  aria-describedby="magic-prompt-counter"
                   className="text-sm focus:border-gold focus:ring-gold"
                 />
+                <p
+                  id="magic-prompt-counter"
+                  className="mt-1 text-right text-[11px] tabular-nums text-forge-mist"
+                >
+                  {magicPrompt.length.toLocaleString("en-US")} / {PROMPT_MODE_MAX_CHARS.toLocaleString("en-US")}
+                </p>
               </Field>
               <Button
                 type="button"
@@ -303,7 +316,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                     <span className="truncate font-mono text-forge-mist" title={attachment.name}>
                       {attachment.name}
                     </span>
-                    <span className="text-xs text-forge-ash shrink-0">
+                    <span className="text-xs text-forge-mist shrink-0">
                       {(attachment.inlineText?.length ?? 0).toLocaleString()} chars
                     </span>
                   </div>
@@ -330,7 +343,7 @@ export function ProjectForm({ onSubmit, isLoading = false, initialValues }: Proj
                 </Field>
               )}
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-forge-ash">
+                <p className="text-xs text-forge-mist">
                   Accepted: {ACCEPTED_EXTENSIONS.join(", ")} — 50k char limit. The document rides along to the planner after form extraction.
                 </p>
                 <Button

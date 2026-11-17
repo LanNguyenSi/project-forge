@@ -13,6 +13,24 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
   },
+  // Next 15.5 buffers (clones) every request body that passes through the
+  // middleware up to this value before the route runs, and the middleware
+  // matcher covers /api/v1/*, so the default 10 MiB lets the route-level
+  // caps in lib/limits.ts be exceeded by the clone alone. Pin the clone
+  // just above GENERATE_MAX_BODY_BYTES (lib/limits.ts, 601_712 bytes, the
+  // largest route cap under /api/v1; +1 KiB headroom for wire framing), so
+  // no /api/v1 body is buffered beyond the caps the routes enforce. The
+  // number must stay above GENERATE_MAX_BODY_BYTES and within +64 KiB of
+  // it; tests/unit/next-config-middleware-body.test.ts pins both bounds
+  // against the constant, so raising the cap there without updating this
+  // number fails that test. (.mjs cannot import the TS constant.) Above the
+  // limit Next truncates the cloned body instead of rejecting it, so a
+  // chunked oversize body (no Content-Length) reaches the route cut off,
+  // fails JSON.parse and answers 500 rather than 413; clients that send
+  // Content-Length still get the 413.
+  experimental: {
+    middlewareClientMaxBodySize: 602736,
+  },
   // Baseline security headers on every route. X-Frame-Options + CSP
   // frame-ancestors close the clickjacking hole (framed /login could
   // otherwise trick a logged-in user into publishing or registering);
