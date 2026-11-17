@@ -37,6 +37,7 @@ vi.mock("@/components/layout/AppShell", () => ({
 import LandingPage from "@/app/page";
 import LoginPage from "@/app/(dashboard)/login/page";
 import ApiDocsPage from "@/app/docs/page";
+import StyleguidePage from "@/app/styleguide/page";
 import { MAIN_CONTENT_ID } from "@/components/layout/SkipLink";
 
 // Each public page renders PublicNav and its own <main> (the skip-link target),
@@ -46,6 +47,7 @@ const pages: { path: string; view: () => ReactNode }[] = [
   { path: "/", view: () => <LandingPage /> },
   { path: "/login", view: () => <LoginPage /> },
   { path: "/docs (signed out)", view: () => <ApiDocsPage /> },
+  { path: "/styleguide", view: () => <StyleguidePage /> },
 ];
 
 function parts(container: HTMLElement) {

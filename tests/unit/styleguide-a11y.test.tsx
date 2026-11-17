@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+
+// The page renders the shared public nav; the nav and its skip link are pinned
+// by public-page-skip-link.test.tsx, this file checks the component gallery.
+vi.mock("@/components/layout/PublicNav", () => ({ PublicNav: () => null }));
+
 import StyleguidePage from "@/app/styleguide/page";
 
 describe("styleguide page structure", () => {
