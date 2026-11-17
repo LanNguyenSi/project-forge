@@ -239,6 +239,27 @@
   border-color: var(--border) !important;
 }
 
+/* At narrow widths the server picker takes a line of its own and the select
+   spans the full width instead of being cut mid-word (the label wrapping, and
+   white-space normal where the browser honours it). A native select cannot
+   wrap its own text in Chromium, so the full URL also rides in the title
+   attribute (see app/docs/patch-server-select.ts). */
+@media (max-width: 640px) {
+  .swagger-ui .servers,
+  .swagger-ui .servers > label {
+    display: block !important;
+    max-width: 100% !important;
+    white-space: normal !important;
+  }
+
+  .swagger-ui .servers select {
+    display: block !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    white-space: normal !important;
+  }
+}
+
 .swagger-ui .topbar,
 .swagger-ui .information-container {
   background: var(--bg) !important;
