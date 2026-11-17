@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-17
+
+### Upgrade notes
+
+- Set a real `NEXTAUTH_URL` (the public `https://` URL) in `.env` before deploying: a missing, unparseable or placeholder (`your-forge.example.com`) value makes the production server answer every request with 500 and the container go unhealthy.
+- The database path (`FORGE_DATABASE_URL`) must be under `/data`, the `forge_db` volume; a path outside it stops the container start unless `FORGE_ALLOW_DATABASE_OUTSIDE_VOLUME=1` is set.
+- The first GitHub sign-in of a legacy GitHub-only account revokes its `pf_` API tokens and its other signed-in sessions once; issue the tokens again from Settings.
+- `make backup` with `FORGE_BACKUP_DIR` unset or empty stops when the installed cron block writes to another directory; rerun it as `FORGE_BACKUP_DIR='<cron dir>' make backup` (the message names the directory). An explicit `FORGE_BACKUP_DIR` is never checked against the cron block.
+- The new migration (`User.sessionsValidAfter`) applies automatically on the container start when upgrading from 0.9.0; from 0.8.0 or earlier, record the baseline by hand first (`docs/deployment.md`, "Upgrading to committed migrations" and "Auto-baseline and the abort message").
+- The runtime image and CI move to Node 24 (`node:24-slim`); a host that builds the image needs nothing else, a local development setup needs Node 24.
+- The compose project name is pinned (`name: project-forge`), so the database volume is `project-forge_forge_db`: before deploying run `docker volume ls | grep forge_db`; if the existing volume has another prefix (it followed the checkout directory name), set `COMPOSE_PROJECT_NAME` to the old name or migrate the volume, or the app starts on an empty one. The healthcheck `start_interval` needs Docker Engine 25 or newer.
+- JSON bodies are capped and answer 413 above the cap: 64 KiB on the auth, dashboard and publish routes, 601,712 B on `/api/generate`, `/api/v1/generate` and `/api/v1/projects`, 361,712 B on `/api/ai-assist`; a chunked oversize body without `Content-Length` answers 500, not 413. Every page now sends `X-Frame-Options: DENY` and `frame-ancestors 'none'`, so embedding forge in an iframe stops working.
+- The credentials sign-in is rate limited: 10 attempts per email and 30 per client address per 15 minutes. The address is the last `X-Forwarded-For` entry, which assumes exactly one proxy hop (Traefik); with more hops or none, only the email limit applies or the wrong address is counted. Counters are in process memory (a restart resets them), and anyone who knows an email can lock that account out for the window.
+- The planforge image is pinned to agent-planforge commit `88a5453`: the next deploy rebuilds it from `github.com`, so the host needs outbound access to it; a `PLANFORGE_CONTEXT` override is unaffected.
+- Hardening: the `app` and `planforge` containers run with `cap_drop: ALL` and `no-new-privileges`; GitHub sign-in no longer merges into an email/password account (it is refused with `OAuthAccountNotLinked`); registration refuses placeholder addresses ending in `noreply` (the `github-<id>@noreply` form).
+
 ### Added
 
 - **CI starts the built image and checks `/api/health`.** The `docker-build` job in `.github/workflows/ci.yml` now runs the image after building it: detached, with the production hardening flags (`--cap-drop ALL`, `no-new-privileges`), a SQLite file on a tmpfs, a `NEXTAUTH_SECRET` generated in the job (`openssl rand -hex 32`) and a non-placeholder `NEXTAUTH_URL`. It polls `GET /api/health` on a random loopback port until a 90 second deadline while nothing listens (and only while the container is running), fails on any status but 200 or a body other than `{"ok":true}` (also when the container exits first), prints the container logs on failure and always removes the container. The image tag is one job-level `IMAGE` variable, and the job has `timeout-minutes: 15`. A missing secret, a placeholder `NEXTAUTH_URL` or an unusable database path fail the step; before, a broken runtime would pass CI. `tests/unit/ops-config.test.ts` pins the step.
