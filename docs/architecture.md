@@ -251,8 +251,10 @@ same rewrite runs for every remaining legacy row in a one-off batched sweep
 that `instrumentation.ts` starts after the start-up check, without waiting
 for it. The
 token is decrypted in memory by the routes that use or check it (publish,
-connected status, the broker's refresh decision) and returned only by
-`GET /api/dashboard/pat`, to its owner.
+connected status, the broker's refresh decision) and returned to
+nobody: `GET /api/dashboard/pat` answers only `connected` and `kind`
+(`oauth` or `manual`, from the token prefix), and the session JWT carries no
+copy of the OAuth access token.
 
 The publish path sanitizes any embedded GitHub PAT with the shared
 `lib/scrub-secrets.ts` before the message reaches logs. It masks the

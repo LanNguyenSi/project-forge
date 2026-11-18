@@ -8,10 +8,10 @@ import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
 import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
 import { encryptGithubPat, readGithubPat } from "@/lib/github-pat";
 
-// Settings-only: the caller's own raw GitHub PAT. The shared GET /api/dashboard
-// response only exposes a `githubPatConnected` boolean (see app/api/dashboard/route.ts)
-// because most consumers only need existence; the settings page pre-fills/edits
-// the token and needs the raw value, scoped strictly to the authenticated owner.
+// Settings-only: whether the caller has a usable GitHub token and what kind it
+// is. The token itself is never returned to anyone; the settings page only
+// replaces it (POST). `kind` is derived from the token prefix on the server
+// (gho_ is the OAuth token from GitHub sign-in, anything else a manual PAT).
 export async function GET() {
   const session = await getServerSession(authOptions);
 
@@ -35,10 +35,12 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  // Secret-bearing response: forbid any intermediary/browser caching. The
-  // column is encrypted; a value that does not decrypt is returned as null.
+  // The column is encrypted; a value that does not decrypt counts as not
+  // connected. Nothing derived from the token beyond the kind leaves here.
+  const token = await readGithubPat(user);
+  const kind: "oauth" | "manual" | null = token ? (token.startsWith("gho_") ? "oauth" : "manual") : null;
   return NextResponse.json(
-    { ok: true, githubPat: await readGithubPat(user) },
+    { ok: true, connected: token !== null, kind },
     { headers: { "Cache-Control": "no-store, max-age=0" } }
   );
 }

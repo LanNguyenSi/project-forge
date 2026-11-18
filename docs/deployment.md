@@ -1141,7 +1141,7 @@ set the script refuses to run.
 ### Behaviour changes to expect
 
 - `GET /api/dashboard` returns `tokenPrefix` instead of the raw token and
-  `githubPatConnected` instead of the GitHub PAT; the PAT is available to
-  its owner through `GET /api/dashboard/pat`.
+  `githubPatConnected` instead of the GitHub PAT; `GET /api/dashboard/pat`
+  answers only `connected` and `kind` (`oauth` or `manual`), never the token.
 - A repeat `register-from-project-pilot` call revokes the previous token
   and returns a new one.

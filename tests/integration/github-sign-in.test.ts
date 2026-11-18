@@ -879,3 +879,17 @@ describe("session callback cutoff read", () => {
     expect(session.authAt).toBe(authAt);
   });
 });
+
+describe("jwt callback", () => {
+  it("never copies the GitHub access token into the session token", () => {
+    const token = authOptions.callbacks!.jwt!({
+      token: {},
+      user: { id: "u1" },
+      account: { provider: "github", access_token: "gho_must_not_be_kept", type: "oauth", providerAccountId: "1" },
+    } as never) as Record<string, unknown>;
+
+    expect(token.userId).toBe("u1");
+    expect(token).not.toHaveProperty("githubAccessToken");
+    expect(JSON.stringify(token)).not.toContain("gho_must_not_be_kept");
+  });
+});
