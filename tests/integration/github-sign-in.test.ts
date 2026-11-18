@@ -93,6 +93,12 @@ import { decryptGithubPat } from "@/lib/github-pat";
 
 // Rows as the app reads them: githubPat decrypted (a legacy plaintext value
 // stays as it is), so the assertions below compare token values.
+// The raw column holds the encrypted form, never the token itself.
+function expectStoredEncrypted(r: Row | undefined, token: string) {
+  expect(r?.githubPat).toMatch(/^v1:/);
+  expect(r?.githubPat).not.toContain(token);
+}
+
 function plain(r: Row | undefined): Row {
   if (!r) throw new Error("no such row");
   return { ...r, githubPat: decryptGithubPat(r.githubPat) };
@@ -238,6 +244,7 @@ describe("GitHub sign-in account matching", () => {
     expect(user.id).toBe("r1");
     expect(rows).toHaveLength(1);
     expect(plain(rows[0])).toMatchObject({ githubPat: "gho_fresh", githubOwner: "me", githubLogin: "me", githubId: "1001" });
+    expectStoredEncrypted(rows[0], "gho_fresh");
   });
 
   it("matches by identity when the GitHub email changed, without touching the email", async () => {
@@ -249,6 +256,7 @@ describe("GitHub sign-in account matching", () => {
     expect(user.id).toBe("r1");
     expect(rows).toHaveLength(1);
     expect(plain(rows[0])).toMatchObject({ email: "old@example.com", githubPat: "gho_fresh" });
+    expectStoredEncrypted(rows[0], "gho_fresh");
   });
 
   it("signs in a linked account that also has a password (identity wins over the password flag)", async () => {
@@ -259,6 +267,7 @@ describe("GitHub sign-in account matching", () => {
     expect(result).toBe(true);
     expect(user.id).toBe("r1");
     expect(plain(rows[0]).githubPat).toBe("gho_fresh");
+    expectStoredEncrypted(rows[0], "gho_fresh");
     expect(plain(rows[0]).passwordHash).toBe("hash");
   });
 
@@ -310,6 +319,7 @@ describe("GitHub sign-in account matching", () => {
     expect(user.id).toBe("legacy");
     expect(rows).toHaveLength(1);
     expect(plain(rows[0])).toMatchObject({ githubId: "1001", githubPat: "gho_fresh", githubLogin: "legacy" });
+    expectStoredEncrypted(rows[0], "gho_fresh");
     // The claim cuts off what the row held: its live API tokens are revoked
     // and older sessions stop counting, in one transaction.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
@@ -679,6 +689,7 @@ describe("GitHub sign-in email verification", () => {
     expect(result).toBe(true);
     expect(user.id).toBe("r1");
     expect(plain(rows[0]).githubPat).toBe("gho_fresh");
+    expectStoredEncrypted(rows[0], "gho_fresh");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

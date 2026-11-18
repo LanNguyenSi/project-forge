@@ -96,10 +96,28 @@ describe("instrumentation register()", () => {
       expect(mSweep).not.toHaveBeenCalled();
     });
 
-    it("is started on the dev server", async () => {
-      stubServerEnv({ NODE_ENV: "development" });
+    it("is started on the dev server with a real secret", async () => {
+      stubServerEnv({ NODE_ENV: "development", NEXTAUTH_SECRET: "c".repeat(64), NEXTAUTH_URL: "" });
       await register();
       expect(mSweep).toHaveBeenCalledTimes(1);
+    });
+
+    it("is not started on the dev server with the placeholder secret", async () => {
+      stubServerEnv({ NODE_ENV: "development" });
+      await expect(register()).resolves.toBeUndefined();
+      expect(mSweep).not.toHaveBeenCalled();
+    });
+
+    it("is not started on the dev server with a short or placeholder key", async () => {
+      stubServerEnv({ NODE_ENV: "development", NEXTAUTH_SECRET: "c".repeat(64), GITHUB_PAT_ENCRYPTION_KEY: "short" });
+      await register();
+      stubServerEnv({
+        NODE_ENV: "development",
+        NEXTAUTH_SECRET: "c".repeat(64),
+        GITHUB_PAT_ENCRYPTION_KEY: "your-key-generate-with-openssl-rand-hex-32",
+      });
+      await register();
+      expect(mSweep).not.toHaveBeenCalled();
     });
 
     it("is not started under the test runner, during next build or in the edge runtime", async () => {

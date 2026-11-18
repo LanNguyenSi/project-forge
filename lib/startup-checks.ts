@@ -43,7 +43,13 @@ function trustsRequestHost(env: Record<string, string | undefined>): boolean {
   return Boolean(env.VERCEL ?? env.AUTH_TRUST_HOST);
 }
 
-export function findStartupConfigProblems(env: Record<string, string | undefined>): string[] {
+/**
+ * Problems with the values that key material is derived from (NEXTAUTH_SECRET
+ * and GITHUB_PAT_ENCRYPTION_KEY), the first one only. findStartupConfigProblems
+ * starts with these; the dev server uses them on their own to skip the GitHub
+ * token sweep rather than encrypt with a placeholder.
+ */
+export function findKeyMaterialProblems(env: Record<string, string | undefined>): string[] {
   const secret = env.NEXTAUTH_SECRET?.trim();
   if (!secret) {
     return ["NEXTAUTH_SECRET is not set (generate one with: openssl rand -hex 32)"];
@@ -69,6 +75,12 @@ export function findStartupConfigProblems(env: Record<string, string | undefined
       ];
     }
   }
+  return [];
+}
+
+export function findStartupConfigProblems(env: Record<string, string | undefined>): string[] {
+  const keyProblems = findKeyMaterialProblems(env);
+  if (keyProblems.length > 0) return keyProblems;
   const rawUrl = env.NEXTAUTH_URL;
   if (!rawUrl?.trim()) {
     if (trustsRequestHost(env)) {

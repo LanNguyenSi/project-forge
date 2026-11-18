@@ -250,8 +250,9 @@ encrypted on first use with a compare-and-swap on the value it read; the
 same rewrite runs for every remaining legacy row in a one-off batched sweep
 that `instrumentation.ts` starts after the start-up check, without waiting
 for it. The
-plaintext exists only where the token calls GitHub (the publish routes) and in
-the owner's own `GET /api/dashboard/pat` response for the Settings page.
+token is decrypted in memory by the routes that use or check it (publish,
+connected status, the broker's refresh decision) and returned only by
+`GET /api/dashboard/pat`, to its owner.
 
 The publish path sanitizes any embedded GitHub PAT with the shared
 `lib/scrub-secrets.ts` before the message reaches logs. It masks the

@@ -70,8 +70,9 @@ export function decryptGithubPat(stored: string | null | undefined, env: Env = p
   const iv = Buffer.from(parts[1], "base64url");
   const tag = Buffer.from(parts[2], "base64url");
   const ciphertext = Buffer.from(parts[3], "base64url");
-  // A wrong IV, tag or ciphertext (including a wrong length) fails the GCM
-  // authentication below, so it needs no separate check.
+  // Exact lengths, checked here and not left to authTagLength alone: a
+  // truncated tag must never be accepted, whatever the Node version does.
+  if (iv.length !== IV_BYTES || tag.length !== TAG_BYTES) return null;
   try {
     const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: TAG_BYTES });
     decipher.setAuthTag(tag);

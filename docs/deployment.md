@@ -177,8 +177,8 @@ re-cloning the checkout under another directory name had the same effect.
 - `GITHUB_PAT_ENCRYPTION_KEY` is optional. It is the key for the users' GitHub
   tokens, which the database stores encrypted (AES-256-GCM). When it is unset
   or empty, the key is derived from `NEXTAUTH_SECRET` (HKDF-SHA256 with a
-  purpose-specific label, so it differs from every other use of that secret).
-  A set value is checked when the production server starts: shorter than 32
+  purpose-specific label, so it differs from every other use of that secret);
+  that fallback is only as strong as `NEXTAUTH_SECRET` itself. A set value is checked when the production server starts: shorter than 32
   characters, or a placeholder (`your-...`, `...generate-with-openssl...`),
   gives the same refusal as above
   (`Refusing to serve: GITHUB_PAT_ENCRYPTION_KEY ...`). Like `NEXTAUTH_SECRET`,
@@ -659,6 +659,17 @@ keeps the schema the newer release gave it.
   file. A database that has only the baseline matches the old schema, and
   `db push` leaves it alone.
 
+- **A release before GitHub tokens were encrypted at rest** cannot read the
+  encrypted `githubPat` values the newer release wrote (the first start of the
+  newer release encrypts all of them). After such a rollback every user's
+  GitHub stays disconnected in practice: the old code sends the ciphertext to
+  GitHub, so publishing fails with an invalid-token error, and Settings shows
+  the ciphertext in the PAT field. It lasts until the newer release runs again
+  (it reads the values as they are) or the users reconnect GitHub, which the
+  old release stores as plaintext again. If a rollback past that release must
+  stay possible, take a backup with `scripts/backup.sh` before the first start
+  of the newer release; restoring it also drops everything written since.
+
 A rollback of the code alone leaves the database where it is. If you want the
 data of an older point too, restore a backup taken at that point with
 [Backup and restore](#backup-and-restore); remember that a restore drops
@@ -871,7 +882,11 @@ creates a fresh, empty database on it (the first-install row of the table in
 ### Restoring a backup
 
 A restore puts the database back to the moment of the backup: every write
-after it (users, API tokens, sessions, published-project rows) is gone. That
+after it (users, API tokens, sessions, published-project rows) is gone. The
+stored GitHub tokens in a backup are encrypted: a restored database needs the
+same `GITHUB_PAT_ENCRYPTION_KEY` (or, when that is unset, the same
+`NEXTAUTH_SECRET`) as when the backup was taken, or every user shows as not
+connected and has to connect GitHub again. That
 includes what the app wrote while the backup was being taken. Restore with the
 app stopped, so nothing writes between the check and the swap: stop it with
 `docker compose stop` or `docker compose stop app`, never with

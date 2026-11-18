@@ -136,6 +136,65 @@ describe("sweepLegacyGithubPats", () => {
   });
 });
 
+// A client over the real database that stops a sweep that does not end (more
+// than 50 queries) and can make the rewrite of chosen rows fail.
+function boundedClient(failIds: Set<string> = new Set()) {
+  let queries = 0;
+  return {
+    user: {
+      findMany: (async (args) => {
+        if (++queries > 50) throw new Error("sweep does not terminate");
+        return db.user.findMany(args as never);
+      }) as typeof db.user.findMany,
+      updateMany: async (args: { where: { id: string } }) => {
+        if (failIds.has(args.where.id)) throw new Error("database is locked");
+        return db.user.updateMany(args as never);
+      },
+    },
+  };
+}
+
+describe("sweepLegacyGithubPats: cursor and failures", () => {
+  it("ends and moves past rows that stay as they are when they fill a batch", async () => {
+    await db.user.deleteMany();
+    await db.user.create({ data: { id: "a", email: "a@example.com", githubPat: "" } });
+    await db.user.create({ data: { id: "b", email: "b@example.com", githubPat: "" } });
+    await db.user.create({ data: { id: "c", email: "c@example.com", githubPat: "ghp_afterTheEmptyOnes" } });
+
+    expect(await sweepLegacyGithubPats(boundedClient() as never, ENV, 2)).toEqual({
+      skipped: false,
+      rewritten: 1,
+      failed: 0,
+    });
+    const after = await pats();
+    expect(after.a).toBe("");
+    expect(after.b).toBe("");
+    expect(decryptGithubPat(after.c, ENV)).toBe("ghp_afterTheEmptyOnes");
+  }, 15_000);
+
+  it("counts a row whose rewrite fails, leaves it as it is and encrypts the later rows", async () => {
+    const result = await sweepLegacyGithubPats(boundedClient(new Set(["legacy-1"])) as never, ENV, 2);
+
+    expect(result).toEqual({ skipped: false, rewritten: LEGACY.length - 1, failed: 1 });
+    const after = await pats();
+    expect(after["legacy-1"]).toBe(LEGACY[1]);
+    for (const [i, token] of LEGACY.entries()) {
+      if (i === 1) continue;
+      expect(decryptGithubPat(after[`legacy-${i}`], ENV)).toBe(token);
+    }
+  }, 15_000);
+
+  it("ends when failing rows fill a whole batch, and still encrypts the rows after it", async () => {
+    const result = await sweepLegacyGithubPats(boundedClient(new Set(["legacy-0", "legacy-1"])) as never, ENV, 2);
+
+    expect(result).toEqual({ skipped: false, rewritten: LEGACY.length - 2, failed: 2 });
+    const after = await pats();
+    expect(after["legacy-0"]).toBe(LEGACY[0]);
+    expect(after["legacy-1"]).toBe(LEGACY[1]);
+    for (const i of [2, 3, 4]) expect(decryptGithubPat(after[`legacy-${i}`], ENV)).toBe(LEGACY[i]);
+  }, 15_000);
+});
+
 describe("startLegacyGithubPatSweep", () => {
   it("returns before the sweep finishes and logs counts only", async () => {
     vi.stubEnv("NEXTAUTH_SECRET", SECRET);

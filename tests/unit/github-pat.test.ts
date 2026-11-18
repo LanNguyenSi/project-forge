@@ -60,6 +60,25 @@ describe("encryptGithubPat / decryptGithubPat", () => {
     expect(decryptGithubPat(tamper(encryptGithubPat(TOKEN, env), 3), env)).toBeNull();
   });
 
+  it("fails closed on a truncated auth tag (4, 8 and 12 bytes)", () => {
+    const stored = encryptGithubPat(TOKEN, env);
+    const p = parts(stored);
+    const tag = Buffer.from(p.tag, "base64url");
+    for (const length of [4, 8, 12]) {
+      const short = tag.subarray(0, length).toString("base64url");
+      expect(decryptGithubPat(`v1:${p.iv}:${short}:${p.ciphertext}`, env)).toBeNull();
+    }
+  });
+
+  it("fails closed on an IV that is not 12 bytes", () => {
+    const stored = encryptGithubPat(TOKEN, env);
+    const p = parts(stored);
+    const iv = Buffer.from(p.iv, "base64url");
+    for (const bad of [iv.subarray(0, 8), Buffer.concat([iv, Buffer.alloc(4)])]) {
+      expect(decryptGithubPat(`v1:${bad.toString("base64url")}:${p.tag}:${p.ciphertext}`, env)).toBeNull();
+    }
+  });
+
   it("fails closed on a wrong key", () => {
     const stored = encryptGithubPat(TOKEN, env);
     expect(decryptGithubPat(stored, { NEXTAUTH_SECRET: OTHER_SECRET })).toBeNull();
