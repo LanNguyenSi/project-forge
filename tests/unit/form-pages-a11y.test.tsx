@@ -13,8 +13,9 @@ vi.mock("next-auth/react", () => ({
   useSession: () => sessionState,
 }));
 
+const router = { push: vi.fn() };
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => router,
   usePathname: () => "/login",
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -92,10 +93,10 @@ describe("settings page accessible names", () => {
 
 describe("settings page PAT handling", () => {
   const calls: { url: string; init?: RequestInit }[] = [];
-  // The mocked router is a new object per render, which re-runs the load
-  // effect, so the GET answer follows the server state after a POST.
+  // The GET answer is fixed: the page has to update its own state after a
+  // save instead of relying on a re-fetch.
   const mockFetch = (initial: { connected: boolean; kind: string | null }) => {
-    let pat = initial;
+    const pat = initial;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
@@ -105,7 +106,7 @@ describe("settings page PAT handling", () => {
           json: async () =>
             url.includes("/pat")
               ? init?.method === "POST"
-                ? ((pat = { connected: true, kind: "manual" }), { ok: true })
+                ? { ok: true }
                 : { ok: true, ...pat }
               : { ok: true, tokens: [], user: {} },
         };
@@ -152,5 +153,7 @@ describe("settings page PAT handling", () => {
     expect(JSON.parse(String(post.init?.body))).toEqual({ githubPat: "ghp_typedNew" });
     await screen.findByText("Connected via PAT");
     expect(input.value).toBe("");
+    const patGets = calls.filter((c) => c.url.includes("/pat") && c.init?.method !== "POST");
+    expect(patGets).toHaveLength(1);
   });
 });

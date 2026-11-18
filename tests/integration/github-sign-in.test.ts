@@ -881,6 +881,15 @@ describe("session callback cutoff read", () => {
 });
 
 describe("jwt callback", () => {
+  it("drops a GitHub access token carried by an older session token", () => {
+    const token = authOptions.callbacks!.jwt!({
+      token: { userId: "u1", githubAccessToken: "gho_stale_in_cookie" },
+    } as never) as Record<string, unknown>;
+
+    expect(token.userId).toBe("u1");
+    expect(token).not.toHaveProperty("githubAccessToken");
+  });
+
   it("never copies the GitHub access token into the session token", () => {
     const token = authOptions.callbacks!.jwt!({
       token: {},
