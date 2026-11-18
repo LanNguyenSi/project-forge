@@ -9,7 +9,11 @@ import { runPlanforgeViaHttp, PlanforgeClientError, assertScaffoldkitRan } from 
 import { runPostScaffoldReview } from "@/lib/post-scaffold-review";
 import { validateProjectName, readPreviewData } from "@/lib/v1-shared";
 import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
-import { GENERATE_MAX_BODY_BYTES, attachmentLimitError } from "@/lib/limits";
+import {
+  GENERATE_MAX_BODY_BYTES,
+  MIDDLEWARE_BODY_CLONE_LIMIT_BYTES,
+  attachmentLimitError,
+} from "@/lib/limits";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 // End-to-end cap for plan + scaffold + tar + SSE + untar. The planforge
@@ -43,7 +47,9 @@ export async function POST(req: NextRequest) {
   let sessionId: string | null = null;
 
   try {
-    const input: GenerateRequest = (await readJsonBody(req, GENERATE_MAX_BODY_BYTES)) as GenerateRequest;
+    const input: GenerateRequest = (await readJsonBody(req, GENERATE_MAX_BODY_BYTES, {
+      cloneLimitBytes: MIDDLEWARE_BODY_CLONE_LIMIT_BYTES,
+    })) as GenerateRequest;
 
     if (!input.projectName || !input.summary) {
       return NextResponse.json({ ok: false, error: "Missing required fields: projectName, summary" }, { status: 400 });

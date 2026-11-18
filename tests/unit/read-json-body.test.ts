@@ -1,7 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { BodyTooLargeError, readJsonBody } from "@/lib/read-json-body";
+import {
+  BodyTooLargeError,
+  CLONE_TRUNCATION_WINDOW_BYTES,
+  readJsonBody,
+} from "@/lib/read-json-body";
 
 /**
  * Unit tests for the bounded JSON body reader. Node env on purpose:
@@ -180,5 +184,88 @@ describe("readJsonBody", () => {
     const { req, cancelCalls } = streamingBytesReq(new Uint8Array(2048), 512);
     await expect(readJsonBody(req, CAP)).rejects.toBeInstanceOf(BodyTooLargeError);
     expect(cancelCalls()).toBe(1);
+  });
+});
+
+/**
+ * Next cuts a middleware-cloned body at the clone limit and ends the
+ * stream cleanly, so the route sees an unterminated JSON prefix that can
+ * be shorter than its cap. Numbers mirror the real values: route cap
+ * 601_712, clone limit 602_736, 64 KiB socket chunks.
+ */
+describe("readJsonBody with a middleware clone limit", () => {
+  const ROUTE_CAP = 601_712;
+  const CLONE_LIMIT = 602_736;
+  const LOWER = CLONE_LIMIT - CLONE_TRUNCATION_WINDOW_BYTES;
+  const opts = { cloneLimitBytes: CLONE_LIMIT };
+
+  /** Unterminated JSON of exactly `n` bytes, as a cut-off body arrives. */
+  function truncatedBytes(n: number): Uint8Array {
+    return new TextEncoder().encode('{"a":"' + "x".repeat(n - 6));
+  }
+
+  it("reports a parse failure on a body ending just under the clone limit as too large", async () => {
+    const { req } = streamingBytesReq(truncatedBytes(CLONE_LIMIT - 12_912), 65_536);
+    await expect(readJsonBody(req, ROUTE_CAP, opts)).rejects.toBeInstanceOf(BodyTooLargeError);
+  });
+
+  it("the window's lower bound is inclusive: a cut ending exactly there is too large", async () => {
+    const { req } = streamingBytesReq(truncatedBytes(LOWER), 65_536);
+    await expect(readJsonBody(req, ROUTE_CAP, opts)).rejects.toBeInstanceOf(BodyTooLargeError);
+  });
+
+  it("one byte below the window it stays a SyntaxError", async () => {
+    const { req } = streamingBytesReq(truncatedBytes(LOWER - 1), 65_536);
+    await expect(readJsonBody(req, ROUTE_CAP, opts)).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it("a small malformed body stays a SyntaxError even with the clone limit set", async () => {
+    await expect(readJsonBody(stringReq("{not json"), ROUTE_CAP, opts)).rejects.toBeInstanceOf(
+      SyntaxError
+    );
+  });
+
+  it("without the option the same cut-off body stays a SyntaxError", async () => {
+    const { req } = streamingBytesReq(truncatedBytes(CLONE_LIMIT - 12_912), 65_536);
+    await expect(readJsonBody(req, ROUTE_CAP)).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it("a valid body inside the window still resolves", async () => {
+    const bytes = jsonBytesOfLength(ROUTE_CAP);
+    const { req } = streamingBytesReq(bytes, 65_536);
+    await expect(readJsonBody(req, ROUTE_CAP, opts)).resolves.toEqual({
+      a: "x".repeat(ROUTE_CAP - 8),
+    });
+  });
+
+  it("a body over the route cap is still rejected by the byte count", async () => {
+    const { req } = streamingBytesReq(jsonBytesOfLength(ROUTE_CAP + 1), 65_536);
+    await expect(readJsonBody(req, ROUTE_CAP, opts)).rejects.toBeInstanceOf(BodyTooLargeError);
+  });
+
+  // Literal values, not derived from CLONE_TRUNCATION_WINDOW_BYTES: a test
+  // that computes its cut from the constant moves with it and cannot tell
+  // when the constant is shrunk.
+  it("a cut 65_535 bytes below the clone limit is too large (largest gap one 64 KiB read leaves)", async () => {
+    // 602_736 - 65_535 = 537_201 bytes delivered.
+    const { req } = streamingBytesReq(truncatedBytes(537_201), 65_536);
+    await expect(readJsonBody(req, ROUTE_CAP, { cloneLimitBytes: 602_736 })).rejects.toBeInstanceOf(
+      BodyTooLargeError
+    );
+  });
+
+  it("a cut delivering 560_000 bytes (measured on a real server) is too large", async () => {
+    const { req } = streamingBytesReq(truncatedBytes(560_000), 65_536);
+    await expect(readJsonBody(req, ROUTE_CAP, { cloneLimitBytes: 602_736 })).rejects.toBeInstanceOf(
+      BodyTooLargeError
+    );
+  });
+
+  it("the window is at least Node's 64 KiB HTTP read size", () => {
+    // Node's HTTP parser hands the body over in chunks of at most 65_536
+    // bytes, and the clone drops the whole chunk that crosses the limit, so
+    // a truncated body can end up to 65_535 bytes short of it. A smaller
+    // window would answer those bodies with a parse failure again.
+    expect(CLONE_TRUNCATION_WINDOW_BYTES).toBeGreaterThanOrEqual(65_536);
   });
 });

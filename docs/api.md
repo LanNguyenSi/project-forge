@@ -18,9 +18,8 @@ Request bodies are size-capped: 64 KiB for `publish` and broker
 registration; 601,712 bytes for `generate` and the one-shot create (which
 covers an attachment of up to 50,000 characters, one file, the same limits
 the web UI enforces) and 361,712 bytes for the web UI's own AI-assist
-endpoint. An oversized body answers `413`, except that a chunked body
-without a `Content-Length` header which exceeds the cap while streaming may
-end in a reset connection instead of a `413` answer; `POST /api/generate`
+endpoint. An oversized body answers `413`, also a chunked body
+without a `Content-Length` header; `POST /api/generate`
 and `POST /api/v1/generate` also answer `413` for attachments over the
 per-file, total or count limit before anything is written.
 
