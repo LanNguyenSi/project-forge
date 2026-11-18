@@ -13,8 +13,9 @@ vi.mock("next-auth/react", () => ({
   useSession: () => sessionState,
 }));
 
+const router = { push: vi.fn() };
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => router,
   usePathname: () => "/login",
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -68,7 +69,7 @@ describe("settings page accessible names", () => {
         ok: true,
         json: async () =>
           url.includes("/pat")
-            ? { ok: true, githubPat: "" }
+            ? { ok: true, connected: false, kind: null }
             : { ok: true, tokens: [], user: {} },
       })),
     );
@@ -87,5 +88,72 @@ describe("settings page accessible names", () => {
     fireEvent.click(btn);
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Token name is required");
+  });
+});
+
+describe("settings page PAT handling", () => {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  // The GET answer is fixed: the page has to update its own state after a
+  // save instead of relying on a re-fetch.
+  const mockFetch = (initial: { connected: boolean; kind: string | null }) => {
+    const pat = initial;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init });
+        return {
+          ok: true,
+          json: async () =>
+            url.includes("/pat")
+              ? init?.method === "POST"
+                ? { ok: true }
+                : { ok: true, ...pat }
+              : { ok: true, tokens: [], user: {} },
+        };
+      }),
+    );
+  };
+  beforeEach(() => {
+    calls.length = 0;
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows the saved state for a manual PAT with an empty input", async () => {
+    mockFetch({ connected: true, kind: "manual" });
+    render(<SettingsPage />);
+    await screen.findByTestId("pat-connected-state");
+    expect(screen.getByText("Connected via PAT")).toBeTruthy();
+    expect((screen.getByLabelText("GitHub personal access token") as HTMLInputElement).value).toBe("");
+  });
+
+  it("shows the OAuth state when the token kind is oauth", async () => {
+    mockFetch({ connected: true, kind: "oauth" });
+    render(<SettingsPage />);
+    await screen.findByText("Connected via OAuth");
+    expect(screen.queryByLabelText("GitHub personal access token")).toBeNull();
+  });
+
+  it("does not post when nothing was typed", async () => {
+    mockFetch({ connected: true, kind: "manual" });
+    render(<SettingsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Replace PAT" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Enter a GitHub PAT");
+    expect(calls.filter((c) => c.init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("posts only the typed value and clears the input afterwards", async () => {
+    mockFetch({ connected: false, kind: null });
+    render(<SettingsPage />);
+    const input = (await screen.findByLabelText("GitHub personal access token")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "  ghp_typedNew " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save PAT" }));
+    await waitFor(() => expect(calls.some((c) => c.init?.method === "POST")).toBe(true));
+    const post = calls.find((c) => c.init?.method === "POST")!;
+    expect(JSON.parse(String(post.init?.body))).toEqual({ githubPat: "ghp_typedNew" });
+    await screen.findByText("Connected via PAT");
+    expect(input.value).toBe("");
+    const patGets = calls.filter((c) => c.url.includes("/pat") && c.init?.method !== "POST");
+    expect(patGets).toHaveLength(1);
   });
 });

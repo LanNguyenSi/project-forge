@@ -148,11 +148,15 @@ async function tokenStatus(raw: string): Promise<number> {
   return res.status;
 }
 
-async function patStatus(cookie: string | null): Promise<{ status: number; pat?: string }> {
+// GET /api/dashboard/pat answers connection state and kind only; the raw token
+// must appear nowhere in the body.
+async function patStatus(cookie: string | null): Promise<{ status: number; kind?: string | null }> {
   current.cookie = cookie;
   const res = await patGET();
-  const body = (await res.json()) as { githubPat?: string };
-  return { status: res.status, pat: body.githubPat };
+  const text = await res.text();
+  expect(text).not.toMatch(/gh[op]_|v1:/);
+  const body = JSON.parse(text) as { kind?: string | null };
+  return { status: res.status, kind: body.kind };
 }
 
 /** Lets the clock move past the claim, so a token made now is later than the cutoff. */
@@ -219,18 +223,18 @@ describe("claiming a legacy row", () => {
     const undatedCookie = await cookieFor({ userId: row.id });
 
     // Before the claim the old holder's session reads the token on the row.
-    expect(await patStatus(oldCookie)).toEqual({ status: 200, pat: "gho_planted_by_old_holder" });
-    expect(await patStatus(undatedCookie)).toEqual({ status: 200, pat: "gho_planted_by_old_holder" });
+    expect(await patStatus(oldCookie)).toEqual({ status: 200, kind: "oauth" });
+    expect(await patStatus(undatedCookie)).toEqual({ status: 200, kind: "oauth" });
 
     const { result, user } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
     expect(result).toBe(true);
     expect(user.id).toBe(row.id);
 
-    expect(await patStatus(oldCookie)).toEqual({ status: 401, pat: undefined });
-    expect(await patStatus(undatedCookie)).toEqual({ status: 401, pat: undefined });
+    expect(await patStatus(oldCookie)).toEqual({ status: 401, kind: undefined });
+    expect(await patStatus(undatedCookie)).toEqual({ status: 401, kind: undefined });
 
     // The owner's own session, minted by the sign-in that claimed the row.
-    expect(await patStatus(await mintSessionFor(user.id))).toEqual({ status: 200, pat: "gho_owner" });
+    expect(await patStatus(await mintSessionFor(user.id))).toEqual({ status: 200, kind: "oauth" });
   });
 
   it("compares the mint time with the cutoff inclusively", async () => {
@@ -262,7 +266,7 @@ describe("claiming a legacy row", () => {
     expect(after).toMatchObject({ githubId: null, githubPat: "gho_planted_by_old_holder", sessionsValidAfter: null });
     expect(await tokenStatus(first.raw)).toBe(200);
     expect(await tokenStatus(second.raw)).toBe(200);
-    expect(await patStatus(oldCookie)).toEqual({ status: 200, pat: "gho_planted_by_old_holder" });
+    expect(await patStatus(oldCookie)).toEqual({ status: 200, kind: "oauth" });
   });
 });
 
@@ -276,7 +280,7 @@ describe("sign-ins that are not a claim of a legacy row", () => {
 
     expect(result).toBe(true);
     expect(await tokenStatus(token.raw)).toBe(200);
-    expect(await patStatus(cookie)).toEqual({ status: 200, pat: "gho_fresh" });
+    expect(await patStatus(cookie)).toEqual({ status: 200, kind: "oauth" });
     expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).sessionsValidAfter).toBeNull();
   });
 
@@ -289,7 +293,7 @@ describe("sign-ins that are not a claim of a legacy row", () => {
 
     expect(result).toBe("/login?error=OAuthAccountNotLinked");
     expect(await tokenStatus(token.raw)).toBe(200);
-    expect(await patStatus(cookie)).toEqual({ status: 200, pat: "ghp_manual" });
+    expect(await patStatus(cookie)).toEqual({ status: 200, kind: "manual" });
     expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).sessionsValidAfter).toBeNull();
   });
 
@@ -308,7 +312,7 @@ describe("sign-ins that are not a claim of a legacy row", () => {
   it("a session without a mint time stays valid while the user has no cutoff", async () => {
     const row = await db.user.create({ data: { email: "plain@example.com", passwordHash: "hash", githubPat: "ghp_x" } });
 
-    expect(await patStatus(await cookieFor({ userId: row.id }))).toEqual({ status: 200, pat: "ghp_x" });
+    expect(await patStatus(await cookieFor({ userId: row.id }))).toEqual({ status: 200, kind: "manual" });
   });
 });
 
@@ -386,7 +390,7 @@ describe("a claim that commits after the session check passed", () => {
     const { row } = await seedLegacyRow();
     await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
 
-    expect(await patStatus(await mintSessionFor(row.id))).toEqual({ status: 200, pat: "gho_owner" });
+    expect(await patStatus(await mintSessionFor(row.id))).toEqual({ status: 200, kind: "oauth" });
   });
 
   it("POST /api/dashboard/pat does not overwrite the new owner's token from the older session", async () => {

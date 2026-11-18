@@ -232,7 +232,7 @@ describe("DELETE /api/dashboard/tokens/[id]", () => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/dashboard/pat  (settings-only: read the caller's own raw PAT)
+// GET /api/dashboard/pat  (settings-only: connection state and kind, never the token)
 // ---------------------------------------------------------------------------
 describe("GET /api/dashboard/pat", () => {
   beforeEach(() => {
@@ -272,28 +272,57 @@ describe("GET /api/dashboard/pat", () => {
     });
   });
 
-  it("200 returns the caller's own raw githubPat", async () => {
+  it("200 reports a manual token as connected without returning it", async () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
     user.findUnique.mockResolvedValue({ githubPat: "ghp_ownRawToken" });
 
     const res = await getPat();
+    const text = await res.text();
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.githubPat).toBe("ghp_ownRawToken");
+    expect(JSON.parse(text)).toEqual({ ok: true, connected: true, kind: "manual" });
+    expect(text).not.toContain("ghp_ownRawToken");
+    expect(text).not.toContain("ownRawToken");
   });
 
-  it("200 returns the decrypted token when the column holds the encrypted form", async () => {
+  it("200 reports an OAuth token (gho_) as kind oauth without returning it", async () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
-    user.findUnique.mockResolvedValue({ id: "user-1", githubPat: encryptGithubPat("ghp_storedEncrypted") });
+    user.findUnique.mockResolvedValue({ githubPat: "gho_oauthRawToken" });
 
-    const body = await (await getPat()).json();
+    const res = await getPat();
+    const text = await res.text();
 
-    expect(body.githubPat).toBe("ghp_storedEncrypted");
+    expect(JSON.parse(text)).toEqual({ ok: true, connected: true, kind: "oauth" });
+    expect(text).not.toContain("oauthRawToken");
   });
 
-  it("200 returns null githubPat when the stored token no longer decrypts (key rotated)", async () => {
+  it("derives the kind per prefix: gho_ is oauth, ghp_ and github_pat_ are manual", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    for (const [stored, kind] of [
+      ["gho_a", "oauth"],
+      ["ghp_a", "manual"],
+      ["github_pat_a", "manual"],
+    ] as const) {
+      user.findUnique.mockResolvedValue({ githubPat: stored });
+      const body = await (await getPat()).json();
+      expect(body.kind, stored).toBe(kind);
+    }
+  });
+
+  it("never returns the token when the column holds the encrypted form", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    const stored = encryptGithubPat("ghp_storedEncrypted");
+    user.findUnique.mockResolvedValue({ id: "user-1", githubPat: stored });
+
+    const text = await (await getPat()).text();
+
+    expect(JSON.parse(text)).toEqual({ ok: true, connected: true, kind: "manual" });
+    expect(text).not.toContain("storedEncrypted");
+    expect(text).not.toContain(stored);
+    expect(text).not.toContain("v1:");
+  });
+
+  it("200 reports not connected when the stored token no longer decrypts (key rotated)", async () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
     user.findUnique.mockResolvedValue({
       id: "user-1",
@@ -304,20 +333,27 @@ describe("GET /api/dashboard/pat", () => {
     const text = await res.text();
 
     expect(res.status).toBe(200);
-    expect(JSON.parse(text).githubPat).toBeNull();
+    expect(JSON.parse(text)).toEqual({ ok: true, connected: false, kind: null });
     expect(text).not.toContain("v1:");
   });
 
-  it("200 returns null githubPat when the user has none set", async () => {
+  it("200 reports not connected when the user has none set", async () => {
     mGetSession.mockResolvedValue(AUTHED_SESSION as never);
     user.findUnique.mockResolvedValue({ githubPat: null });
 
     const res = await getPat();
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.githubPat).toBeNull();
+    expect(await res.json()).toEqual({ ok: true, connected: false, kind: null });
+  });
+
+  it("sends the response with no-store caching", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    user.findUnique.mockResolvedValue({ githubPat: "ghp_x" });
+
+    const res = await getPat();
+
+    expect(res.headers.get("Cache-Control")).toBe("no-store, max-age=0");
   });
 });
 
