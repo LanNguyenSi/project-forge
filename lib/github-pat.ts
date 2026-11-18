@@ -17,7 +17,9 @@ import { prisma } from "./db";
 //
 // A stored value without the `v1:` prefix is a token from before encryption
 // (GitHub tokens start with gho_, ghp_ or github_pat_, never with `v1:`). It is
-// still accepted, and readGithubPat rewrites it encrypted on its first use.
+// still accepted; readGithubPat rewrites it encrypted on its first use, and the
+// start-up sweep (sweepLegacyGithubPats, started from instrumentation.ts)
+// rewrites the rest.
 
 const PREFIX = "v1:";
 const ALGORITHM = "aes-256-gcm";
@@ -80,15 +82,35 @@ export function decryptGithubPat(stored: string | null | undefined, env: Env = p
   }
 }
 
-type PatClient = { user: { updateMany: (args: { where: { id: string; githubPat: string }; data: { githubPat: string } }) => Promise<unknown> } };
+type UpdateManyArgs = { where: { id: string; githubPat: string }; data: { githubPat: string } };
+type PatClient = { user: { updateMany: (args: UpdateManyArgs) => Promise<{ count: number } | unknown> } };
+
+/**
+ * Rewrites one legacy plaintext value encrypted: a compare-and-swap on the
+ * value the caller read, so it is idempotent and never replaces a token
+ * another request wrote in between (a reconnect, a sign-in or a legacy-row
+ * claim). True when this call wrote the row. Throws on a database error or
+ * when no key is configured.
+ */
+async function rewriteLegacy(
+  client: PatClient,
+  user: { id: string },
+  stored: string,
+  plain: string,
+  env: Env = process.env
+): Promise<boolean> {
+  const result = await client.user.updateMany({
+    where: { id: user.id, githubPat: stored },
+    data: { githubPat: encryptGithubPat(plain, env) },
+  });
+  return (result as { count?: number } | null)?.count === 1;
+}
 
 /**
  * The user's usable GitHub token, or null ("not connected"). A legacy
- * plaintext value is rewritten encrypted on this first use. The rewrite is a
- * compare-and-swap on the value just read, so it is idempotent and never
- * replaces a token another request wrote in between (a reconnect, a sign-in
- * or a legacy-row claim). A failed rewrite is not logged and not fatal: the
- * token is still returned and the next use tries again.
+ * plaintext value is rewritten encrypted on this first use (see
+ * rewriteLegacy). A failed rewrite is not logged and not fatal: the token is
+ * still returned and the next use, or the start-up sweep, tries again.
  */
 export async function readGithubPat(
   user: { id: string; githubPat: string | null },
@@ -98,13 +120,84 @@ export async function readGithubPat(
   const plain = decryptGithubPat(stored);
   if (plain && stored && !isEncryptedGithubPat(stored)) {
     try {
-      await client.user.updateMany({
-        where: { id: user.id, githubPat: stored },
-        data: { githubPat: encryptGithubPat(plain) },
-      });
+      await rewriteLegacy(client, user, stored, plain);
     } catch {
       // Left as it is; retried on the next use.
     }
   }
   return plain;
+}
+
+type SweepClient = PatClient & {
+  user: {
+    findMany: (args: {
+      where: object;
+      orderBy: { id: "asc" };
+      take: number;
+      select: { id: true; githubPat: true };
+    }) => Promise<Array<{ id: string; githubPat: string | null }>>;
+  };
+};
+
+export type SweepResult = { skipped: boolean; rewritten: number; failed: number };
+
+export const SWEEP_BATCH_SIZE = 100;
+
+/**
+ * One pass over every row whose githubPat is set and not in the encrypted
+ * form, in batches ordered by id (a cursor on id, so rows that stay as they
+ * are, such as an empty string, do not stop the pass). Each row goes through
+ * the same compare-and-swap as readGithubPat, so a second instance sweeping
+ * at the same time, a restart, or a reconnect in between never overwrites a
+ * newer value. Skipped entirely when no key is configured.
+ */
+export async function sweepLegacyGithubPats(
+  client: SweepClient = prisma,
+  env: Env = process.env,
+  batchSize: number = SWEEP_BATCH_SIZE
+): Promise<SweepResult> {
+  const result: SweepResult = { skipped: false, rewritten: 0, failed: 0 };
+  if (!deriveKey(env)) return { ...result, skipped: true };
+  let after: string | undefined;
+  for (;;) {
+    const rows = await client.user.findMany({
+      where: {
+        githubPat: { not: null },
+        NOT: { githubPat: { startsWith: PREFIX } },
+        ...(after === undefined ? {} : { id: { gt: after } }),
+      },
+      orderBy: { id: "asc" },
+      take: batchSize,
+      select: { id: true, githubPat: true },
+    });
+    for (const row of rows) {
+      const plain = decryptGithubPat(row.githubPat, env);
+      // The query already left out encrypted rows; an unreadable value is skipped.
+      if (!plain || !row.githubPat) continue;
+      try {
+        if (await rewriteLegacy(client, row, row.githubPat, plain, env)) result.rewritten += 1;
+      } catch {
+        result.failed += 1;
+      }
+    }
+    if (rows.length < batchSize) return result;
+    after = rows[rows.length - 1].id;
+  }
+}
+
+/**
+ * Starts the sweep without waiting for it: the server serves while it runs.
+ * Logs counts only, never a token value or a database error text.
+ */
+export function startLegacyGithubPatSweep(client: SweepClient = prisma): void {
+  sweepLegacyGithubPats(client)
+    .then(({ skipped, rewritten, failed }) => {
+      if (skipped) return;
+      if (rewritten > 0 || failed > 0) {
+        console.info(`GitHub token sweep: ${rewritten} legacy token(s) encrypted, ${failed} failed`);
+      }
+    })
+    .catch(() => {
+      console.error("GitHub token sweep stopped: the database query failed; tokens are encrypted on first use");
+    });
 }

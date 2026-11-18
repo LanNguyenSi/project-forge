@@ -246,7 +246,10 @@ with a random 12-byte IV per write, stored as `v1:<iv>:<tag>:<ciphertext>`
 purpose-specific label. Every write goes through `encryptGithubPat`; reads go
 through `readGithubPat`, which returns null (not connected) for a value that
 does not decrypt (wrong key, tampered), and rewrites a legacy plaintext value
-encrypted on first use with a compare-and-swap on the value it read. The
+encrypted on first use with a compare-and-swap on the value it read; the
+same rewrite runs for every remaining legacy row in a one-off batched sweep
+that `instrumentation.ts` starts after the start-up check, without waiting
+for it. The
 plaintext exists only where the token calls GitHub (the publish routes) and in
 the owner's own `GET /api/dashboard/pat` response for the Settings page.
 

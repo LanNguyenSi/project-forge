@@ -1,5 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/github-pat", () => ({ startLegacyGithubPatSweep: vi.fn() }));
+
 import { register } from "@/instrumentation";
+import { startLegacyGithubPatSweep } from "@/lib/github-pat";
+
+const mSweep = vi.mocked(startLegacyGithubPatSweep);
 
 const PLACEHOLDER = "your-secret-here-generate-with-openssl-rand-hex-32";
 const URL_PLACEHOLDER = "https://your-forge.example.com";
@@ -14,6 +20,10 @@ function stubServerEnv(overrides: Record<string, string>) {
 }
 
 describe("instrumentation register()", () => {
+  beforeEach(() => {
+    mSweep.mockClear();
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -61,5 +71,45 @@ describe("instrumentation register()", () => {
   it("does not check in the edge runtime", async () => {
     stubServerEnv({ NEXT_RUNTIME: "edge" });
     await expect(register()).resolves.toBeUndefined();
+  });
+
+  describe("legacy GitHub token sweep", () => {
+    it("is started once after the checks pass on the production server", async () => {
+      stubServerEnv({ NEXTAUTH_SECRET: "c".repeat(64), NEXTAUTH_URL: "https://forge.example.com" });
+      await register();
+      expect(mSweep).toHaveBeenCalledTimes(1);
+    });
+
+    it("is not started when the start-up check refuses to serve", async () => {
+      stubServerEnv({});
+      await expect(register()).rejects.toThrow(/Refusing to serve/);
+      expect(mSweep).not.toHaveBeenCalled();
+    });
+
+    it("is not started when the key check refuses to serve", async () => {
+      stubServerEnv({
+        NEXTAUTH_SECRET: "c".repeat(64),
+        NEXTAUTH_URL: "https://forge.example.com",
+        GITHUB_PAT_ENCRYPTION_KEY: "short",
+      });
+      await expect(register()).rejects.toThrow(/GITHUB_PAT_ENCRYPTION_KEY/);
+      expect(mSweep).not.toHaveBeenCalled();
+    });
+
+    it("is started on the dev server", async () => {
+      stubServerEnv({ NODE_ENV: "development" });
+      await register();
+      expect(mSweep).toHaveBeenCalledTimes(1);
+    });
+
+    it("is not started under the test runner, during next build or in the edge runtime", async () => {
+      stubServerEnv({ NODE_ENV: "test" });
+      await register();
+      stubServerEnv({ NEXT_PHASE: "phase-production-build" });
+      await register();
+      stubServerEnv({ NEXT_RUNTIME: "edge" });
+      await register();
+      expect(mSweep).not.toHaveBeenCalled();
+    });
   });
 });

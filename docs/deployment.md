@@ -188,8 +188,18 @@ re-cloning the checkout under another directory name had the same effect.
   unset) makes every stored GitHub token unreadable. Nothing crashes and
   nothing is logged: those users show as "not connected", publishing answers
   "GitHub not connected", and they connect GitHub again (GitHub sign-in or a
-  PAT saved in Settings). Tokens stored before encryption existed are read as
-  they are and rewritten encrypted on first use.
+  PAT saved in Settings).
+  **Upgrade from plaintext tokens:** nothing to run. Every server start (the
+  production and the dev server, after the start-up check passed) runs a sweep
+  in the background that encrypts each token still stored as plaintext, 100
+  rows per query; the server serves while it runs. It logs only counts
+  (`GitHub token sweep: N legacy token(s) encrypted, M failed`), or one fixed
+  line when a query fails, never a token. A second start finds nothing left to
+  do, and two instances starting at once cannot overwrite each other or a user
+  who reconnects meanwhile (each row is rewritten only while it still holds the
+  plaintext that was read). Without any key material (neither variable set,
+  development only) the sweep is skipped. A token used before the sweep
+  reaches it is encrypted on that use.
 
 ### Health check and logs
 
