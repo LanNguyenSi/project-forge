@@ -86,6 +86,12 @@ describe("instrumentation register()", () => {
       expect(mSweep).not.toHaveBeenCalled();
     });
 
+    it("is not started when the check refuses to serve over NEXTAUTH_URL (the key material is fine)", async () => {
+      stubServerEnv({ NEXTAUTH_SECRET: "c".repeat(64), NEXTAUTH_URL: URL_PLACEHOLDER });
+      await expect(register()).rejects.toThrow(/NEXTAUTH_URL/);
+      expect(mSweep).not.toHaveBeenCalled();
+    });
+
     it("is not started when the key check refuses to serve", async () => {
       stubServerEnv({
         NEXTAUTH_SECRET: "c".repeat(64),
@@ -120,12 +126,13 @@ describe("instrumentation register()", () => {
       expect(mSweep).not.toHaveBeenCalled();
     });
 
-    it("is not started under the test runner, during next build or in the edge runtime", async () => {
-      stubServerEnv({ NODE_ENV: "test" });
+    it("is not started under the test runner, during next build or in the edge runtime, even with real key material", async () => {
+      const real = { NEXTAUTH_SECRET: "c".repeat(64), NEXTAUTH_URL: "https://forge.example.com" };
+      stubServerEnv({ ...real, NODE_ENV: "test" });
       await register();
-      stubServerEnv({ NEXT_PHASE: "phase-production-build" });
+      stubServerEnv({ ...real, NEXT_PHASE: "phase-production-build" });
       await register();
-      stubServerEnv({ NEXT_RUNTIME: "edge" });
+      stubServerEnv({ ...real, NEXT_RUNTIME: "edge" });
       await register();
       expect(mSweep).not.toHaveBeenCalled();
     });
