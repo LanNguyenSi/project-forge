@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { GENERATE_MAX_BODY_BYTES } from "@/lib/limits";
+import { GENERATE_MAX_BODY_BYTES, MIDDLEWARE_BODY_CLONE_LIMIT_BYTES } from "@/lib/limits";
 
 /**
  * Next 15.5 clones every request body that passes through the middleware
@@ -25,6 +25,11 @@ describe("next.config.mjs experimental.middlewareClientMaxBodySize", () => {
   it("is above GENERATE_MAX_BODY_BYTES, so the clone never rejects a route-legal body", async () => {
     const value = await loadMiddlewareClientMaxBodySize();
     expect(value).toBeGreaterThan(GENERATE_MAX_BODY_BYTES);
+  });
+
+  it("equals MIDDLEWARE_BODY_CLONE_LIMIT_BYTES, the value readJsonBody uses to spot a cut-off body", async () => {
+    const value = await loadMiddlewareClientMaxBodySize();
+    expect(value).toBe(MIDDLEWARE_BODY_CLONE_LIMIT_BYTES);
   });
 
   it("is within 64 KiB above GENERATE_MAX_BODY_BYTES, so the clone stays bounded", async () => {

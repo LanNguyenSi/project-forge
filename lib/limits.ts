@@ -118,6 +118,15 @@ export const GENERATE_MAX_BODY_BYTES =
   JSON_BODY_OVERHEAD_BYTES;
 
 /**
+ * `experimental.middlewareClientMaxBodySize` in next.config.mjs (an .mjs
+ * file cannot import this constant; tests/unit/next-config-middleware-body
+ * .test.ts pins the two equal). The /api/v1 routes read their body through
+ * readJsonBody with this value, so a body Next cut off at the clone limit
+ * answers 413 instead of failing as malformed JSON.
+ */
+export const MIDDLEWARE_BODY_CLONE_LIMIT_BYTES = 602_736;
+
+/**
  * Validate the `attachments` field against the per-file, total and
  * count character caps. Returns a human-readable reason (surfaced in
  * the routes' 413 `details`) or null when the payload is within the

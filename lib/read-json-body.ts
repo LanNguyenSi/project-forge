@@ -15,7 +15,30 @@
  * Invalid JSON is not handled here: the parsed text goes through
  * `JSON.parse`, whose SyntaxError propagates so each route keeps the
  * invalid-JSON response it already answers with today.
+ *
+ * One exception: bodies that pass through the Next middleware are cloned
+ * up to `middlewareClientMaxBodySize` and, above it, silently cut off
+ * (the stream ends cleanly, the chunk that crosses the limit is dropped).
+ * The cut body can be shorter than the route cap, so the byte count never
+ * trips and `JSON.parse` fails on it. A route behind the middleware passes
+ * `cloneLimitBytes`; a parse failure on a body that ends within one socket
+ * chunk of that limit is then reported as too large.
  */
+
+/**
+ * The cloned body stream drops the whole chunk that crosses the clone
+ * limit, and chunks come off the socket in reads of at most 64 KiB. A
+ * truncated body therefore ends at most this far below the limit.
+ */
+export const CLONE_TRUNCATION_WINDOW_BYTES = 64 * 1024;
+
+export interface ReadJsonBodyOptions {
+  /**
+   * The `middlewareClientMaxBodySize` the request passed through. Leave
+   * unset for routes the middleware does not cover.
+   */
+  cloneLimitBytes?: number;
+}
 
 /**
  * Thrown when the body exceeds the cap. Routes map it to a 413 in
@@ -28,7 +51,11 @@ export class BodyTooLargeError extends Error {
   }
 }
 
-export async function readJsonBody(req: Request, maxBytes: number): Promise<unknown> {
+export async function readJsonBody(
+  req: Request,
+  maxBytes: number,
+  options: ReadJsonBodyOptions = {},
+): Promise<unknown> {
   // A numeric Content-Length over the cap: reject without reading. A
   // missing or non-numeric one (Number(null) === 0, garbage === NaN)
   // falls through to the streaming check, which is authoritative.
@@ -62,5 +89,16 @@ export async function readJsonBody(req: Request, maxBytes: number): Promise<unkn
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return JSON.parse(new TextDecoder().decode(merged));
+  try {
+    return JSON.parse(new TextDecoder().decode(merged));
+  } catch (error) {
+    // Unset means no truncation window (Infinity minus a finite is
+    // Infinity, never reached). JSON.parse throws only SyntaxError here:
+    // the decoder is non-fatal.
+    const { cloneLimitBytes = Infinity } = options;
+    if (received >= cloneLimitBytes - CLONE_TRUNCATION_WINDOW_BYTES) {
+      throw new BodyTooLargeError(maxBytes);
+    }
+    throw error;
+  }
 }
