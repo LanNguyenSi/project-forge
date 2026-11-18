@@ -44,6 +44,7 @@ import { prisma } from "@/lib/db";
 import { POST as createToken } from "@/app/api/dashboard/tokens/route";
 import { DELETE as revokeToken } from "@/app/api/dashboard/tokens/[id]/route";
 import { GET as getPat, POST as savePat } from "@/app/api/dashboard/pat/route";
+import { decryptGithubPat, encryptGithubPat } from "@/lib/github-pat";
 
 const mGetSession = vi.mocked(getServerSession);
 
@@ -267,7 +268,7 @@ describe("GET /api/dashboard/pat", () => {
     expect(user.findUnique).toHaveBeenCalledTimes(1);
     expect(user.findUnique).toHaveBeenCalledWith({
       where: { id: "user-1" },
-      select: { githubPat: true, sessionsValidAfter: true },
+      select: { id: true, githubPat: true, sessionsValidAfter: true },
     });
   });
 
@@ -281,6 +282,30 @@ describe("GET /api/dashboard/pat", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.githubPat).toBe("ghp_ownRawToken");
+  });
+
+  it("200 returns the decrypted token when the column holds the encrypted form", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    user.findUnique.mockResolvedValue({ id: "user-1", githubPat: encryptGithubPat("ghp_storedEncrypted") });
+
+    const body = await (await getPat()).json();
+
+    expect(body.githubPat).toBe("ghp_storedEncrypted");
+  });
+
+  it("200 returns null githubPat when the stored token no longer decrypts (key rotated)", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    user.findUnique.mockResolvedValue({
+      id: "user-1",
+      githubPat: encryptGithubPat("ghp_oldKey", { NEXTAUTH_SECRET: "the-previous-secret" }),
+    });
+
+    const res = await getPat();
+    const text = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(JSON.parse(text).githubPat).toBeNull();
+    expect(text).not.toContain("v1:");
   });
 
   it("200 returns null githubPat when the user has none set", async () => {
@@ -363,6 +388,11 @@ describe("POST /api/dashboard/pat", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(user.update).toHaveBeenCalledTimes(1);
+    // Stored encrypted, never as the token itself.
+    const stored = user.update.mock.calls[0][0].data.githubPat as string;
+    expect(stored).toMatch(/^v1:/);
+    expect(stored).not.toContain("ghp_validClassicToken");
+    expect(decryptGithubPat(stored)).toBe("ghp_validClassicToken");
   });
 });
 

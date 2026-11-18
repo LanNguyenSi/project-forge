@@ -21,6 +21,7 @@ import { runCommand } from "@/lib/subprocess";
 import { internalErrorDetails, UserFacingError } from "@/lib/server-error";
 import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
 import { GENERATE_MAX_BODY_BYTES } from "@/lib/limits";
+import { readGithubPat } from "@/lib/github-pat";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 
@@ -170,8 +171,11 @@ export async function POST(req: NextRequest) {
 
     // Get user's GitHub PAT
     const user = tokenRecord.user;
+    // Decrypted only here, for the push; a token that does not decrypt (key
+    // rotated) counts as not configured.
+    const githubPat = await readGithubPat(user);
 
-    if (!user.githubPat) {
+    if (!githubPat) {
       return NextResponse.json(
         { ok: false, error: "GitHub PAT not configured. Please add it in your dashboard." },
         { status: 400 }
@@ -215,7 +219,7 @@ export async function POST(req: NextRequest) {
     const repoUrl = await createAndPushRepo(
       tempDir,
       input.projectName,
-      user.githubPat,
+      githubPat,
       user.githubOwner || user.githubLogin || user.email?.split("@")[0] || "user"
     );
 

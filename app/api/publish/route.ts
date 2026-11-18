@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isStaleSession } from "@/lib/session-cutoff";
+import { readGithubPat } from "@/lib/github-pat";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { excludePlanforgeArtifactsFromPublish, prunePublishedPlanforgeIndex } from "@/lib/planforge-output";
@@ -61,14 +62,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!user?.githubPat) {
+    // Decrypted only here, for the GitHub calls below; a token that does not
+    // decrypt (key rotated) counts as not connected.
+    const userToken = user ? await readGithubPat(user) : null;
+    if (!userToken) {
       return NextResponse.json<ErrorResponse>(
         { ok: false, error: "GitHub not connected. Please connect GitHub in Settings first." },
         { status: 400 }
       );
     }
-
-    const userToken = user.githubPat;
 
     tempDir = path.join(TEMP_ROOT, sessionId);
     const stat = await fs.stat(tempDir).catch(() => null);

@@ -59,6 +59,7 @@ let patPOST: typeof import("@/app/api/dashboard/pat/route").POST;
 let tokensPOST: typeof import("@/app/api/dashboard/tokens/route").POST;
 let publishPOST: typeof import("@/app/api/publish/route").POST;
 let nextAuthApi: typeof import("next-auth").default;
+let decryptGithubPat: typeof import("@/lib/github-pat").decryptGithubPat;
 let sessionOf: typeof import("next-auth").getServerSession;
 
 const fetchMock = vi.fn();
@@ -81,6 +82,7 @@ beforeAll(async () => {
   ({ prisma: db } = await import("@/lib/db"));
   ({ createApiToken, validateApiToken } = await import("@/lib/db"));
   ({ authOptions } = await import("@/lib/auth"));
+  ({ decryptGithubPat } = await import("@/lib/github-pat"));
   ({ GET: projectsGET } = await import("@/app/api/v1/projects/route"));
   ({ GET: patGET, POST: patPOST } = await import("@/app/api/dashboard/pat/route"));
   ({ POST: tokensPOST } = await import("@/app/api/dashboard/tokens/route"));
@@ -195,7 +197,9 @@ describe("claiming a legacy row", () => {
 
     // The claim itself went through.
     const claimed = await db.user.findUniqueOrThrow({ where: { id: row.id } });
-    expect(claimed).toMatchObject({ githubId: "1001", githubPat: "gho_owner" });
+    expect(claimed).toMatchObject({ githubId: "1001" });
+    expect(claimed.githubPat).toMatch(/^v1:/);
+    expect(decryptGithubPat(claimed.githubPat)).toBe("gho_owner");
     expect(claimed.sessionsValidAfter).toBeInstanceOf(Date);
   });
 
@@ -375,7 +379,7 @@ describe("a claim that commits after the session check passed", () => {
 
     expect(res.status).toBe(401);
     expect(await res.text()).not.toContain("gho_owner");
-    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat).toBe("gho_owner");
+    expect(decryptGithubPat((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat)).toBe("gho_owner");
   });
 
   it("GET /api/dashboard/pat still answers a session minted at or after the claim", async () => {
@@ -393,7 +397,7 @@ describe("a claim that commits after the session check passed", () => {
     const res = await patPOST(jsonReq("http://localhost/api/dashboard/pat", { githubPat: "ghp_from_old_session" }));
 
     expect(res.status).toBe(401);
-    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat).toBe("gho_owner");
+    expect(decryptGithubPat((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat)).toBe("gho_owner");
   });
 
   it("POST /api/dashboard/pat saves for a session minted after the claim, and for a user with no cutoff", async () => {
@@ -401,12 +405,12 @@ describe("a claim that commits after the session check passed", () => {
     await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_owner" });
     current.cookie = await mintSessionFor(row.id);
     expect((await patPOST(jsonReq("http://localhost/api/dashboard/pat", { githubPat: "ghp_after_claim" }))).status).toBe(200);
-    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat).toBe("ghp_after_claim");
+    expect(decryptGithubPat((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat)).toBe("ghp_after_claim");
 
     const plain = await db.user.create({ data: { email: "plain@example.com", passwordHash: "hash" } });
     current.cookie = await cookieFor({ userId: plain.id });
     expect((await patPOST(jsonReq("http://localhost/api/dashboard/pat", { githubPat: "ghp_plain" }))).status).toBe(200);
-    expect((await db.user.findUniqueOrThrow({ where: { id: plain.id } })).githubPat).toBe("ghp_plain");
+    expect(decryptGithubPat((await db.user.findUniqueOrThrow({ where: { id: plain.id } })).githubPat)).toBe("ghp_plain");
   });
 
   it("POST /api/dashboard/pat saves for a session minted in the same millisecond as the cutoff", async () => {
@@ -416,7 +420,7 @@ describe("a claim that commits after the session check passed", () => {
     current.cookie = await cookieFor({ userId: row.id, authAt: cutoff.getTime() });
 
     expect((await patPOST(jsonReq("http://localhost/api/dashboard/pat", { githubPat: "ghp_same_ms" }))).status).toBe(200);
-    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat).toBe("ghp_same_ms");
+    expect(decryptGithubPat((await db.user.findUniqueOrThrow({ where: { id: row.id } })).githubPat)).toBe("ghp_same_ms");
   });
 
   it("POST /api/dashboard/tokens gives the older session no usable token, and revokes the one it created", async () => {
@@ -490,7 +494,7 @@ describe("a claim that commits between the two reads of validateApiToken", () =>
     expect(await validateApiToken(first.raw)).toBeNull();
 
     expect(spy).toHaveBeenCalled();
-    expect((await db.user.findFirstOrThrow({ where: { email: LEGACY_EMAIL } })).githubPat).toBe("gho_owner");
+    expect(decryptGithubPat((await db.user.findFirstOrThrow({ where: { email: LEGACY_EMAIL } })).githubPat)).toBe("gho_owner");
   });
 
   it("GET /api/v1/projects answers 401 for it", async () => {
@@ -532,7 +536,7 @@ describe("a claim that commits between the two reads of validateApiToken", () =>
 
     expect(spy).toHaveBeenCalled();
     expect(record).toBeNull();
-    expect((await db.user.findFirstOrThrow({ where: { email: LEGACY_EMAIL } })).githubPat).toBe("gho_owner");
+    expect(decryptGithubPat((await db.user.findFirstOrThrow({ where: { email: LEGACY_EMAIL } })).githubPat)).toBe("gho_owner");
   });
 
   it("a token the owner creates after the claim is served", async () => {
@@ -543,6 +547,6 @@ describe("a claim that commits between the two reads of validateApiToken", () =>
 
     const record = await validateApiToken(fresh.raw);
 
-    expect(record?.user.githubPat).toBe("gho_owner");
+    expect(decryptGithubPat(record?.user.githubPat)).toBe("gho_owner");
   });
 });

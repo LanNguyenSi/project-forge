@@ -17,6 +17,7 @@ import { runCommand } from "@/lib/subprocess";
 import { SESSION_UUID_RE, readForgeMeta, isSessionExpired } from "@/lib/v1-shared";
 import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
 import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
+import { readGithubPat } from "@/lib/github-pat";
 
 const TEMP_ROOT = process.env.FORGE_TEMP_DIR ?? "/tmp/project-forge";
 
@@ -78,8 +79,10 @@ export async function POST(req: NextRequest) {
     await lockFd.close();
 
     // Get user's GitHub PAT
-    const user = tokenRecord.user;
-    if (!user.githubPat) {
+    // Decrypted only here, for the push; a token that does not decrypt (key
+    // rotated) counts as not configured.
+    const githubPat = await readGithubPat(tokenRecord.user);
+    if (!githubPat) {
       // Remove lock so retry is possible after PAT is configured
       await fs.rm(publishedMarker, { force: true }).catch(() => {});
       return NextResponse.json(
@@ -89,7 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create GitHub repo and push
-    const repoUrl = await createAndPushRepo(tempDir, meta.projectName, user.githubPat);
+    const repoUrl = await createAndPushRepo(tempDir, meta.projectName, githubPat);
 
     // Turn the reserved slot into the usage row of the published repo
     await confirmUsage(reservation.reservationId, repoUrl);

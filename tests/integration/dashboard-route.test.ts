@@ -38,6 +38,7 @@ vi.mock("@/lib/db", async () => {
 import { getServerSession } from "next-auth";
 import { prisma } from "@/lib/db";
 import { GET } from "@/app/api/dashboard/route";
+import { encryptGithubPat } from "@/lib/github-pat";
 
 const mGetSession = vi.mocked(getServerSession);
 
@@ -184,5 +185,29 @@ describe("GET /api/dashboard", () => {
       email: "u@test.com",
       githubPatConnected: false,
     });
+  });
+
+  it("200 returns githubPatConnected: true for an encrypted token and false for one that no longer decrypts", async () => {
+    mGetSession.mockResolvedValue(AUTHED_SESSION as never);
+    vi.stubEnv("NEXTAUTH_SECRET", "dashboard-route-test-secret");
+    try {
+      user.findUnique.mockResolvedValue({
+        id: "user-1",
+        email: "u@test.com",
+        githubPat: encryptGithubPat("ghp_current"),
+        apiTokens: [],
+      });
+      expect((await (await GET()).json()).user.githubPatConnected).toBe(true);
+
+      user.findUnique.mockResolvedValue({
+        id: "user-1",
+        email: "u@test.com",
+        githubPat: encryptGithubPat("ghp_oldKey", { NEXTAUTH_SECRET: "the-previous-secret" }),
+        apiTokens: [],
+      });
+      expect((await (await GET()).json()).user.githubPatConnected).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

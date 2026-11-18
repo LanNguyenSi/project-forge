@@ -4,11 +4,16 @@ import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest";
 vi.mock("@/lib/db", async () => {
   const actual = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
   const mockPrisma: {
-    user: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> };
+    user: {
+      findUnique: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+      create: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
+    };
     apiToken: { create: ReturnType<typeof vi.fn>; updateMany: ReturnType<typeof vi.fn> };
     $transaction: ReturnType<typeof vi.fn>;
   } = {
-    user: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
+    user: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
     apiToken: { create: vi.fn(), updateMany: vi.fn() },
     // Interactive-transaction mock: just runs the callback against the same
     // mocked client, mirroring Prisma's real $transaction(async (tx) => ...)
@@ -32,6 +37,7 @@ vi.mock("@/lib/github", async () => {
 import { prisma } from "@/lib/db";
 import { fetchGitHubUser, GitHubAuthError, GitHubUnreachableError } from "@/lib/github";
 import { POST } from "@/app/api/auth/register-from-project-pilot/route";
+import { decryptGithubPat, encryptGithubPat } from "@/lib/github-pat";
 import { NextRequest } from "next/server";
 
 const fetchMock = vi.mocked(fetchGitHubUser);
@@ -39,6 +45,7 @@ const user = prisma.user as unknown as {
   findUnique: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   create: ReturnType<typeof vi.fn>;
+  updateMany: ReturnType<typeof vi.fn>;
 };
 const apiToken = prisma.apiToken as unknown as {
   create: ReturnType<typeof vi.fn>;
@@ -246,7 +253,7 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     await POST(makeReq({ githubAccessToken: "gho_oauth_token", githubLogin: "newbie" }));
 
     expect(user.create).toHaveBeenCalledTimes(1);
-    expect(user.create.mock.calls[0][0].data.githubPat).toBe("gho_oauth_token");
+    expect(decryptGithubPat(user.create.mock.calls[0][0].data.githubPat)).toBe("gho_oauth_token");
   });
 
   it("backfills githubPat on an existing user that has none yet", async () => {
@@ -268,7 +275,7 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     await POST(makeReq({ githubAccessToken: "gho_fresh_token" }));
 
     expect(user.update).toHaveBeenCalledTimes(1);
-    expect(user.update.mock.calls[0][0].data.githubPat).toBe("gho_fresh_token");
+    expect(decryptGithubPat(user.update.mock.calls[0][0].data.githubPat)).toBe("gho_fresh_token");
   });
 
   it("treats an empty-string githubPat as 'none' and backfills it", async () => {
@@ -289,7 +296,7 @@ describe("POST /api/auth/register-from-project-pilot", () => {
 
     await POST(makeReq({ githubAccessToken: "gho_backfilled" }));
 
-    expect(user.update.mock.calls[0][0].data.githubPat).toBe("gho_backfilled");
+    expect(decryptGithubPat(user.update.mock.calls[0][0].data.githubPat)).toBe("gho_backfilled");
   });
 
   it("refreshes an existing OAuth (gho_) githubPat so scope upgrades propagate", async () => {
@@ -311,7 +318,7 @@ describe("POST /api/auth/register-from-project-pilot", () => {
 
     await POST(makeReq({ githubAccessToken: "gho_new_token_with_workflow" }));
 
-    expect(user.update.mock.calls[0][0].data.githubPat).toBe("gho_new_token_with_workflow");
+    expect(decryptGithubPat(user.update.mock.calls[0][0].data.githubPat)).toBe("gho_new_token_with_workflow");
   });
 
   it("does NOT overwrite a manually-set fine-grained (github_pat_) githubPat", async () => {
@@ -356,6 +363,84 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     expect(user.update).toHaveBeenCalledTimes(1);
     // No githubPat key in the update payload → the existing PAT is preserved.
     expect(user.update.mock.calls[0][0].data).not.toHaveProperty("githubPat");
+  });
+
+  it("stores the token encrypted, never as the token itself", async () => {
+    fetchMock.mockResolvedValue({ id: 77, login: "newbie", name: null, avatar_url: "", email: null });
+    user.findUnique.mockResolvedValue(null);
+    user.create.mockResolvedValue({ id: "user-new" });
+
+    await POST(makeReq({ githubAccessToken: "gho_oauth_token" }));
+
+    const stored = user.create.mock.calls[0][0].data.githubPat as string;
+    expect(stored).toMatch(/^v1:/);
+    expect(stored).not.toContain("gho_oauth_token");
+  });
+
+  it("refreshes an encrypted OAuth (gho_) githubPat", async () => {
+    fetchMock.mockResolvedValue({ id: 99, login: "returning", name: null, avatar_url: "", email: null });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      githubPat: encryptGithubPat("gho_old_encrypted"),
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+
+    await POST(makeReq({ githubAccessToken: "gho_new_after_encryption" }));
+
+    const stored = user.update.mock.calls[0][0].data.githubPat as string;
+    expect(stored).toMatch(/^v1:/);
+    expect(decryptGithubPat(stored)).toBe("gho_new_after_encryption");
+  });
+
+  it("preserves an encrypted manual (ghp_) githubPat", async () => {
+    fetchMock.mockResolvedValue({ id: 99, login: "returning", name: null, avatar_url: "", email: null });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      githubPat: encryptGithubPat("ghp_manual_encrypted"),
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+
+    await POST(makeReq({ githubAccessToken: "gho_should_be_ignored" }));
+
+    expect(user.update.mock.calls[0][0].data).not.toHaveProperty("githubPat");
+  });
+
+  it("replaces a stored token that no longer decrypts (key rotated) as if none were set", async () => {
+    fetchMock.mockResolvedValue({ id: 99, login: "returning", name: null, avatar_url: "", email: null });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      githubPat: encryptGithubPat("ghp_manual_old_key", { NEXTAUTH_SECRET: "the-previous-secret" }),
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+
+    await POST(makeReq({ githubAccessToken: "gho_reconnected" }));
+
+    expect(decryptGithubPat(user.update.mock.calls[0][0].data.githubPat)).toBe("gho_reconnected");
+  });
+
+  it("re-encrypts a preserved legacy plaintext manual PAT in place", async () => {
+    fetchMock.mockResolvedValue({ id: 99, login: "returning", name: null, avatar_url: "", email: null });
+    user.findUnique.mockResolvedValue({
+      id: "user-existing",
+      githubId: "99",
+      email: null,
+      githubPat: "ghp_legacy_plain",
+    });
+    user.update.mockResolvedValue({ id: "user-existing" });
+    user.updateMany.mockResolvedValue({ count: 1 });
+
+    await POST(makeReq({ githubAccessToken: "gho_should_be_ignored" }));
+
+    expect(user.updateMany).toHaveBeenCalledTimes(1);
+    const args = user.updateMany.mock.calls[0][0];
+    expect(args.where).toEqual({ id: "user-existing", githubPat: "ghp_legacy_plain" });
+    expect(decryptGithubPat(args.data.githubPat)).toBe("ghp_legacy_plain");
   });
 
   it("never leaks the GitHub access-token in response bodies (including errors)", async () => {

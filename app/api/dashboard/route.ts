@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { readGithubPat } from "@/lib/github-pat";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -29,7 +30,8 @@ export async function GET() {
     user: {
       id: user.id,
       email: user.email,
-      githubPatConnected: !!user.githubPat,
+      // A stored token that does not decrypt (key rotated) is not connected.
+      githubPatConnected: (await readGithubPat(user)) !== null,
     },
     tokens: user.apiTokens.map((t) => ({
       id: t.id,

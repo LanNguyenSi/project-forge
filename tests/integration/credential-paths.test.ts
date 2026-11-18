@@ -26,13 +26,16 @@ type Entry =
   /** Reads the session or the token but yields and overwrites no credential. */
   | { how: "no-credential"; why: string }
   | { how: "broker"; why: string }
-  | { how: "text-only"; why: string };
+  | { how: "text-only"; why: string }
+  /** Rewrites the token it was handed, only while the row still holds that same value. */
+  | { how: "same-value-rewrite"; why: string };
 
 const INVENTORY: Record<string, Entry> = {
   "lib/auth.ts": { how: "claim", why: "writes githubPat at sign-in and, when claiming a legacy row, sets the cutoff and revokes its API tokens in one transaction" },
   "lib/db.ts": { how: "token-check", why: "validateApiToken refuses a token created at or before the cutoff" },
   "lib/session-cutoff.ts": { how: "text-only", why: "the helpers and the inventory comment" },
   "lib/scrub-secrets.ts": { how: "text-only", why: "masking pattern for log text" },
+  "lib/github-pat.ts": { how: "same-value-rewrite", why: "re-encrypts a legacy plaintext token with a compare-and-swap on the value the caller read, so a claim or reconnect in between is never overwritten" },
   "app/api/v1/publish/route.ts": { how: "api-token", why: "pushes with the githubPat of the user row validateApiToken returned" },
   "app/api/v1/projects/route.ts": { how: "api-token", why: "pushes with the githubPat of the user row validateApiToken returned" },
   "app/api/v1/preview/route.ts": { how: "no-credential", why: "API token, reads no credential" },
@@ -40,7 +43,7 @@ const INVENTORY: Record<string, Entry> = {
   "app/api/dashboard/pat/route.ts": { how: "session-cutoff", why: "GET reads the cutoff with the token, POST carries it in the update WHERE" },
   "app/api/dashboard/tokens/route.ts": { how: "session-cutoff", why: "re-reads the cutoff after creating a token and revokes it when stale" },
   "app/api/publish/route.ts": { how: "session-cutoff", why: "cutoff from the row read that supplies the token" },
-  "app/api/dashboard/route.ts": { how: "no-credential", why: "only says whether a token exists" },
+  "app/api/dashboard/route.ts": { how: "no-credential", why: "only says whether a usable token exists (readGithubPat decides, the value is never returned)" },
   "app/api/dashboard/tokens/[id]/route.ts": { how: "no-credential", why: "revokes the caller's own token" },
   "app/api/generate/route.ts": { how: "no-credential", why: "session id only" },
   "app/api/ai-assist/route.ts": { how: "no-credential", why: "session id only" },
@@ -107,6 +110,9 @@ describe("credential-yielding paths and the cutoff", () => {
         case "broker":
           expect(src).toMatch(/findUnique\(\{ where: \{ githubId \} \}\)/);
           expect(src).toMatch(/existingByEmail && !existingByEmail\.githubId/);
+          break;
+        case "same-value-rewrite":
+          expect(src).toMatch(/where: \{ id: user\.id, githubPat: stored \}/);
           break;
         case "text-only":
           break;

@@ -174,6 +174,22 @@ re-cloning the checkout under another directory name had the same effect.
   `https://` URL: the middleware looks for the session cookie under the name
   NextAuth derives from an `https://` `NEXTAUTH_URL`, so with either of those
   setups `/dashboard`, `/create` and `/settings` keep redirecting to `/login`.
+- `GITHUB_PAT_ENCRYPTION_KEY` is optional. It is the key for the users' GitHub
+  tokens, which the database stores encrypted (AES-256-GCM). When it is unset
+  or empty, the key is derived from `NEXTAUTH_SECRET` (HKDF-SHA256 with a
+  purpose-specific label, so it differs from every other use of that secret).
+  A set value is checked when the production server starts: shorter than 32
+  characters, or a placeholder (`your-...`, `...generate-with-openssl...`),
+  gives the same refusal as above
+  (`Refusing to serve: GITHUB_PAT_ENCRYPTION_KEY ...`). Like `NEXTAUTH_SECRET`,
+  it must be in `.env` for deploys through agent-relay or deploy-panel.
+  **Rotation:** changing the key in effect (setting, changing or removing
+  `GITHUB_PAT_ENCRYPTION_KEY`, or changing `NEXTAUTH_SECRET` while it is
+  unset) makes every stored GitHub token unreadable. Nothing crashes and
+  nothing is logged: those users show as "not connected", publishing answers
+  "GitHub not connected", and they connect GitHub again (GitHub sign-in or a
+  PAT saved in Settings). Tokens stored before encryption existed are read as
+  they are and rewritten encrypted on first use.
 
 ### Health check and logs
 
