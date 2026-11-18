@@ -212,7 +212,10 @@ committed migrations in `prisma/migrations/`; the container applies them at
 start with `prisma migrate deploy` through `scripts/start.sh` (see
 [Database migrations](deployment.md#database-migrations)). Core models: `User`,
 `ApiToken`, and `UsageLog` (one row per project published through the v1 API,
-also the basis for rate limiting).
+also the basis for rate limiting). Credentials are not stored in plaintext:
+`ApiToken` keeps an HMAC digest (`lib/db.ts`), and `User.githubPat` keeps the
+GitHub token as AES-256-GCM ciphertext (`lib/github-pat.ts`, see
+[Secret handling](#7-secret-handling)).
 
 ### 6. Rate limiting
 
@@ -235,6 +238,21 @@ per submitted email and per client address, with counters in process memory (per
 process, reset on restart).
 
 ### 7. Secret handling
+
+Users' GitHub tokens are encrypted at rest by `lib/github-pat.ts`: AES-256-GCM
+with a random 12-byte IV per write, stored as `v1:<iv>:<tag>:<ciphertext>`
+(base64url) in `User.githubPat`. The key is `GITHUB_PAT_ENCRYPTION_KEY`, or
+`NEXTAUTH_SECRET` when that is unset, fed through HKDF-SHA256 with a
+purpose-specific label. Every write goes through `encryptGithubPat`; reads go
+through `readGithubPat`, which returns null (not connected) for a value that
+does not decrypt (wrong key, tampered), and rewrites a legacy plaintext value
+encrypted on first use with a compare-and-swap on the value it read; the
+same rewrite runs for every remaining legacy row in a one-off batched sweep
+that `instrumentation.ts` starts after the start-up check, without waiting
+for it. The
+token is decrypted in memory by the routes that use or check it (publish,
+connected status, the broker's refresh decision) and returned only by
+`GET /api/dashboard/pat`, to its owner.
 
 The publish path sanitizes any embedded GitHub PAT with the shared
 `lib/scrub-secrets.ts` before the message reaches logs. It masks the

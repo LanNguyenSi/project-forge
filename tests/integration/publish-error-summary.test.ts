@@ -45,6 +45,7 @@ import { prisma, validateApiToken, reserveUsage } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { POST as legacyPublish } from "@/app/api/publish/route";
 import { POST as v1Publish } from "@/app/api/v1/publish/route";
+import { encryptGithubPat } from "@/lib/github-pat";
 
 const mSession = vi.mocked(getServerSession);
 const mFindUnique = vi.mocked(prisma.user.findUnique);
@@ -228,6 +229,47 @@ describe("POST /api/publish (legacy): status codes pinned", () => {
       expect(loggedBlob().prefix).toBe("Publish failed:");
     } finally {
       fetchSpy.mockRestore();
+    }
+  });
+});
+
+describe("POST /api/publish (legacy): encrypted githubPat", () => {
+  const PLAIN = "ghp_sessionPublishEncrypted";
+
+  it("calls GitHub with the decrypted token", async () => {
+    vi.stubEnv("NEXTAUTH_SECRET", "session-publish-test-secret");
+    const sessionId = "a1111111-0000-4000-8000-000000000008";
+    await setupSession(sessionId);
+    mFindUnique.mockResolvedValue({ id: "user-1", githubPat: encryptGithubPat(PLAIN) } as never);
+    // Stop at the first GitHub call: the header it carries is what counts.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("stop"));
+    try {
+      await legacyPublish(legacyReq({ sessionId, projectName: "demo" }));
+      const init = fetchSpy.mock.calls[0][1] as RequestInit;
+      expect((init.headers as Record<string, string>).Authorization).toBe(`token ${PLAIN}`);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("400 not connected when the stored token no longer decrypts", async () => {
+    vi.stubEnv("NEXTAUTH_SECRET", "session-publish-test-secret");
+    const sessionId = "a1111111-0000-4000-8000-000000000009";
+    await setupSession(sessionId);
+    mFindUnique.mockResolvedValue({
+      id: "user-1",
+      githubPat: encryptGithubPat(PLAIN, { NEXTAUTH_SECRET: "the-previous-secret" }),
+    } as never);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const res = await legacyPublish(legacyReq({ sessionId, projectName: "demo" }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/GitHub not connected/);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
     }
   });
 });

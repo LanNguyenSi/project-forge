@@ -4,13 +4,18 @@
 // answers 500, so the container does not exit, but it never serves sessions
 // signed with a publicly known value or sends logins to a callback URL that
 // belongs to someone else, and its /api/health check fails. The first
-// problem found is reported on its own (NEXTAUTH_SECRET is checked first).
+// problem found is reported on its own (NEXTAUTH_SECRET is checked first,
+// then GITHUB_PAT_ENCRYPTION_KEY, then NEXTAUTH_URL).
 
 // Placeholder values for NEXTAUTH_SECRET: .env.example
 // ("your-secret-here-generate-with-openssl-rand-hex-32") and
 // docker-compose.override.example.yml
 // ("your_nextauth_secret_here-generate-with-openssl-rand-hex-32").
 const PLACEHOLDER = /^your[-_]|generate-with-openssl/i;
+
+// Shortest GITHUB_PAT_ENCRYPTION_KEY accepted when it is set: 32 characters,
+// half of what `openssl rand -hex 32` prints.
+const MIN_PAT_KEY_LENGTH = 32;
 
 // Placeholder host of NEXTAUTH_URL ("https://your-forge.example.com"), shipped
 // in .env.example and docker-compose.override.example.yml. Only this exact
@@ -38,7 +43,13 @@ function trustsRequestHost(env: Record<string, string | undefined>): boolean {
   return Boolean(env.VERCEL ?? env.AUTH_TRUST_HOST);
 }
 
-export function findStartupConfigProblems(env: Record<string, string | undefined>): string[] {
+/**
+ * Problems with the values that key material is derived from (NEXTAUTH_SECRET
+ * and GITHUB_PAT_ENCRYPTION_KEY), the first one only. findStartupConfigProblems
+ * starts with these; the dev server uses them on their own to skip the GitHub
+ * token sweep rather than encrypt with a placeholder.
+ */
+export function findKeyMaterialProblems(env: Record<string, string | undefined>): string[] {
   const secret = env.NEXTAUTH_SECRET?.trim();
   if (!secret) {
     return ["NEXTAUTH_SECRET is not set (generate one with: openssl rand -hex 32)"];
@@ -48,6 +59,28 @@ export function findStartupConfigProblems(env: Record<string, string | undefined
       "NEXTAUTH_SECRET is still the placeholder from the example files (generate one with: openssl rand -hex 32)",
     ];
   }
+  // Optional: unset or empty falls back to NEXTAUTH_SECRET (lib/github-pat.ts).
+  // A value that is set must be a real key, since it encrypts every stored
+  // GitHub token.
+  const patKey = env.GITHUB_PAT_ENCRYPTION_KEY;
+  if (patKey) {
+    if (PLACEHOLDER.test(patKey.trim())) {
+      return [
+        "GITHUB_PAT_ENCRYPTION_KEY is still a placeholder (generate one with: openssl rand -hex 32, or leave it unset to use NEXTAUTH_SECRET)",
+      ];
+    }
+    if (patKey.trim().length < MIN_PAT_KEY_LENGTH) {
+      return [
+        `GITHUB_PAT_ENCRYPTION_KEY is shorter than ${MIN_PAT_KEY_LENGTH} characters (generate one with: openssl rand -hex 32, or leave it unset to use NEXTAUTH_SECRET)`,
+      ];
+    }
+  }
+  return [];
+}
+
+export function findStartupConfigProblems(env: Record<string, string | undefined>): string[] {
+  const keyProblems = findKeyMaterialProblems(env);
+  if (keyProblems.length > 0) return keyProblems;
   const rawUrl = env.NEXTAUTH_URL;
   if (!rawUrl?.trim()) {
     if (trustsRequestHost(env)) {

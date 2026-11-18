@@ -33,7 +33,13 @@
  *                                  the new token is revoked when stale
  *   app/api/publish                session; cutoff in the row read that
  *                                  supplies the token
- *   app/api/dashboard (GET)        session; only says whether a token exists
+ *   app/api/dashboard (GET)        session; only says whether a usable token
+ *                                  exists
+ *   lib/github-pat.ts readGithubPat
+ *                                  decrypts for the callers above; rewrites a
+ *                                  legacy plaintext token encrypted only while
+ *                                  the row still holds the value the caller
+ *                                  read, so it never overwrites a claim
  *   app/api/dashboard/tokens/[id]  session; revokes the caller's own token
  *   app/api/generate, ai-assist    session; no credential involved
  *   app/api/auth/register-from-project-pilot

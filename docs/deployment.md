@@ -174,6 +174,32 @@ re-cloning the checkout under another directory name had the same effect.
   `https://` URL: the middleware looks for the session cookie under the name
   NextAuth derives from an `https://` `NEXTAUTH_URL`, so with either of those
   setups `/dashboard`, `/create` and `/settings` keep redirecting to `/login`.
+- `GITHUB_PAT_ENCRYPTION_KEY` is optional. It is the key for the users' GitHub
+  tokens, which the database stores encrypted (AES-256-GCM). When it is unset
+  or empty, the key is derived from `NEXTAUTH_SECRET` (HKDF-SHA256 with a
+  purpose-specific label, so it differs from every other use of that secret);
+  that fallback is only as strong as `NEXTAUTH_SECRET` itself. A set value is checked when the production server starts: shorter than 32
+  characters, or a placeholder (`your-...`, `...generate-with-openssl...`),
+  gives the same refusal as above
+  (`Refusing to serve: GITHUB_PAT_ENCRYPTION_KEY ...`). Like `NEXTAUTH_SECRET`,
+  it must be in `.env` for deploys through agent-relay or deploy-panel.
+  **Rotation:** changing the key in effect (setting, changing or removing
+  `GITHUB_PAT_ENCRYPTION_KEY`, or changing `NEXTAUTH_SECRET` while it is
+  unset) makes every stored GitHub token unreadable. Nothing crashes and
+  nothing is logged: those users show as "not connected", publishing answers
+  "GitHub not connected", and they connect GitHub again (GitHub sign-in or a
+  PAT saved in Settings).
+  **Upgrade from plaintext tokens:** nothing to run. Every server start (the
+  production and the dev server, after the start-up check passed) runs a sweep
+  in the background that encrypts each token still stored as plaintext, 100
+  rows per query; the server serves while it runs. It logs only counts
+  (`GitHub token sweep: N legacy token(s) encrypted, M failed`), or one fixed
+  line when a query fails, never a token. A second start finds nothing left to
+  do, and two instances starting at once cannot overwrite each other or a user
+  who reconnects meanwhile (each row is rewritten only while it still holds the
+  plaintext that was read). Without any key material (neither variable set,
+  development only) the sweep is skipped. A token used before the sweep
+  reaches it is encrypted on that use.
 
 ### Health check and logs
 
@@ -633,6 +659,17 @@ keeps the schema the newer release gave it.
   file. A database that has only the baseline matches the old schema, and
   `db push` leaves it alone.
 
+- **A release before GitHub tokens were encrypted at rest** cannot read the
+  encrypted `githubPat` values the newer release wrote (the first start of the
+  newer release encrypts all of them). After such a rollback every user's
+  GitHub stays disconnected in practice: the old code sends the ciphertext to
+  GitHub, so publishing fails with an invalid-token error, and Settings shows
+  the ciphertext in the PAT field. It lasts until the newer release runs again
+  (it reads the values as they are) or the users reconnect GitHub, which the
+  old release stores as plaintext again. If a rollback past that release must
+  stay possible, take a backup with `scripts/backup.sh` before the first start
+  of the newer release; restoring it also drops everything written since.
+
 A rollback of the code alone leaves the database where it is. If you want the
 data of an older point too, restore a backup taken at that point with
 [Backup and restore](#backup-and-restore); remember that a restore drops
@@ -845,7 +882,11 @@ creates a fresh, empty database on it (the first-install row of the table in
 ### Restoring a backup
 
 A restore puts the database back to the moment of the backup: every write
-after it (users, API tokens, sessions, published-project rows) is gone. That
+after it (users, API tokens, sessions, published-project rows) is gone. The
+stored GitHub tokens in a backup are encrypted: a restored database needs the
+same `GITHUB_PAT_ENCRYPTION_KEY` (or, when that is unset, the same
+`NEXTAUTH_SECRET`) as when the backup was taken, or every user shows as not
+connected and has to connect GitHub again. That
 includes what the app wrote while the backup was being taken. Restore with the
 app stopped, so nothing writes between the check and the swap: stop it with
 `docker compose stop` or `docker compose stop app`, never with

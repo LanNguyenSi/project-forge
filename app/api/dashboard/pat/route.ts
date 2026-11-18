@@ -6,6 +6,7 @@ import { isStaleSession } from "@/lib/session-cutoff";
 import { internalErrorDetails } from "@/lib/server-error";
 import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
 import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
+import { encryptGithubPat, readGithubPat } from "@/lib/github-pat";
 
 // Settings-only: the caller's own raw GitHub PAT. The shared GET /api/dashboard
 // response only exposes a `githubPatConnected` boolean (see app/api/dashboard/route.ts)
@@ -20,7 +21,7 @@ export async function GET() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { githubPat: true, sessionsValidAfter: true },
+    select: { id: true, githubPat: true, sessionsValidAfter: true },
   });
 
   if (!user) {
@@ -34,9 +35,10 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  // Secret-bearing response: forbid any intermediary/browser caching.
+  // Secret-bearing response: forbid any intermediary/browser caching. The
+  // column is encrypted; a value that does not decrypt is returned as null.
   return NextResponse.json(
-    { ok: true, githubPat: user.githubPat },
+    { ok: true, githubPat: await readGithubPat(user) },
     { headers: { "Cache-Control": "no-store, max-age=0" } }
   );
 }
@@ -69,7 +71,7 @@ export async function POST(req: NextRequest) {
           ...(typeof session.authAt === "number" ? [{ sessionsValidAfter: { lte: new Date(session.authAt) } }] : []),
         ],
       },
-      data: { githubPat },
+      data: { githubPat: encryptGithubPat(githubPat) },
     });
 
     return NextResponse.json({ ok: true });

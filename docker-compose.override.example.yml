@@ -11,6 +11,11 @@ services:
       # placeholder or an empty value.
       NEXTAUTH_SECRET: "your_nextauth_secret_here-generate-with-openssl-rand-hex-32"
       NEXTAUTH_URL: "https://your-forge.example.com"
+      # Optional. Key for encrypting stored GitHub tokens; unset = derived from
+      # NEXTAUTH_SECRET. At least 32 characters (openssl rand -hex 32).
+      # Changing it later means every user connects GitHub again. Like the
+      # values above, deploys that skip this file need it in .env.
+      # GITHUB_PAT_ENCRYPTION_KEY: ""
       # Optional. docker-compose.yml already points DATABASE_URL at the
       # forge_db volume (file:/data/project-forge.db). To use a different file,
       # prefer FORGE_DATABASE_URL in .env: this override is skipped by

@@ -88,9 +88,10 @@ project-forge/
 │   ├── v1-shared.ts              # Public v1 session helpers (generate/preview/publish, 1h TTL)
 │   ├── limits.ts                 # Request-size caps shared by the API routes and the form
 │   ├── read-json-body.ts         # Size-capped JSON body reader (413 above the cap)
+│   ├── github-pat.ts             # AES-256-GCM encryption at rest of User.githubPat (legacy plaintext re-encrypted on use)
 │   ├── scrub-secrets.ts          # Mask GitHub credentials in free text before logging or returning it
 │   ├── server-error.ts           # UserFacingError + scrubbed 500 logging with a reference id
-│   └── startup-checks.ts         # Production start-up guard for placeholder NEXTAUTH_SECRET/NEXTAUTH_URL
+│   └── startup-checks.ts         # Production start-up guard for placeholder NEXTAUTH_SECRET/NEXTAUTH_URL/GITHUB_PAT_ENCRYPTION_KEY
 │
 ├── types/next-auth.d.ts          # NextAuth type extensions
 ├── tests/                        # Integration (tests/integration/) & unit (tests/unit/) tests

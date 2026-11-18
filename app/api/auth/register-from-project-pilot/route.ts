@@ -38,6 +38,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, createApiToken } from "@/lib/db";
+import { encryptGithubPat, readGithubPat } from "@/lib/github-pat";
 import {
   fetchGitHubUser,
   GitHubAuthError,
@@ -180,8 +181,9 @@ export async function POST(req: NextRequest) {
   // token (gho_): that way scope upgrades on the project-pilot side (e.g.
   // adding `workflow`) propagate on the next login instead of leaving the old,
   // narrower-scoped token stuck. A manually-entered PAT (classic ghp_ or
-  // fine-grained github_pat_) is preserved, never overwritten.
-  const existingPat = existingByGithubId?.githubPat ?? null;
+  // fine-grained github_pat_) is preserved, never overwritten. A stored value
+  // that no longer decrypts (key rotated) counts as none and is replaced.
+  const existingPat = existingByGithubId ? await readGithubPat(existingByGithubId) : null;
   const preserveManualPat = !!existingPat && !existingPat.startsWith("gho_");
 
   const user = existingByGithubId
@@ -191,7 +193,7 @@ export async function POST(req: NextRequest) {
           githubLogin: githubUser.login,
           email: githubEmail ?? existingByGithubId.email,
           // githubOwner/passwordHash stay untouched.
-          ...(preserveManualPat ? {} : { githubPat: githubAccessToken }),
+          ...(preserveManualPat ? {} : { githubPat: encryptGithubPat(githubAccessToken) }),
         },
       })
     : await prisma.user.create({
@@ -203,7 +205,7 @@ export async function POST(req: NextRequest) {
           // project-pilot SSO user can publish immediately, without connecting
           // GitHub a second time on the forge side. pilot's OAuth requests the
           // `repo` scope, which is what createAndPushRepo needs.
-          githubPat: githubAccessToken,
+          githubPat: encryptGithubPat(githubAccessToken),
           // OAuth-provisioned users have no password; column is nullable.
         },
       });

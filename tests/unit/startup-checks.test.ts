@@ -183,3 +183,62 @@ describe("assertStartupConfig", () => {
     ).toThrow(/Refusing to serve: NEXTAUTH_URL/);
   });
 });
+
+describe("GITHUB_PAT_ENCRYPTION_KEY", () => {
+  const base = { NEXTAUTH_SECRET: "a".repeat(64), NEXTAUTH_URL: "https://forge.example.com" };
+
+  it("accepts when absent (falls back to NEXTAUTH_SECRET)", () => {
+    expect(findStartupConfigProblems(base)).toEqual([]);
+  });
+
+  it("accepts when empty (falls back to NEXTAUTH_SECRET)", () => {
+    expect(findStartupConfigProblems({ ...base, GITHUB_PAT_ENCRYPTION_KEY: "" })).toEqual([]);
+  });
+
+  it("accepts a 64-character key (openssl rand -hex 32)", () => {
+    expect(findStartupConfigProblems({ ...base, GITHUB_PAT_ENCRYPTION_KEY: "b".repeat(64) })).toEqual([]);
+  });
+
+  it("accepts a key of exactly 32 characters", () => {
+    expect(findStartupConfigProblems({ ...base, GITHUB_PAT_ENCRYPTION_KEY: "b".repeat(32) })).toEqual([]);
+  });
+
+  it("refuses a key shorter than 32 characters", () => {
+    expect(findStartupConfigProblems({ ...base, GITHUB_PAT_ENCRYPTION_KEY: "b".repeat(31) })).toEqual([
+      expect.stringContaining("GITHUB_PAT_ENCRYPTION_KEY is shorter than 32"),
+    ]);
+  });
+
+  it("refuses a whitespace-only key, which counts as set", () => {
+    expect(findStartupConfigProblems({ ...base, GITHUB_PAT_ENCRYPTION_KEY: "   " })).toEqual([
+      expect.stringContaining("GITHUB_PAT_ENCRYPTION_KEY is shorter than 32"),
+    ]);
+  });
+
+  it("refuses a long key padded with whitespace to 32 characters", () => {
+    expect(
+      findStartupConfigProblems({ ...base, GITHUB_PAT_ENCRYPTION_KEY: `${"b".repeat(20)}${" ".repeat(20)}` }),
+    ).toEqual([expect.stringContaining("shorter than 32")]);
+  });
+
+  it("refuses a placeholder", () => {
+    expect(
+      findStartupConfigProblems({
+        ...base,
+        GITHUB_PAT_ENCRYPTION_KEY: "your-github-pat-key-here-generate-with-openssl-rand-hex-32",
+      }),
+    ).toEqual([expect.stringContaining("GITHUB_PAT_ENCRYPTION_KEY is still a placeholder")]);
+  });
+
+  it("reports a bad NEXTAUTH_SECRET before a bad key", () => {
+    expect(findStartupConfigProblems({ ...base, NEXTAUTH_SECRET: "", GITHUB_PAT_ENCRYPTION_KEY: "short" })).toEqual([
+      expect.stringContaining("NEXTAUTH_SECRET is not set"),
+    ]);
+  });
+
+  it("assertStartupConfig refuses to serve with a bad key", () => {
+    expect(() => assertStartupConfig({ ...base, GITHUB_PAT_ENCRYPTION_KEY: "short" })).toThrow(
+      /Refusing to serve: GITHUB_PAT_ENCRYPTION_KEY/,
+    );
+  });
+});

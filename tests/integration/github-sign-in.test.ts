@@ -89,6 +89,20 @@ const { rows, store, prisma } = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ prisma }));
 
 import { authOptions } from "@/lib/auth";
+import { decryptGithubPat } from "@/lib/github-pat";
+
+// Rows as the app reads them: githubPat decrypted (a legacy plaintext value
+// stays as it is), so the assertions below compare token values.
+// The raw column holds the encrypted form, never the token itself.
+function expectStoredEncrypted(r: Row | undefined, token: string) {
+  expect(r?.githubPat).toMatch(/^v1:/);
+  expect(r?.githubPat).not.toContain(token);
+}
+
+function plain(r: Row | undefined): Row {
+  if (!r) throw new Error("no such row");
+  return { ...r, githubPat: decryptGithubPat(r.githubPat) };
+}
 
 const REFUSED = "/login?error=OAuthAccountNotLinked";
 // GitHub could not be asked: nothing was written, the user retries.
@@ -160,6 +174,7 @@ async function githubSignIn(opts: {
 }
 
 beforeEach(() => {
+  vi.stubEnv("NEXTAUTH_SECRET", "github-sign-in-test-secret");
   store.reset();
   vi.clearAllMocks();
   fetchMock.mockReset();
@@ -167,6 +182,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -185,8 +201,8 @@ describe("GitHub sign-in account matching", () => {
 
     expect(result).toBe(REFUSED);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toEqual(before);
-    expect(rows[0].githubPat).toBe("ghp_manual");
+    expect(plain(rows[0])).toEqual(before);
+    expect(plain(rows[0]).githubPat).toBe("ghp_manual");
     expect(user.id).toBe("1001"); // session id is not rewritten to the foreign row
     expect(store.user.update).not.toHaveBeenCalled();
     expect(store.user.updateMany).not.toHaveBeenCalled();
@@ -227,7 +243,8 @@ describe("GitHub sign-in account matching", () => {
     expect(result).toBe(true);
     expect(user.id).toBe("r1");
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ githubPat: "gho_fresh", githubOwner: "me", githubLogin: "me", githubId: "1001" });
+    expect(plain(rows[0])).toMatchObject({ githubPat: "gho_fresh", githubOwner: "me", githubLogin: "me", githubId: "1001" });
+    expectStoredEncrypted(rows[0], "gho_fresh");
   });
 
   it("matches by identity when the GitHub email changed, without touching the email", async () => {
@@ -238,7 +255,8 @@ describe("GitHub sign-in account matching", () => {
     expect(result).toBe(true);
     expect(user.id).toBe("r1");
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ email: "old@example.com", githubPat: "gho_fresh" });
+    expect(plain(rows[0])).toMatchObject({ email: "old@example.com", githubPat: "gho_fresh" });
+    expectStoredEncrypted(rows[0], "gho_fresh");
   });
 
   it("signs in a linked account that also has a password (identity wins over the password flag)", async () => {
@@ -248,8 +266,9 @@ describe("GitHub sign-in account matching", () => {
 
     expect(result).toBe(true);
     expect(user.id).toBe("r1");
-    expect(rows[0].githubPat).toBe("gho_fresh");
-    expect(rows[0].passwordHash).toBe("hash");
+    expect(plain(rows[0]).githubPat).toBe("gho_fresh");
+    expectStoredEncrypted(rows[0], "gho_fresh");
+    expect(plain(rows[0]).passwordHash).toBe("hash");
   });
 
   it("creates a new user with the GitHub identity for an unknown email", async () => {
@@ -262,26 +281,28 @@ describe("GitHub sign-in account matching", () => {
 
     expect(result).toBe(true);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
+    expect(plain(rows[0])).toMatchObject({
       email: "new@example.com",
       passwordHash: null,
       githubId: "1001",
       githubLogin: "newbie",
       githubPat: "gho_new",
     });
+    // Stored encrypted, never as the token itself.
+    expect(rows[0].githubPat).toMatch(/^v1:/);
     expect(user.id).toBe(rows[0].id);
   });
 
   it("creates a user under a placeholder email when GitHub gives none, and finds it again by identity", async () => {
     const first = await githubSignIn({ id: "1001", email: null, token: "gho_a" });
     expect(first.result).toBe(true);
-    expect(rows[0]).toMatchObject({ email: "github-1001@noreply", githubId: "1001", githubPat: "gho_a" });
+    expect(plain(rows[0])).toMatchObject({ email: "github-1001@noreply", githubId: "1001", githubPat: "gho_a" });
 
     const second = await githubSignIn({ id: "1001", email: null, token: "gho_b" });
     expect(second.result).toBe(true);
     expect(rows).toHaveLength(1);
-    expect(rows[0].githubPat).toBe("gho_b");
-    expect(rows[0].githubOwner).toBe("github-1001");
+    expect(plain(rows[0]).githubPat).toBe("gho_b");
+    expect(plain(rows[0]).githubOwner).toBe("github-1001");
   });
 
   it("claims a legacy GitHub-only row (no githubId, no password) and records the identity", async () => {
@@ -297,7 +318,8 @@ describe("GitHub sign-in account matching", () => {
     expect(result).toBe(true);
     expect(user.id).toBe("legacy");
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ githubId: "1001", githubPat: "gho_fresh", githubLogin: "legacy" });
+    expect(plain(rows[0])).toMatchObject({ githubId: "1001", githubPat: "gho_fresh", githubLogin: "legacy" });
+    expectStoredEncrypted(rows[0], "gho_fresh");
     // The claim cuts off what the row held: its live API tokens are revoked
     // and older sessions stop counting, in one transaction.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
@@ -305,7 +327,7 @@ describe("GitHub sign-in account matching", () => {
       where: { userId: "legacy", revokedAt: null },
       data: { revokedAt: rows[0].sessionsValidAfter },
     });
-    expect(rows[0].sessionsValidAfter).toBeInstanceOf(Date);
+    expect(plain(rows[0]).sessionsValidAfter).toBeInstanceOf(Date);
     // The cutoff is taken after the claim write has run (inside the
     // transaction, once the write lock is held), not in the claim write itself.
     expect(store.user.updateMany).toHaveBeenCalledTimes(1);
@@ -319,7 +341,7 @@ describe("GitHub sign-in account matching", () => {
     store.user.updateMany.mockClear();
     const again = await githubSignIn({ id: "1001", email: "legacy@example.com", token: "gho_again" });
     expect(again.result).toBe(true);
-    expect(rows[0].githubPat).toBe("gho_again");
+    expect(plain(rows[0]).githubPat).toBe("gho_again");
     expect(store.user.updateMany).not.toHaveBeenCalled();
   });
 
@@ -330,7 +352,7 @@ describe("GitHub sign-in account matching", () => {
 
     expect(result).toBe(true);
     expect(user.id).toBe("legacy");
-    expect(rows[0].githubId).toBe("1001");
+    expect(plain(rows[0]).githubId).toBe("1001");
   });
 
   // The email lookup hands out a snapshot of the legacy row; the stored row
@@ -352,9 +374,9 @@ describe("GitHub sign-in account matching", () => {
     // A claim that did not happen revokes nothing.
     expect(prisma.apiToken.updateMany).not.toHaveBeenCalled();
     expect(rows).toHaveLength(1);
-    expect(rows[0].githubPat).toBe("gho_old");
-    expect(rows[0].githubId).toBe("githubId" in change ? "2002" : null);
-    expect(rows[0].passwordHash).toBe("passwordHash" in change ? "hash" : null);
+    expect(plain(rows[0]).githubPat).toBe("gho_old");
+    expect(plain(rows[0]).githubId).toBe("githubId" in change ? "2002" : null);
+    expect(plain(rows[0]).passwordHash).toBe("passwordHash" in change ? "hash" : null);
     expect(user.id).toBe("1001");
   });
 
@@ -368,7 +390,7 @@ describe("GitHub sign-in account matching", () => {
     const { result } = await githubSignIn({ id: "1001", email: "legacy@example.com", token: "gho_x" });
 
     expect(result).toBe(REFUSED);
-    expect(rows.find((r) => r.id === "legacy")).toMatchObject({ githubId: null, githubPat: "gho_old" });
+    expect(plain(rows.find((r) => r.id === "legacy"))).toMatchObject({ githubId: null, githubPat: "gho_old" });
   });
 
   it("rethrows other database errors from the claim", async () => {
@@ -426,8 +448,8 @@ describe("GitHub sign-in email verification", () => {
 
     expect(result).toBe(true);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toEqual(before);
-    expect(rows[1]).toMatchObject({ email: "github-1001@noreply", githubId: "1001", githubPat: "gho_attacker" });
+    expect(plain(rows[0])).toEqual(before);
+    expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply", githubId: "1001", githubPat: "gho_attacker" });
     expect(user.id).toBe(rows[1].id);
     expect(store.user.updateMany).not.toHaveBeenCalled();
   });
@@ -443,8 +465,8 @@ describe("GitHub sign-in email verification", () => {
     });
 
     expect(result).toBe(true);
-    expect(rows[0]).toEqual(before);
-    expect(rows[1]).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
+    expect(plain(rows[0])).toEqual(before);
+    expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
   });
 
   it("still refuses a password account when GitHub verifies that email", async () => {
@@ -465,7 +487,7 @@ describe("GitHub sign-in email verification", () => {
     expect(result).toBe(true);
     expect(user.id).toBe("legacy");
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ githubId: "1001", githubPat: "gho_new" });
+    expect(plain(rows[0])).toMatchObject({ githubId: "1001", githubPat: "gho_new" });
   });
 
   it("creates the user under a verified primary email (unchanged behaviour)", async () => {
@@ -473,7 +495,7 @@ describe("GitHub sign-in email verification", () => {
 
     expect(result).toBe(true);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ email: "new@example.com", githubId: "1001" });
+    expect(plain(rows[0])).toMatchObject({ email: "new@example.com", githubId: "1001" });
   });
 
   it("accepts a verified email that is not primary (verification is what proves ownership)", async () => {
@@ -490,7 +512,7 @@ describe("GitHub sign-in email verification", () => {
 
     expect(result).toBe(true);
     expect(user.id).toBe("legacy");
-    expect(rows[0].githubId).toBe("1001");
+    expect(plain(rows[0]).githubId).toBe("1001");
   });
 
   it.each([
@@ -506,7 +528,7 @@ describe("GitHub sign-in email verification", () => {
     });
 
     expect(result).toBe(true);
-    expect(rows[0].githubId).toBe("1001");
+    expect(plain(rows[0]).githubId).toBe("1001");
   });
 
   it("treats an email that /user/emails does not list as unverified (placeholder)", async () => {
@@ -519,8 +541,8 @@ describe("GitHub sign-in email verification", () => {
     });
 
     expect(result).toBe(true);
-    expect(rows[0].githubId).toBeNull();
-    expect(rows[1]).toMatchObject({ email: "github-1001@noreply" });
+    expect(plain(rows[0]).githubId).toBeNull();
+    expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply" });
   });
 
   it("requires verified to be exactly true", async () => {
@@ -533,8 +555,8 @@ describe("GitHub sign-in email verification", () => {
     });
 
     expect(result).toBe(true);
-    expect(rows[0].githubId).toBeNull();
-    expect(rows[1]).toMatchObject({ email: "github-1001@noreply" });
+    expect(plain(rows[0]).githubId).toBeNull();
+    expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply" });
   });
 
   it("treats an empty address list as a definite answer: unverified, placeholder account", async () => {
@@ -543,8 +565,8 @@ describe("GitHub sign-in email verification", () => {
     const { result } = await githubSignIn({ id: "1001", email: LEGACY, emails: { status: 200, body: [] } });
 
     expect(result).toBe(true);
-    expect(rows[0].githubId).toBeNull();
-    expect(rows[1]).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
+    expect(plain(rows[0]).githubId).toBeNull();
+    expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
   });
 
   // GitHub could not be asked or gave no usable answer: nothing is written, so
@@ -585,7 +607,7 @@ describe("GitHub sign-in email verification", () => {
       expect(retry.result).toBe(true);
       expect(retry.user.id).toBe("legacy");
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ githubId: "1001", githubPat: "gho_retry" });
+      expect(plain(rows[0])).toMatchObject({ githubId: "1001", githubPat: "gho_retry" });
     },
   );
 
@@ -602,7 +624,7 @@ describe("GitHub sign-in email verification", () => {
 
     expect(retry.result).toBe(true);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ email: "new@example.com", githubId: "1001" });
+    expect(plain(rows[0])).toMatchObject({ email: "new@example.com", githubId: "1001" });
   });
 
   it.each([
@@ -666,7 +688,8 @@ describe("GitHub sign-in email verification", () => {
 
     expect(result).toBe(true);
     expect(user.id).toBe("r1");
-    expect(rows[0].githubPat).toBe("gho_fresh");
+    expect(plain(rows[0]).githubPat).toBe("gho_fresh");
+    expectStoredEncrypted(rows[0], "gho_fresh");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -693,7 +716,7 @@ describe("GitHub sign-in email verification", () => {
         expect(retry.result).toBe(true);
         expect(retry.user.id).toBe("legacy");
         expect(rows).toHaveLength(1);
-        expect(rows[0]).toMatchObject({ githubId: "1001", githubPat: "gho_retry" });
+        expect(plain(rows[0])).toMatchObject({ githubId: "1001", githubPat: "gho_retry" });
       },
     );
 
@@ -706,7 +729,7 @@ describe("GitHub sign-in email verification", () => {
 
       expect(result).toBe(true);
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
+      expect(plain(rows[0])).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
     });
 
     it("skips a non-object entry and still finds the verified primary", async () => {
@@ -717,7 +740,7 @@ describe("GitHub sign-in email verification", () => {
       });
 
       expect(result).toBe(true);
-      expect(rows[0]).toMatchObject({ email: "main@example.com", githubId: "1001" });
+      expect(plain(rows[0])).toMatchObject({ email: "main@example.com", githubId: "1001" });
     });
 
     it("creates the user under the verified primary address GitHub lists", async () => {
@@ -733,7 +756,7 @@ describe("GitHub sign-in email verification", () => {
       expect(result).toBe(true);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ email: "main@example.com", githubId: "1001" });
+      expect(plain(rows[0])).toMatchObject({ email: "main@example.com", githubId: "1001" });
     });
 
     it("still refuses a password account that owns the verified primary address", async () => {
@@ -761,8 +784,8 @@ describe("GitHub sign-in email verification", () => {
       const { result } = await githubSignIn({ id: "1001", email: null, emails: emails as never });
 
       expect(result).toBe(true);
-      expect(rows[0]).toEqual(before);
-      expect(rows[1]).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
+      expect(plain(rows[0])).toEqual(before);
+      expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
     });
   });
 
@@ -795,26 +818,26 @@ describe("GitHub sign-in email verification", () => {
     const unverified = [{ email: "someone@example.com", primary: true, verified: false }];
 
     await githubSignIn({ id: "1001", email: "someone@example.com", emails: unverified });
-    expect(rows[0]).toMatchObject({ email: "github-1001@noreply", githubOwner: "github-1001" });
+    expect(plain(rows[0])).toMatchObject({ email: "github-1001@noreply", githubOwner: "github-1001" });
 
     const second = await githubSignIn({ id: "1001", email: "someone@example.com", token: "gho_b", emails: unverified });
 
     expect(second.result).toBe(true);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ githubOwner: "github-1001", githubPat: "gho_b" });
+    expect(plain(rows[0])).toMatchObject({ githubOwner: "github-1001", githubPat: "gho_b" });
   });
 
   it("uses the GitHub login as the owner on create, claim and later sign-ins alike", async () => {
     row({ id: "legacy", email: LEGACY });
 
     await githubSignIn({ id: "1001", email: LEGACY, login: "octo", emails: VERIFIED_LIST });
-    expect(rows[0]).toMatchObject({ githubId: "1001", githubOwner: "octo", githubLogin: "octo" });
+    expect(plain(rows[0])).toMatchObject({ githubId: "1001", githubOwner: "octo", githubLogin: "octo" });
 
     await githubSignIn({ id: "1001", email: "changed@example.com", login: "octo-renamed" });
-    expect(rows[0]).toMatchObject({ githubOwner: "octo-renamed", githubLogin: "octo-renamed" });
+    expect(plain(rows[0])).toMatchObject({ githubOwner: "octo-renamed", githubLogin: "octo-renamed" });
 
     await githubSignIn({ id: "2002", email: "new@example.com", login: "fresh" });
-    expect(rows[1]).toMatchObject({ githubOwner: "fresh", githubLogin: "fresh" });
+    expect(plain(rows[1])).toMatchObject({ githubOwner: "fresh", githubLogin: "fresh" });
   });
 
   it("claims a legacy placeholder row after an unverified lookup (the placeholder is derived from the verified GitHub id)", async () => {
@@ -824,7 +847,7 @@ describe("GitHub sign-in email verification", () => {
 
     expect(result).toBe(true);
     expect(user.id).toBe("legacy");
-    expect(rows[0].githubId).toBe("1001");
+    expect(plain(rows[0]).githubId).toBe("1001");
   });
 });
 

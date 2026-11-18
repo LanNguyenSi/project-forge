@@ -44,6 +44,7 @@ import { runCommand } from "@/lib/subprocess";
 import { runPlanforgeViaHttp } from "@/lib/planforge-client";
 import { POST as publishPOST } from "@/app/api/v1/publish/route";
 import { POST as projectsPOST, GET as projectsGET } from "@/app/api/v1/projects/route";
+import { encryptGithubPat } from "@/lib/github-pat";
 
 const mValidate = vi.mocked(validateApiToken);
 const mReserve = vi.mocked(reserveUsage);
@@ -386,4 +387,58 @@ describe("GET /api/v1/projects: pending reservations", () => {
       repoUrl: { not: null },
     });
   });
+});
+
+describe("publishing with an encrypted githubPat", () => {
+  const PLAIN = "ghp_ENCRYPTED_AT_REST_TOKEN";
+
+  function githubCalls() {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(githubOk), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function pushArgs(): string {
+    return vi
+      .mocked(runCommand)
+      .mock.calls.map((call) => (call[1] as string[]).join(" "))
+      .join("\n");
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("NEXTAUTH_SECRET", "publish-encrypted-pat-secret");
+  });
+
+  for (const [name, call] of [
+    ["POST /api/v1/publish", () => publishPOST(post("http://test/api/v1/publish", { sessionId: SESSION_ID }))],
+    ["POST /api/v1/projects", () => projectsPOST(post("http://test/api/v1/projects", { projectName: "demo", summary: "s" }))],
+  ] as const) {
+    it(`${name} calls GitHub with the decrypted token`, async () => {
+      await session();
+      mValidate.mockResolvedValue(token(encryptGithubPat(PLAIN)) as never);
+      const fetchMock = githubCalls();
+
+      const res = await call();
+
+      expect(res.status).toBe(200);
+      const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+      expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${PLAIN}`);
+      expect(pushArgs()).toContain(`${PLAIN}@`);
+      expect(pushArgs()).not.toContain("v1:");
+    });
+
+    it(`${name} answers "not configured" for a token that no longer decrypts`, async () => {
+      await session();
+      mValidate.mockResolvedValue(
+        token(encryptGithubPat(PLAIN, { NEXTAUTH_SECRET: "the-previous-secret" })) as never,
+      );
+      const fetchMock = githubCalls();
+
+      const res = await call();
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/GitHub PAT not configured/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  }
 });

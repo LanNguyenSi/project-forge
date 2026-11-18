@@ -2,6 +2,7 @@ import type { NextAuthOptions, Session } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
 import { prisma } from "./db";
+import { encryptGithubPat } from "./github-pat";
 import { isStaleSession } from "./session-cutoff";
 import { githubEmailStatus, githubPrimaryVerifiedEmail } from "./github-verified-email";
 import bcrypt from "bcryptjs";
@@ -101,8 +102,11 @@ async function signInWithGithub(
   // resort for a new row, and an existing identity row keeps its owner unless
   // a login says otherwise, so the value does not flip between sign-ins.
   const ownerFromLogin = (user as { login?: string }).login ?? githubLogin;
+  // Stored encrypted (lib/github-pat.ts), encrypted only when a write happens;
+  // undefined leaves the column as it is.
+  const storedPat = () => (account.access_token ? encryptGithubPat(account.access_token) : undefined);
   const tokenFieldsFor = (email: string) => ({
-    githubPat: account.access_token,
+    githubPat: storedPat(),
     githubOwner: ownerFromLogin ?? email.split("@")[0],
     ...(githubLogin ? { githubLogin } : {}),
   });
@@ -112,7 +116,7 @@ async function signInWithGithub(
     await prisma.user.update({
       where: { id: byIdentity.id },
       data: {
-        githubPat: account.access_token,
+        githubPat: storedPat(),
         ...(ownerFromLogin ? { githubOwner: ownerFromLogin } : {}),
         ...(githubLogin ? { githubLogin } : {}),
       },
