@@ -247,15 +247,15 @@ export const authOptions: NextAuthOptions = {
       }
       return true;
     },
-    jwt({ token, user, account }) {
+    jwt({ token, user }) {
+      // Sessions issued before the access token was dropped from the JWT
+      // still carry it; the cookie is re-issued without it on next use.
+      delete (token as Record<string, unknown>).githubAccessToken;
       if (user) {
         token.userId = user.id;
         // When this session was minted. NextAuth's own `iat` moves on every
         // refresh, so the cutoff in the session callback compares this.
         token.authAt = Date.now();
-      }
-      if (account?.provider === "github") {
-        token.githubAccessToken = account.access_token;
       }
       return token;
     },

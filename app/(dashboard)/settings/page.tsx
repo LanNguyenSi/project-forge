@@ -54,7 +54,9 @@ function CopyButton({ text }: { text: string }) {
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  // Only what the user types; the stored token is never sent to the browser.
   const [githubPat, setGithubPat] = useState("");
+  const [githubPatKind, setGithubPatKind] = useState<"oauth" | "manual" | null>(null);
   const [githubConnectedViaOAuth, setGithubConnectedViaOAuth] = useState(false);
   const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [newTokenName, setNewTokenName] = useState("");
@@ -77,10 +79,8 @@ export default function SettingsPage() {
         setTokens(data.tokens || []);
       }
       if (patData.ok) {
-        setGithubPat(patData.githubPat || "");
-        setGithubConnectedViaOAuth(
-          !!(patData.githubPat?.startsWith("gho_") || data.user?.githubOwner),
-        );
+        setGithubPatKind(patData.connected ? (patData.kind ?? "manual") : null);
+        setGithubConnectedViaOAuth(patData.kind === "oauth" || !!data.user?.githubOwner);
       }
     } catch (err) {
       console.error("Failed to load settings:", err);
@@ -95,16 +95,25 @@ export default function SettingsPage() {
   const handleSavePat = async () => {
     setError("");
     setSuccess("");
+    const typed = githubPat.trim();
+    if (!typed) {
+      setError("Enter a GitHub PAT to save");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/dashboard/pat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ githubPat }),
+        body: JSON.stringify({ githubPat: typed }),
       });
       const data = await res.json();
       if (!res.ok) setError(data.error || "Failed to save PAT");
-      else setSuccess("GitHub PAT saved! You can now create projects.");
+      else {
+        setSuccess("GitHub PAT saved! You can now create projects.");
+        setGithubPat("");
+        setGithubPatKind("manual");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -190,7 +199,7 @@ export default function SettingsPage() {
               action={
                 githubConnectedViaOAuth
                   ? <Badge variant="success">Connected via OAuth</Badge>
-                  : githubPat
+                  : githubPatKind
                     ? <Badge variant="success">Connected via PAT</Badge>
                     : <Badge variant="warning">Not connected</Badge>
               }
@@ -237,16 +246,21 @@ export default function SettingsPage() {
                 <Card tone="muted" padding="sm">
                   <h3 className="font-semibold text-forge-mist text-sm">Option 2: Personal Access Token</h3>
                   <p className="text-xs text-forge-ash mt-1 mb-3">For advanced users, CI/CD, or corporate restrictions</p>
+                  {githubPatKind && (
+                    <p className="text-xs text-success mb-3" data-testid="pat-connected-state">
+                      A personal access token is saved. The value is never shown again; enter a new one to replace it.
+                    </p>
+                  )}
                   <Input
                     type="password"
                     value={githubPat}
                     onChange={(e) => setGithubPat(e.target.value)}
-                    placeholder="ghp_..."
+                    placeholder={githubPatKind ? "New token (replaces saved)" : "ghp_..."}
                     aria-label="GitHub personal access token"
                     className="font-mono text-sm mb-3"
                   />
                   <Button size="sm" onClick={handleSavePat} loading={loading}>
-                    Save PAT
+                    {githubPatKind ? "Replace PAT" : "Save PAT"}
                   </Button>
                 </Card>
               </div>
