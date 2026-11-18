@@ -27,8 +27,10 @@
 
 /**
  * The cloned body stream drops the whole chunk that crosses the clone
- * limit, and chunks come off the socket in reads of at most 64 KiB. A
- * truncated body therefore ends at most this far below the limit.
+ * limit, and chunks come off the socket in reads of at most 64 KiB (Node's
+ * HTTP parser size). A truncated body therefore ends at most 65_535 bytes
+ * below the limit; real deliveries of 560_000 to 573_281 bytes were measured
+ * against a 602_736 limit.
  */
 export const CLONE_TRUNCATION_WINDOW_BYTES = 64 * 1024;
 

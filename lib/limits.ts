@@ -119,10 +119,11 @@ export const GENERATE_MAX_BODY_BYTES =
 
 /**
  * `experimental.middlewareClientMaxBodySize` in next.config.mjs (an .mjs
- * file cannot import this constant; tests/unit/next-config-middleware-body
- * .test.ts pins the two equal). The /api/v1 routes read their body through
- * readJsonBody with this value, so a body Next cut off at the clone limit
- * answers 413 instead of failing as malformed JSON.
+ * file cannot import this constant; the unit test
+ * next-config-middleware-body.test.ts pins the two equal). The /api/v1
+ * routes read their body through readJsonBody with this value, so a body
+ * Next cut off at the clone limit answers 413 instead of failing as
+ * malformed JSON.
  */
 export const MIDDLEWARE_BODY_CLONE_LIMIT_BYTES = 602_736;
 
