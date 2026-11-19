@@ -38,6 +38,26 @@ override, and the same for a non-default planforge URL: set
 development and does not reach the container). `make deploy` and `make pull`
 run plain `docker compose`, which does load the override.
 
+### Base image
+
+The `app` image is built from this checkout, so its code is pinned by the git
+ref you deploy; the base image it builds on is pinned too. All three stages of
+the `Dockerfile` (`builder`, `deps`, `runner`) start `FROM
+node:24-slim@sha256:<digest>`: the tag stays in front of `@` and the digest
+(the multi-arch index digest of that tag) names the exact image content, so
+all stages build on one identical runtime. A rebuild, and a rollback that
+rebuilds an older checkout, therefore get the same runtime: the base image
+cannot move under a rebuild the way a bare `node:24-slim` tag can (the same
+guarantee the planforge pin gives the other service, see below). Renovate
+tracks the tag and is expected to open a pull request when the digest for
+`24-slim` changes (one pull request per image, all three `FROM` lines
+together; the shared preset's 7-day minimum release age may delay it), so the
+pin does not block the patch and security updates of the base image as long as
+those pull requests are merged.
+`tests/unit/ops-config.test.ts` pins the form: every `FROM` line carries
+`node:24-slim@sha256:` plus 64 hex characters, and all stages share one
+digest.
+
 ### Planforge version
 
 The `planforge` image is built from a git URL build context pinned to an

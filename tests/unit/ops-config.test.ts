@@ -190,6 +190,30 @@ describe("docker-compose.override.example.yml name", () => {
   });
 });
 
+describe("Dockerfile FROM lines", () => {
+  // The three stages build on node:24-slim pinned by digest (the multi-arch
+  // index digest, tag kept in front of `@` so Renovate tracks the tag and
+  // opens digest pull requests): a rebuild and a rollback always get the same
+  // runtime bytes (docs/deployment.md, "Base image").
+  const pinned = /^FROM node:24-slim@sha256:([0-9a-f]{64}) AS ([\w-]+)$/;
+  const fromLines = read("Dockerfile").split("\n").filter((l) => /^FROM /.test(l));
+
+  it("has exactly the three stages of the build", () => {
+    expect(fromLines).toHaveLength(3);
+    expect(fromLines.map((l) => pinned.exec(l)?.[2])).toEqual(["builder", "deps", "runner"]);
+  });
+
+  it("pins every FROM line to node:24-slim with a full sha256 digest", () => {
+    for (const line of fromLines) {
+      expect(line).toMatch(/^FROM node:24-slim@sha256:[0-9a-f]{64} AS [\w-]+$/);
+    }
+  });
+
+  it("uses one digest for all three stages, so no stage builds on a different runtime", () => {
+    expect(new Set(fromLines.map((l) => pinned.exec(l)?.[1])).size).toBe(1);
+  });
+});
+
 describe(".github/workflows/ci.yml docker-build job", () => {
   // Text-level (the compose checks above parse YAML): the job block runs from its name to
   // the next top-level job key or the end of the file.
