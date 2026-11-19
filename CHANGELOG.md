@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **The app's base image is pinned by digest.** All three `Dockerfile` stages (`builder`, `deps`, `runner`) now start `FROM node:24-slim@sha256:<digest>` (the multi-arch index digest of the tag, one digest shared by all stages) instead of the bare `node:24-slim`, so a rebuild or a rollback always builds on the same base image content instead of whatever the tag points at on that day; a rebuild of an older checkout gets the runtime that checkout was released with. The tag stays in front of the `@`, so Renovate keeps tracking it and opens a digest pull request (all three `FROM` lines in one) whenever the digest for `24-slim` changes; no renovate config change was needed. `tests/unit/ops-config.test.ts` pins the form and `docs/deployment.md` documents it ("Base image").
+- **The app's base image is pinned by digest.** All three `Dockerfile` stages (`builder`, `deps`, `runner`) now start `FROM node:24-slim@sha256:<digest>` (the multi-arch index digest of the tag, one digest shared by all stages) instead of the bare `node:24-slim`, so a rebuild or a rollback always builds on the same base image content instead of whatever the tag points at on that day; a rebuild of an older checkout gets the runtime that checkout was released with. The tag stays in front of the `@`, so Renovate keeps tracking it and is expected to open a digest pull request (all three `FROM` lines in one) when the digest for `24-slim` changes, possibly delayed by the preset's 7-day minimum release age; no renovate config change was needed. `tests/unit/ops-config.test.ts` pins the form and `docs/deployment.md` documents it ("Base image").
 
 ### Fixed
 
