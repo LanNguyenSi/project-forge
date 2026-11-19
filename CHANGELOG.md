@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The app's base image is pinned by digest.** All three `Dockerfile` stages (`builder`, `deps`, `runner`) now start `FROM node:24-slim@sha256:<digest>` (the multi-arch index digest of the tag, one digest shared by all stages) instead of the bare `node:24-slim`, so a rebuild or a rollback always builds on the same base image content instead of whatever the tag points at on that day; a rebuild of an older checkout gets the runtime that checkout was released with. The tag stays in front of the `@`, so Renovate keeps tracking it and opens a digest pull request (all three `FROM` lines in one) whenever the digest for `24-slim` changes; no renovate config change was needed. `tests/unit/ops-config.test.ts` pins the form and `docs/deployment.md` documents it ("Base image").
+
 ### Fixed
 
 - **A chunked `/api/v1` body above the middleware clone limit answers 413, not 500.** Next cuts such a body off at `experimental.middlewareClientMaxBodySize` (the chunk that crosses the limit is dropped), so it could reach the route shorter than the route cap, fail JSON parsing and answer 500 "Generation failed". `readJsonBody` now takes the clone limit from `POST /api/v1/generate` and `POST /api/v1/projects` and reports a JSON parse failure on a body that ends within 64 KiB of it as too large (413); a malformed body of any other length still answers as before. `docs/api.md` no longer says an oversized chunked body may end in a reset connection.
