@@ -72,6 +72,7 @@ project-forge/
 │   ├── db.ts                     # Prisma client, rate limiting, API tokens
 │   ├── auth.ts                   # NextAuth configuration
 │   ├── signin-rate-limit.ts      # Fixed-window limiter for failed sign-in attempts
+│   ├── register-rate-limit.ts    # Fixed-window limiter for registration attempts
 │   ├── github-verified-email.ts  # Verified-email lookup (GitHub /user/emails) for sign-in
 │   ├── safe-callback-url.ts      # Keeps the login callbackUrl a same-origin path
 │   ├── session-cutoff.ts         # Stale session/token checks against sessionsValidAfter

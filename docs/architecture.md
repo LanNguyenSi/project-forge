@@ -237,6 +237,15 @@ Failed credentials sign-ins are limited separately by `lib/signin-rate-limit.ts`
 per submitted email and per client address, with counters in process memory (per
 process, reset on restart).
 
+Registration attempts (`POST /api/auth/register`) are limited by
+`lib/register-rate-limit.ts`: 5 per hour per client address (the last
+`X-Forwarded-For` entry, so the same single trusted proxy hop as sign-in;
+requests with no usable address share one fallback counter with the same cap).
+Every request past the cheap body and format checks counts, successful
+registrations included, and the count is taken before the database lookup and
+bcrypt, so a caller over the limit costs neither. Counters are in process
+memory, per process, reset on restart.
+
 ### 7. Secret handling
 
 Users' GitHub tokens are encrypted at rest by `lib/github-pat.ts`: AES-256-GCM

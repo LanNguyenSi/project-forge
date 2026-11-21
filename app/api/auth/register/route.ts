@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { internalErrorDetails } from "@/lib/server-error";
 import { readJsonBody, BodyTooLargeError } from "@/lib/read-json-body";
 import { DEFAULT_MAX_BODY_BYTES } from "@/lib/limits";
+import { clientAddressFromHeaders, takeRegisterAttempt } from "@/lib/register-rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,6 +38,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { ok: false, error: "This email address cannot be used for registration" },
         { status: 400 }
+      );
+    }
+
+    // Per-address attempt limit (lib/register-rate-limit.ts), taken after the
+    // cheap 400 checks above and BEFORE the database lookup and bcrypt, so a
+    // caller over the limit costs neither. Successful registrations count too.
+    const address = clientAddressFromHeaders({
+      "x-forwarded-for": req.headers.get("x-forwarded-for"),
+    });
+    if (!takeRegisterAttempt(address)) {
+      return NextResponse.json(
+        { ok: false, error: "Too many registration attempts, try again later" },
+        { status: 429 }
       );
     }
 

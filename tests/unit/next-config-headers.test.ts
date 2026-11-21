@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Pins the baseline security headers declared in next.config.mjs.
- * A framed /login (clickjacking) was the opening; each of the four
+ * A framed /login (clickjacking) was the opening; each of the five
  * headers is asserted individually so removing any one fails here.
  */
 async function loadHeaders(): Promise<Array<{ source: string; headers: Array<{ key: string; value: string }> }>> {
@@ -45,8 +45,20 @@ describe("next.config.mjs headers()", () => {
     expect(all).toContainEqual({ key: "Referrer-Policy", value: "strict-origin-when-cross-origin" });
   });
 
-  it("carries exactly the four security headers", async () => {
+  it("sets HSTS with a one-year max-age and includeSubDomains, without preload", async () => {
     const entries = await loadHeaders();
-    expect(entries.flatMap((e) => e.headers)).toHaveLength(4);
+    const all = entries.flatMap((e) => e.headers);
+    expect(all).toContainEqual({
+      key: "Strict-Transport-Security",
+      value: "max-age=31536000; includeSubDomains",
+    });
+    const hsts = all.filter((h) => h.key === "Strict-Transport-Security");
+    expect(hsts).toHaveLength(1);
+    expect(hsts[0].value).not.toMatch(/preload/i);
+  });
+
+  it("carries exactly the five security headers", async () => {
+    const entries = await loadHeaders();
+    expect(entries.flatMap((e) => e.headers)).toHaveLength(5);
   });
 });

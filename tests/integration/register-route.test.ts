@@ -16,6 +16,7 @@ vi.mock("@/lib/db", async () => {
 
 import { prisma } from "@/lib/db";
 import { POST } from "@/app/api/auth/register/route";
+import { resetRegisterLimiter } from "@/lib/register-rate-limit";
 
 const user = prisma.user as unknown as {
   findUnique: ReturnType<typeof vi.fn>;
@@ -33,6 +34,10 @@ function makeReq(body: unknown): NextRequest {
 describe("POST /api/auth/register", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The route now rate limits per address; these tests take the fallback
+    // key, so they need a fresh counter each (the limiter tests themselves
+    // live in register-route-rate-limit.test.ts).
+    resetRegisterLimiter();
   });
 
   it("400 when body is empty (no email and no password)", async () => {

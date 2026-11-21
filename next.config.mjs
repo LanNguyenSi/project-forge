@@ -37,7 +37,10 @@ const nextConfig = {
   // frame-ancestors close the clickjacking hole (framed /login could
   // otherwise trick a logged-in user into publishing or registering);
   // nosniff stops MIME confusion on error/served pages; the referrer
-  // policy keeps full URLs from leaking to third-party origins.
+  // policy keeps full URLs from leaking to third-party origins; HSTS
+  // pins browsers to https once the site has been served over it (the
+  // app sets it itself, the reverse proxy does not need to, and
+  // browsers ignore it over plain http).
   // frame-ancestors is the ONLY CSP directive on purpose: a fuller
   // CSP is out of scope here and would break the app's inline styles
   // and swagger-ui assets.
@@ -50,6 +53,7 @@ const nextConfig = {
           { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
         ],
       },
     ];

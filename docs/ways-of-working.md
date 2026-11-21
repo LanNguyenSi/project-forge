@@ -52,6 +52,13 @@ These rules govern the HTTP surface. All contributors must follow them.
   client address (30 per 15 minutes, the last `X-Forwarded-For` entry) by
   `lib/signin-rate-limit.ts`; the counters are in process memory, so they are
   per process and reset on restart.
+- `POST /api/auth/register` is limited per client address (5 attempts per hour,
+  `lib/register-rate-limit.ts`): every request past the cheap body and format
+  checks counts, successful registrations included, taken before the database
+  lookup and bcrypt. The address is the last `X-Forwarded-For` entry, so it
+  assumes the same single trusted proxy hop as sign-in; requests with no
+  usable address share one fallback counter with the same cap. Counters are in
+  process memory and reset on restart.
 
 ## Components and Styling
 
