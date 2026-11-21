@@ -117,15 +117,27 @@ describe("POST /api/auth/register rate limit", () => {
   });
 
   it("requests without a usable address share one fallback counter", async () => {
-    // No header at all.
+    // No header at all; time moves between requests so the key cannot depend on it.
     for (let i = 0; i < REGISTER_MAX_ATTEMPTS; i++) {
       await POST(makeReq(at(i)));
+      vi.advanceTimersByTime(1);
     }
     expect((await POST(makeReq(at(99)))).status).toBe(429);
     // An XFF header whose last entry is not an IP is just as unusable: same key.
     expect((await POST(makeReq(at(98), "1.1.1.1, not-an-ip"))).status).toBe(429);
     // A real address is unaffected.
     await expectRegistered(await POST(makeReq(at(97), via(ADDR))));
+  });
+
+  it("literal limits: 5 pass, the 6th is 429 until exactly one hour after the first", async () => {
+    for (let i = 0; i < 5; i++) {
+      await expectRegistered(await POST(makeReq(at(i), via(ADDR))));
+    }
+    expect((await POST(makeReq(at(5), via(ADDR)))).status).toBe(429);
+    vi.advanceTimersByTime(3_600_000 - 1);
+    expect((await POST(makeReq(at(6), via(ADDR)))).status).toBe(429);
+    vi.advanceTimersByTime(1);
+    await expectRegistered(await POST(makeReq(at(7), via(ADDR))));
   });
 
   it("the 400 validations run first and consume nothing", async () => {

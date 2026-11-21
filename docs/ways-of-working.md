@@ -56,8 +56,11 @@ These rules govern the HTTP surface. All contributors must follow them.
   `lib/register-rate-limit.ts`): every request past the cheap body and format
   checks counts, successful registrations included, taken before the database
   lookup and bcrypt. The address is the last `X-Forwarded-For` entry, so it
-  assumes the same single trusted proxy hop as sign-in; requests with no
-  usable address share one fallback counter with the same cap. Counters are in
+  assumes the same single trusted proxy hop as sign-in: behind the proxy that
+  entry is the peer address the proxy appended; without a proxy Next uses the
+  socket address, but a client can set its own `X-Forwarded-For`, so the limit
+  relies on the proxy. The shared fallback counter (same cap) applies only
+  when the last entry is not an IP address. Counters are in
   process memory and reset on restart.
 
 ## Components and Styling

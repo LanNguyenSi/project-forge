@@ -11,10 +11,12 @@ import { clientAddressFromHeaders } from "./signin-rate-limit";
  *
  * The counter is per client address (the last `X-Forwarded-For` entry, see
  * clientAddressFromHeaders in lib/signin-rate-limit.ts: one trusted proxy
- * hop, a spoofed left-hand entry cannot pick the counted address). A request
- * with no usable address (no proxy in front, or a header whose last entry is
- * not an IP) is counted on ONE shared fallback key with the same cap, so a
- * proxy-less deployment is still bounded.
+ * hop, a spoofed left-hand entry cannot pick the counted address). Behind the
+ * proxy that entry is the peer address the proxy appended; without a proxy
+ * Next uses the socket address, but a client can set its own header, so the
+ * limit relies on the proxy. A request whose last entry is not an IP address
+ * (or that has no header) is counted on ONE shared fallback key with the same
+ * cap.
  *
  * Storage and bounds follow lib/signin-rate-limit.ts: process memory (per
  * process, reset on restart), a fixed window that starts at the first attempt

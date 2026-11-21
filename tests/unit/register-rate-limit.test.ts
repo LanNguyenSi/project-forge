@@ -11,6 +11,13 @@ import {
 
 beforeEach(() => resetRegisterLimiter());
 
+describe("literal limits", () => {
+  it("pins 5 attempts per hour", () => {
+    expect(REGISTER_MAX_ATTEMPTS).toBe(5);
+    expect(REGISTER_WINDOW_MS).toBe(3_600_000);
+  });
+});
+
 describe("takeRegisterAttempt per address", () => {
   it("allows REGISTER_MAX_ATTEMPTS attempts per address, then refuses without counting", () => {
     for (let i = 0; i < REGISTER_MAX_ATTEMPTS; i++) {
@@ -55,11 +62,11 @@ describe("takeRegisterAttempt per address", () => {
 });
 
 describe("fallback key for requests without a usable address", () => {
-  it("null addresses share one key with the same cap", () => {
+  it("null addresses share one key with the same cap, whatever the time of each attempt", () => {
     for (let i = 0; i < REGISTER_MAX_ATTEMPTS; i++) {
-      expect(takeRegisterAttempt(null, 0)).toBe(true);
+      expect(takeRegisterAttempt(null, i)).toBe(true);
     }
-    expect(takeRegisterAttempt(null, 0)).toBe(false);
+    expect(takeRegisterAttempt(null, REGISTER_MAX_ATTEMPTS)).toBe(false);
     // One counter for all of them, not one per request.
     expect(trackedRegisterKeyCount()).toBe(1);
   });

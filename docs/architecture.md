@@ -239,8 +239,12 @@ process, reset on restart).
 
 Registration attempts (`POST /api/auth/register`) are limited by
 `lib/register-rate-limit.ts`: 5 per hour per client address (the last
-`X-Forwarded-For` entry, so the same single trusted proxy hop as sign-in;
-requests with no usable address share one fallback counter with the same cap).
+`X-Forwarded-For` entry, so the same single trusted proxy hop as sign-in:
+behind the proxy that entry is the peer address the proxy appended; without a
+proxy Next uses the socket address, but a client can set its own
+`X-Forwarded-For`, so the limit relies on the proxy. The shared fallback
+counter with the same cap applies only when the last entry is not an IP
+address).
 Every request past the cheap body and format checks counts, successful
 registrations included, and the count is taken before the database lookup and
 bcrypt, so a caller over the limit costs neither. Counters are in process
