@@ -272,6 +272,16 @@ of `docker-compose.yml` and publishes no host port. Set your own labels in the
 tracked compose file of your fork, or deploy with the override (`make deploy`,
 or plain `docker compose`).
 
+### Security headers
+
+The app sets its own security headers on every response (`next.config.mjs`
+`headers()`), HSTS included: `Strict-Transport-Security: max-age=31536000;
+includeSubDomains`. The reverse proxy (Traefik or anything else) does not need
+to add it. Browsers ignore the header over plain http, so local development
+over `http://localhost` is unaffected; once the site has been visited over
+https, browsers remember the rule for a year and will refuse plain http visits
+to the host and its subdomains for that long.
+
 ### Session cleanup
 
 Generated sessions live in `FORGE_TEMP_DIR` (`/tmp/project-forge` on the
