@@ -221,7 +221,7 @@ const ibmPlexMonoVietnamese = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "project-forge",
+  title: { default: "project-forge", template: "%s | project-forge" },
   description: "Create AI-toolchain projects with planforge + scaffoldkit",
 };
 

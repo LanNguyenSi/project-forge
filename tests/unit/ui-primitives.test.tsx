@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { Alert, Field, Input, Label, Textarea } from "@/components/ui/primitives";
+import { Alert, Button, Field, Input, Label, Textarea } from "@/components/ui/primitives";
 
 describe("Field + Label + Input association", () => {
   it("names a text input by its label", () => {
@@ -123,5 +123,24 @@ describe("Alert live-region role", () => {
   it("defaults to the info variant (role=status)", () => {
     render(<Alert>Default</Alert>);
     expect(screen.getByRole("status")).toBeTruthy();
+  });
+});
+
+describe("Button size", () => {
+  const classesOf = (size?: "sm" | "md" | "lg") => {
+    render(<Button size={size}>Go</Button>);
+    return screen.getByRole("button", { name: "Go" }).className.split(/\s+/);
+  };
+
+  it("keeps the small button at least 44 px tall (min-h-11) with its text size", () => {
+    const classes = classesOf("sm");
+    expect(classes).toContain("min-h-11");
+    expect(classes).toContain("text-xs");
+  });
+
+  it("does not add the small button's minimum height to the other sizes", () => {
+    expect(classesOf("md")).not.toContain("min-h-11");
+    document.body.innerHTML = "";
+    expect(classesOf("lg")).not.toContain("min-h-11");
   });
 });

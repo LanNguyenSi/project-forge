@@ -84,7 +84,7 @@ describe("settings page API quick reference", () => {
     expectFocusableCodeRegion(pres[0], "request body sample");
   });
 
-  it("keeps the endpoint and headers chips wrapping instead of scrolling", async () => {
+  it("makes the endpoint and headers chips focusable scroll regions that never break mid-word", async () => {
     const { container } = render(<SettingsPage />);
     await waitFor(() => expect(container.querySelector("pre")).toBeTruthy());
     const chips = Array.from(container.querySelectorAll("code")).filter((c) =>
@@ -92,10 +92,9 @@ describe("settings page API quick reference", () => {
     );
     expect(chips.length).toBe(2);
     for (const chip of chips) {
-      expect(chip.className).toContain("break-all");
-      // A scroll region would need tabIndex too; these must wrap instead.
-      expect(chip.className).not.toContain("overflow-x-auto");
-      expect(chip.hasAttribute("tabindex")).toBe(false);
+      expectFocusableCodeRegion(chip, chip.textContent ?? "chip");
+      expect(chip.className).toContain("whitespace-nowrap");
+      expect(chip.className).not.toContain("break-all");
     }
   });
 });

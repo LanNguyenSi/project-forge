@@ -135,6 +135,14 @@ describe("AppShell user menu toggle", () => {
     expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBeNull();
   });
 
+  it("gives the Sign Out button in the open menu a 44 px minimum height", () => {
+    const toggle = toggleIn(sidebarOf(renderShell()));
+    click(toggle);
+    const region = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    const signOut = Array.from(region.querySelectorAll("button")).find((b) => b.textContent?.includes("Sign Out"))!;
+    expect(signOut.className.split(/\s+/)).toContain("min-h-11");
+  });
+
   it("hides the avatar letter and names the button after the e-mail", () => {
     const toggle = toggleIn(sidebarOf(renderShell()));
     const avatar = Array.from(toggle.querySelectorAll("div")).find((d) => d.textContent === "U")!;
