@@ -39,6 +39,8 @@ cd project-forge
 cp .env.example .env
 # Fill in required values, see docs/configuration.md
 cp docker-compose.override.example.yml docker-compose.override.yml
+# Both files carry secrets: keep them readable by your own account only.
+chmod 600 .env docker-compose.override.yml
 # Fill in NEXTAUTH_SECRET (openssl rand -hex 32) and NEXTAUTH_URL, or delete
 # them from the override (its values take precedence over .env). The database
 # needs no setting: docker-compose.yml keeps it on the forge_db volume
@@ -61,7 +63,11 @@ for local development and does not reach the container (use
 `FORGE_DATABASE_URL` for another path). Deploys that run
 `docker compose -f docker-compose.yml` (deploy-panel, agent-relay) skip the
 override file, so keep the secrets in `.env` there. See
-[docs/deployment.md](docs/deployment.md).
+[docs/deployment.md](docs/deployment.md). An install made before the
+`chmod 600` above needs it once by hand:
+`chmod 600 .env docker-compose.override.yml` (or `.env` alone when there is no
+override file); until then the copies of the templates carried the templates'
+world-readable mode.
 
 ## Usage
 
@@ -93,6 +99,7 @@ including the one-shot create endpoint and the publish rate limit.
 
 ```bash
 cp .env.example .env   # set NEXTAUTH_SECRET, NEXTAUTH_URL=http://localhost:3000, PLANFORGE_URL, PLANFORGE_SERVICE_TOKEN
+chmod 600 .env         # the file carries secrets: readable by your own account only
 npm install
 npx prisma generate
 npx prisma migrate deploy
@@ -110,7 +117,9 @@ exist yet, then installs dependencies, generates the Prisma client, creates the
 database and starts the dev server. The new `.env` gets a generated
 `NEXTAUTH_SECRET` and `NEXTAUTH_URL=http://localhost:3000`, with GNU and BSD
 (macOS) sed alike; if either edit does not apply, `make` stops with an error
-and leaves no `.env` behind. It does not set `PLANFORGE_URL` or
+and leaves no `.env` behind. The recipe runs its shell under `umask 077`, so
+the new `.env` is mode 600 (readable by its owner only) from the first byte. It
+does not set `PLANFORGE_URL` or
 `PLANFORGE_SERVICE_TOKEN`; the summary it prints names both.
 
 Generating a project needs the agent-planforge HTTP service with scaffoldkit.
