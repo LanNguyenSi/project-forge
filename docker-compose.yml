@@ -97,6 +97,25 @@ services:
       # so the container turns healthy (and Traefik routes to it) within
       # seconds of the server listening. Needs Docker Engine 25 or newer.
       start_interval: 2s
+    # Shutdown budget for a recreate (`make deploy`, `make pull`, relay deploys,
+    # `docker compose stop app`). scripts/start.sh ends with `exec "$@"`, so
+    # `next start` is the container's main process and receives SIGTERM. In the
+    # pinned Next version (15.5.29, node_modules/next/dist/server/lib/start-server.js:
+    # the cleanup registered on SIGINT and SIGTERM unless NEXT_MANUAL_SIG_HANDLE
+    # is set, and it is not set here) that cleanup stops accepting new
+    # connections, waits for the requests already running to finish, closes the
+    # server and exits, so an in-flight generate or publish survives the
+    # deploy. This period is the bound on that wait: it must stay at or above
+    # the documented worst case of the slowest publishing route (~490 s, the
+    # timeout sum in lib/db.ts); tests/unit/compose-lifecycle.test.ts
+    # recomputes that sum from the exported constants and fails when the value
+    # drops below it. A request still running when the period ends is killed
+    # (SIGKILL): nothing drains beyond this. While the old container drains it
+    # answers no new connection, and compose starts the new container only
+    # after it exits, so requests arriving in that window are refused until the
+    # new container is healthy (docs/deployment.md, "Deploys and running
+    # requests"). The planforge service keeps Docker's 10 s default, unchanged.
+    stop_grace_period: 10m
     logging: *default-logging
     networks:
       - traefik

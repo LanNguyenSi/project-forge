@@ -31,6 +31,7 @@ Thanks for your interest. project-forge is a web UI for creating AI-toolchain pr
 git clone https://github.com/LanNguyenSi/project-forge.git
 cd project-forge
 cp .env.example .env # set NEXTAUTH_SECRET, NEXTAUTH_URL, PLANFORGE_URL, PLANFORGE_SERVICE_TOKEN
+chmod 600 .env # the file carries secrets: readable by your own account only
 npm install
 npx prisma generate
 npx prisma migrate deploy   # creates the local SQLite database from prisma/migrations

@@ -26,6 +26,20 @@ hashing API tokens when `API_TOKEN_HASH_SECRET` is unset, and the app refuses
 to serve with the placeholder or an empty value (see
 [Required secrets](#required-secrets)).
 
+Both files carry secrets, so give them the strictest mode right after the copy:
+
+```bash
+cp docker-compose.override.example.yml docker-compose.override.yml
+chmod 600 docker-compose.override.yml .env
+```
+
+A plain `cp` of an example (world-readable, like any committed file) leaves the
+copy world-readable too, so a `NEXTAUTH_SECRET` or a service token in it would
+be readable by every account on the host. An install made before this needs the
+same `chmod 600` once by hand, on `.env` and `docker-compose.override.yml`.
+`make dev-env` needs nothing: its recipe runs under `umask 077`, so the `.env`
+it creates is mode 600 from the first byte.
+
 **Deploys through deploy-panel and agent-relay never load the override.** The
 relay runs every compose command as `docker compose -f docker-compose.yml ...`
 (`compose_file` in `.relay.yml`), and an explicit `-f` replaces the default
@@ -36,7 +50,9 @@ override, and the same for a non-default planforge URL: set
 `FORGE_PLANFORGE_URL` there (compose only; unset or empty means the internal
 `http://planforge:8223`; the `PLANFORGE_URL` in `.env` is for local
 development and does not reach the container). `make deploy` and `make pull`
-run plain `docker compose`, which does load the override.
+run plain `docker compose`, which does load the override. Either way a deploy
+recreates the containers, see
+[Deploys and running requests](#deploys-and-running-requests).
 
 ### Base image
 
@@ -242,6 +258,35 @@ Both services use the `json-file` log driver with `max-size: 10m` and
 
 Both services need `PLANFORGE_SERVICE_TOKEN` in `.env`. Compose propagates
 it; mismatched values cause `app` to get 401s from `planforge`.
+
+### Deploys and running requests
+
+A deploy recreates the `app` container: `make deploy`, `make pull`, a relay
+deploy (`docker compose -f docker-compose.yml up -d --build`, see
+[Docker Compose](#docker-compose)) and a manual `docker compose stop app` plus
+`up -d` all do. Compose sends SIGTERM to the old container and waits; because
+`scripts/start.sh` ends with `exec "$@"`, that signal reaches `next start`.
+With the Next version this image pins (15.5.29) and `NEXT_MANUAL_SIG_HANDLE`
+unset, its signal handler stops accepting new connections, waits for the
+requests that are already running to finish, closes the server and exits (read
+from `next/dist/server/lib/start-server.js` of that version). So a generate or
+publish that was in flight when the deploy started keeps working through it, up
+to the `stop_grace_period` of the `app` service (`10m`): the slowest documented
+route (`POST /api/v1/projects`) is bounded at about 490 s by the request
+timeouts in `lib/db.ts`, and `tests/unit/compose-lifecycle.test.ts` recomputes
+that sum from the exported constants and fails when the period drops below it.
+A request still running when the grace period ends is killed (SIGKILL): the
+drain goes no further than this.
+
+The window between the two containers gets no answers: the draining container
+accepts no new connection, compose starts the new container only after the old
+one exits, and Traefik routes to the new one only once its healthcheck passes
+(see [Health check and logs](#health-check-and-logs)). So requests arriving
+during a deploy are refused or time out until the new container is healthy, and
+a deploy with a long request in flight can take up to the grace period: deploy
+outside busy windows. Only the `app` service sets a grace period; `planforge`
+keeps Docker's default 10 s (unchanged), so a scaffold run still in flight
+there fails the app's request to it, as before.
 
 ### Routing
 
@@ -873,9 +918,13 @@ destination readable by the operator only.
 
 Every deploy builds the image again (`docker compose up -d --build`, in
 `make deploy` and `make pull`; relay deploys rebuild too when the code
-changed, see [Docker Compose](#docker-compose)). Docker never removes what the rebuilds
-leave behind: each one turns the previous image of the service into a dangling
-one and grows the BuildKit build cache, so the host disk fills up over time.
+changed, see [Docker Compose](#docker-compose)), and recreates the containers:
+with a long request still running that takes up to the `stop_grace_period` of
+the `app` service, see
+[Deploys and running requests](#deploys-and-running-requests). Docker never
+removes what the rebuilds leave behind: each one turns the previous image of
+the service into a dangling one and grows the BuildKit build cache, so the host
+disk fills up over time.
 `.relay.yml` has no prune step, so this is an operator task. See the usage
 with:
 

@@ -49,10 +49,15 @@ dev-setup:
 dev-db:
 	npx prisma migrate deploy
 
-# Create .env from example if it doesn't exist yet
+# Create .env from example if it doesn't exist yet. The recipe runs its shell
+# under `umask 077`, so .env.tmp and the .env it is renamed from are created
+# readable by their owner only (mode 600): the generated NEXTAUTH_SECRET never
+# lands world-readable, whatever mode .env.example has (a plain `cp` would give
+# the copy that template's 644). tests/integration/make-dev-env.test.ts pins it.
 dev-env:
 	@if [ ! -f .env ]; then \
 		set -e; \
+		umask 077; \
 		trap 'rm -f .env.tmp .env.tmp.bak' EXIT; \
 		echo "Creating .env from .env.example..."; \
 		secret=$$(openssl rand -hex 32); \
