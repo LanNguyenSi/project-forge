@@ -209,6 +209,27 @@
   border-color: var(--border) !important;
 }
 
+/* Pointer targets: an operation row, the Authorize button and the per-operation
+   lock button are at least 44 px tall (the lock also 44 px wide). The lock's
+   icon keeps its size; the extra room is padding, so the hit area grows without
+   moving the icon off the row's right edge. */
+.swagger-ui .opblock .opblock-summary {
+  min-height: 44px;
+}
+
+.swagger-ui .btn.authorize,
+.swagger-ui .authorization__btn {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.swagger-ui .authorization__btn {
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .swagger-ui .opblock-body,
 .swagger-ui .opblock-section-header {
   background: var(--bg) !important;

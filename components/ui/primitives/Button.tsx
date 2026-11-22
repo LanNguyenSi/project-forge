@@ -28,7 +28,8 @@ const variantStyles: Record<Variant, string> = {
 };
 
 const sizeStyles: Record<Size, string> = {
-  sm: "px-3 py-1.5 text-xs",
+  // min-h-11 = 44 px: the touch/pointer target floor (WCAG 2.5.8 and the 44 px guidance); the text stays text-xs
+  sm: "min-h-11 px-3 py-1.5 text-xs",
   md: "px-4 py-2 text-sm",
   lg: "px-5 py-2.5 text-sm",
 };
