@@ -347,13 +347,23 @@ export default function SettingsPage() {
             <div className="space-y-4 text-sm">
               <div>
                 <div className="font-semibold text-forge-mist mb-2">Endpoint</div>
-                <code className="block break-all rounded-btn bg-forge-steel px-4 py-2.5 font-mono text-ember">
+                <code
+                  tabIndex={0}
+                  role="group"
+                  aria-label="Endpoint URL"
+                  className="block overflow-x-auto whitespace-nowrap rounded-btn bg-forge-steel px-4 py-2.5 font-mono text-ember focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
+                >
                   POST https://project-forge.opentriologue.ai/api/v1/projects
                 </code>
               </div>
               <div>
                 <div className="font-semibold text-forge-mist mb-2">Headers</div>
-                <code className="block break-all rounded-btn bg-forge-steel px-4 py-2.5 font-mono text-gold">
+                <code
+                  tabIndex={0}
+                  role="group"
+                  aria-label="Request headers"
+                  className="block overflow-x-auto whitespace-nowrap rounded-btn bg-forge-steel px-4 py-2.5 font-mono text-gold focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-forge-ash"
+                >
                   X-API-Key: pf_your_token_here
                 </code>
               </div>

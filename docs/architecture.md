@@ -61,7 +61,7 @@ flowchart TD
 ```
 project-forge/
 ├── app/                          # Next.js App Router
-│   ├── (dashboard)/              # Auth-protected pages
+│   ├── (dashboard)/              # Auth-protected pages (each route has a layout.tsx that sets its title)
 │   │   ├── create/page.tsx       # Project creation form
 │   │   ├── dashboard/page.tsx    # User dashboard
 │   │   ├── login/page.tsx        # Login
@@ -78,8 +78,8 @@ project-forge/
 │   │   ├── ai-assist/route.ts    # AI form enrichment ("magic fill", session auth)
 │   │   ├── health/route.ts       # Public liveness probe (compose healthcheck)
 │   │   └── dashboard/            # profile (route.ts), API tokens (tokens/), GitHub PAT (pat/)
-│   ├── docs/page.tsx             # Swagger UI over public/openapi.json
-│   ├── styleguide/page.tsx       # UI primitives showcase
+│   ├── docs/page.tsx             # Swagger UI over public/openapi.json (layout.tsx sets the title)
+│   ├── styleguide/page.tsx       # UI primitives showcase (layout.tsx sets the title)
 │   ├── page.tsx                  # Public landing page (sends signed-in users to /dashboard)
 │   ├── fonts/                    # Vendored woff2 fonts loaded with next/font/local
 │   ├── icon.svg                  # App Router site icon (the ember flame mark)
