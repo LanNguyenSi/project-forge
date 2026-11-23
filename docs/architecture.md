@@ -92,7 +92,7 @@ project-forge/
 ├── middleware.ts                 # X-API-Key presence check on /api/v1, login redirect for pages
 ├── instrumentation.ts            # Next.js register() hook: runs the production start-up check
 ├── public/openapi.json           # OpenAPI spec served at /docs
-├── public/favicon.svg            # Browser favicon (the ember flame mark)
+├── public/favicon.svg            # Static copy of the ember flame mark served at /favicon.svg, not linked by the app (the tab icon is app/icon.svg)
 └── tests/                        # Vitest integration + unit tests
 ```
 
@@ -114,7 +114,9 @@ Route handlers under `app/api/` export HTTP-method functions (`GET`, `POST`,
   after a sign-in the login page goes back to `callbackUrl` when it is a
   same-origin relative path (`lib/safe-callback-url.ts`), else to `/dashboard`.
 
-Error responses follow the shape `{ ok: false, error: string, details?: string }`.
+Error responses follow the shape `{ ok: false, error: string, details?: string }`,
+except the project-pilot broker route (`POST /api/auth/register-from-project-pilot`),
+which answers `{ ok: false, error: <code>, message }` (see `docs/api.md`).
 
 ### 2. Generate / preview / publish flow
 

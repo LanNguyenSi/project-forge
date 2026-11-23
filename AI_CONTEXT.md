@@ -100,7 +100,7 @@ project-forge/
 ├── middleware.ts                 # X-API-Key presence check on /api/v1, login redirect for pages
 ├── instrumentation.ts            # Next.js register() hook: runs the production start-up check
 ├── public/openapi.json           # OpenAPI spec served at /docs
-├── public/favicon.svg            # Browser favicon (the ember flame mark)
+├── public/favicon.svg            # Static copy of the ember flame mark served at /favicon.svg, not linked by the app (the tab icon is app/icon.svg)
 ├── Dockerfile                    # Multi-stage build
 ├── docker-compose.yml            # Container orchestration
 └── AI_CONTEXT.md                 # This file
@@ -113,7 +113,7 @@ project-forge/
 - Public API lives under `app/api/v1/` and uses `X-API-Key` header auth
 - Internal routes (used by the web UI) live under `app/api/` and use session auth
 - All routes return `NextResponse.json()` with appropriate status codes
-- Error responses follow the shape `{ ok: false, error: string, details?: string }` (per `docs/ways-of-working.md`, section "Responses and status codes")
+- Error responses follow the shape `{ ok: false, error: string, details?: string }`, except `POST /api/auth/register-from-project-pilot`, which answers `{ ok: false, error: <code>, message }` (per `docs/ways-of-working.md`, section "Responses and status codes", and `docs/api.md`)
 
 ### Components
 
