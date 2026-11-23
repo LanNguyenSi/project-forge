@@ -14,7 +14,9 @@ A feature or bug fix is done when:
 - [ ] Tests are written and passing (`npm test`, Vitest; CI runs
       `npm run test:coverage`, which also enforces coverage thresholds)
 - [ ] API responses keep the documented shape (`{ ok, error, details? }` for
-      errors); breaking shape changes are called out
+      errors, except the project-pilot broker route, which answers
+      `{ ok: false, error: <code>, message }` per `docs/api.md`); breaking
+      shape changes are called out
 - [ ] No secrets (PATs, tokens, file paths, stderr) leak into responses or logs
 - [ ] Docs are updated if a public interface changed (README API section,
       `public/openapi.json`, `docs/architecture.md`, `AI_CONTEXT.md`)
@@ -27,7 +29,9 @@ These rules govern the HTTP surface. All contributors must follow them.
 ### Responses and status codes
 
 - Always return `NextResponse.json()` with an explicit status code.
-- Success: `{ ok: true, ... }`. Failure: `{ ok: false, error: string, details?: string }`.
+- Success: `{ ok: true, ... }`. Failure: `{ ok: false, error: string, details?: string }`,
+  except `POST /api/auth/register-from-project-pilot`, which answers
+  `{ ok: false, error: <code>, message }` (see `docs/api.md`).
 - Use the right status: `400` invalid input, `401` missing/invalid auth, `404`
   not found / expired session, `409` conflict (already published / deleted),
   `429` rate limit, `500` unexpected.

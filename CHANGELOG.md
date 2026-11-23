@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Next.js 15.5.29.** `next` is now `^15.5.29` (the lockfile resolves 15.5.29 with its matching `@next/env` and `@next/swc-*` packages): GHSA-7qx7-33qx-rqx2 (SVG rejection bypass in the image optimization), GHSA-f3mh-rxg3-f5g2 (HttpOnly cookie exposure through an internal response header on Edge runtime routes) and GHSA-pc58-hwjq-p385 (cross-client response injection and disclosure when forwarding fetched responses) all affect `<= 15.5.28` and are fixed in 15.5.29. All three are moderate, so the audit gate (HIGH/CRITICAL) was not red and `npm audit` no longer lists them. The lockfile change is limited to `next`, `@next/env` and the `@next/swc-*` platform packages.
 - Removed the `GHSA-fc5q-39xc-vjpf` (picomatch) entry from `.github/audit-allowlist.json`: GitHub withdrew the advisory on 2026-11-18, and `npm audit` no longer reports it in this repo's lockfile tree, so the gate stays CLEAN with an empty `entries` list. `scripts/audit-gate.mjs` is unchanged.
 
+### Docs
+
+- **The convention docs match the code on the error shape and the favicon.** The API error-shape convention (`docs/ways-of-working.md`, `docs/architecture.md`, `AI_CONTEXT.md`) now names its only exception: the project-pilot broker route (`POST /api/auth/register-from-project-pilot`) answers `{ ok: false, error: <code>, message }` instead of `{ ok: false, error: string, details?: string }`, which `docs/api.md` already documented. The tree lines in `docs/architecture.md` and `AI_CONTEXT.md` no longer call `public/favicon.svg` the browser favicon: it is a static copy of the ember flame mark that Next serves at `/favicon.svg` but nothing in the app links, and the browser tab icon is `app/icon.svg` (the App Router metadata icon). Docs only, no code change.
+
 ## [0.10.0] - 2026-11-17
 
 ### Upgrade notes
