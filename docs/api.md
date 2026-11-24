@@ -176,7 +176,7 @@ as `publish`.
 
 `POST /api/auth/register-from-project-pilot` creates or updates a user for an
 identity broker such as project-pilot and returns a project-forge API token. It takes no `X-API-Key`; the caller passes a GitHub access token, which
-project-forge verifies against GitHub's `GET /user`.
+project-forge verifies against GitHub's `GET /user` (and `GET /user/emails`, see below).
 
 Request body: `{ githubAccessToken, githubLogin? }`. Response:
 `{ apiToken, userId, githubLogin }` (no `ok` field). Each call revokes the
@@ -192,10 +192,25 @@ fail and does not touch that account: the GitHub identity gets its own user
 under the placeholder email `github-<id>@noreply`, which holds the GitHub token
 and the returned API token, and later calls find that user by the GitHub id.
 This is the same rule as the web GitHub sign-in. An account that already has
-another GitHub id is not diverted. The 409 above remains only for a
+another GitHub id is not diverted. The 409 above remains for a
 password-less row without a GitHub id on the email, and for any row already on
-the placeholder while a password account holds the email (see the table); the
+the placeholder while a password account holds the email, and for a legacy row
+already on the placeholder when GitHub lists no verified address (see the table); the
 web GitHub sign-in claims a password-less row once GitHub verifies the email.
+
+Verified email: a user row is keyed only on an address GitHub lists as
+verified for the account (`GET /user/emails`, which needs the `user:email`
+scope; the web GitHub sign-in uses the same rule). A new row gets the public
+profile email when GitHub lists it as verified, else the account's verified
+primary address, else the placeholder `github-<id>@noreply`; the unverified
+public address is never used to create, claim or move a row. An existing
+user keeps its email unless the public email is verified and no other row
+holds it. When GitHub cannot be asked for the address list, the call answers
+503 `upstream_unavailable` and writes nothing. A unique violation on create is
+settled as follows: if the same GitHub id was created in between (a concurrent
+web sign-in), the call continues on that user and returns its token; if
+another GitHub identity holds the email, it answers 409
+`account_exists_link_required`.
 
 Errors use the shape `{ ok: false, error: <code>, message }`:
 
@@ -205,6 +220,6 @@ Errors use the shape `{ ok: false, error: <code>, message }`:
 | 413 | Request body over the 64 KiB cap |
 | 401 | GitHub token verification failed, or `githubLogin` differs from the verified login |
 | 403 | The login is not in `ALLOWED_GITHUB_LOGINS` (when that variable is set) |
-| 409 | A row that has no linked GitHub id and no password (one created by an older GitHub sign-in on the web UI; web sign-ins now record the id) holds the GitHub email, or a password account without a GitHub id holds the email and any row is already on the placeholder `github-<id>@noreply` (see below). A password account holding the email alone no longer causes it |
-| 503 | GitHub could not be reached |
+| 409 | A row that has no linked GitHub id and no password (one created by an older GitHub sign-in on the web UI; web sign-ins now record the id) holds the GitHub email, or a password account without a GitHub id holds the email and any row is already on the placeholder `github-<id>@noreply` (see below), or another GitHub identity holds the verified email, or a row without a GitHub id and without a password already sits on the placeholder while GitHub lists no verified address for the account. A password account holding the email alone no longer causes it |
+| 503 | `upstream_unavailable`: GitHub could not be reached, or could not list the account's emails (nothing is written) |
 | 500 | Unexpected error during verification |

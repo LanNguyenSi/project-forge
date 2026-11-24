@@ -103,3 +103,26 @@ export async function githubPrimaryVerifiedEmail(
   );
   return primary ? { status: "found", email: primary.email as string } : { status: "none" };
 }
+
+/**
+ * The email a new or claimed row is keyed on, or null when GitHub could not be
+ * asked. Every row that is created or claimed goes through this: a non-null
+ * result is an address GitHub lists as verified for the account, or the
+ * placeholder, and the placeholder is returned only after GitHub gave a
+ * definite answer (the reported address is not verified, or the account has no
+ * verified primary address). An inconclusive lookup is always null.
+ */
+export async function resolveGithubEmail(
+  reported: string | null | undefined,
+  accessToken: string | undefined,
+  placeholder: string,
+): Promise<string | null> {
+  if (reported) {
+    const status = await githubEmailStatus(accessToken, reported);
+    if (status === "unknown") return null;
+    return status === "verified" ? reported : placeholder;
+  }
+  const primary = await githubPrimaryVerifiedEmail(accessToken);
+  if (primary.status === "unknown") return null;
+  return primary.status === "found" ? primary.email : placeholder;
+}

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from "vitest";
 
 // Mock the Prisma client before importing the route.
 vi.mock("@/lib/db", async () => {
@@ -52,6 +52,22 @@ const apiToken = prisma.apiToken as unknown as {
   updateMany: ReturnType<typeof vi.fn>;
 };
 
+// GET /user/emails (the verified-address lookup) is the only fetch the route
+// makes itself; fetchGitHubUser is mocked above. The default answer is an empty
+// address list: GitHub answered and lists nothing as verified.
+type ListedEmail = { email: string; verified: boolean; primary?: boolean };
+const emailsFetch = vi.fn();
+function githubLists(list: ListedEmail[]) {
+  emailsFetch.mockImplementation(async () => new Response(JSON.stringify(list), { status: 200 }));
+}
+function githubEmailLookupFails() {
+  emailsFetch.mockImplementation(async () => new Response("{}", { status: 502 }));
+}
+
+function uniqueViolation(target: string[]) {
+  return Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target } });
+}
+
 function makeReq(body: unknown): NextRequest {
   return new NextRequest("http://test/api/auth/register-from-project-pilot", {
     method: "POST",
@@ -67,6 +83,15 @@ describe("POST /api/auth/register-from-project-pilot", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // mockReset (not only clear): earlier tests queue mockResolvedValueOnce
+    // answers and set implementations that must not leak into the next test.
+    emailsFetch.mockReset();
+    githubLists([]);
+    vi.stubGlobal("fetch", emailsFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("400 when githubAccessToken is missing", async () => {
@@ -131,6 +156,10 @@ describe("POST /api/auth/register-from-project-pilot", () => {
   describe("when the GitHub email is held by another row", () => {
     const ghUser = { id: 123, login: "newcomer", name: null, avatar_url: "", email: "victim@example.com" };
     const passwordRow = { id: "local-victim", email: "victim@example.com", passwordHash: "hashed", githubId: null };
+
+    // These cases are about a row holding an address GitHub lists as verified
+    // for the identity: the owner of the address is the one calling.
+    beforeEach(() => githubLists([{ email: "victim@example.com", verified: true, primary: true }]));
 
     // findUnique is asked by githubId, then by the GitHub email, then (only
     // for a password row) by the placeholder.
@@ -260,6 +289,292 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       await POST(makeReq({ githubAccessToken: "valid" }));
 
       expect(user.create.mock.calls[0][0].data.email).toBe("victim@example.com");
+    });
+  });
+
+  describe("the email a row is keyed on comes from GitHub's verified list", () => {
+    const gh = (email: string | null) => ({ id: 123, login: "newcomer", name: null, avatar_url: "", email });
+    const placeholder = "github-123@noreply";
+
+    function noRowsAnywhere() {
+      user.findUnique.mockResolvedValue(null);
+      user.create.mockResolvedValue({ id: "user-new" });
+      apiToken.create.mockResolvedValue({});
+    }
+    const lookedUp = () => user.findUnique.mock.calls.map((c) => c[0].where);
+
+    it("keys a new row on a public email that GitHub lists as verified (lowercased, matched without regard to case)", async () => {
+      fetchMock.mockResolvedValue(gh("Verified@Example.com"));
+      githubLists([{ email: "verified@example.COM", verified: true }]);
+      noRowsAnywhere();
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(200);
+      expect(user.create.mock.calls[0][0].data.email).toBe("verified@example.com");
+      expect(lookedUp()).toEqual([{ githubId: "123" }, { email: "verified@example.com" }]);
+      // The lookup is made with the caller's own token.
+      const init = emailsFetch.mock.calls[0][1] as RequestInit;
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer gho_owner");
+    });
+
+    it("an unverified public email is neither looked up nor stored: the row gets the placeholder", async () => {
+      fetchMock.mockResolvedValue(gh("victim@example.com"));
+      githubLists([{ email: "victim@example.com", verified: false, primary: true }]);
+      noRowsAnywhere();
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(200);
+      expect(user.create.mock.calls[0][0].data.email).toBe(placeholder);
+      expect(lookedUp()).toEqual([{ githubId: "123" }]);
+    });
+
+    it("a public email that GitHub does not list at all gets the placeholder", async () => {
+      fetchMock.mockResolvedValue(gh("victim@example.com"));
+      githubLists([{ email: "other@example.com", verified: true, primary: true }]);
+      noRowsAnywhere();
+
+      await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(user.create.mock.calls[0][0].data.email).toBe(placeholder);
+    });
+
+    it("with no public email, keys the row on the verified primary address (lowercased)", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      githubLists([
+        { email: "second@example.com", verified: true },
+        { email: "Primary@Example.com", verified: true, primary: true },
+      ]);
+      noRowsAnywhere();
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(200);
+      expect(user.create.mock.calls[0][0].data.email).toBe("primary@example.com");
+    });
+
+    it("with no public email and no verified primary address, the row gets the placeholder", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      githubLists([{ email: "primary@example.com", verified: false, primary: true }]);
+      noRowsAnywhere();
+
+      await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(user.create.mock.calls[0][0].data.email).toBe(placeholder);
+    });
+
+    it.each([
+      ["a public email", "victim@example.com"],
+      ["no public email", null],
+    ])("503 upstream_unavailable and nothing written when GitHub cannot list the emails (%s)", async (_label, email) => {
+      fetchMock.mockResolvedValue(gh(email));
+      githubEmailLookupFails();
+      noRowsAnywhere();
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(503);
+      expect((await res.json()).error).toBe("upstream_unavailable");
+      expect(user.create).not.toHaveBeenCalled();
+      expect(user.update).not.toHaveBeenCalled();
+      expect(user.updateMany).not.toHaveBeenCalled();
+      expect(apiToken.updateMany).not.toHaveBeenCalled();
+      expect(apiToken.create).not.toHaveBeenCalled();
+    });
+
+    it("503 and nothing written when the email request itself fails", async () => {
+      fetchMock.mockResolvedValue(gh("victim@example.com"));
+      emailsFetch.mockRejectedValue(new Error("ECONNRESET"));
+      noRowsAnywhere();
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(503);
+      expect(user.create).not.toHaveBeenCalled();
+    });
+
+    it("409, not 500, when another identity's row already holds the verified address", async () => {
+      fetchMock.mockResolvedValue(gh("victim@example.com"));
+      githubLists([{ email: "victim@example.com", verified: true }]);
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string; email?: string } }) =>
+        where.email === "victim@example.com"
+          ? { id: "attacker", email: "victim@example.com", passwordHash: null, githubId: "555" }
+          : null,
+      );
+      user.create.mockRejectedValue(uniqueViolation(["email"]));
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("account_exists_link_required");
+      expect(user.create).toHaveBeenCalledTimes(1);
+      expect(user.update).not.toHaveBeenCalled();
+      expect(apiToken.create).not.toHaveBeenCalled();
+    });
+
+    it("a create that loses the race on the githubId re-reads that row and continues as an update (token minted, email untouched)", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      githubLists([]);
+      // The web sign-in made this row with an address of its own; the broker
+      // resolves the placeholder (nothing verified), so the two differ.
+      const raced = { id: "user-raced", githubId: "123", email: "web@example.com", githubPat: null };
+      let githubIdLookups = 0;
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string; email?: string } }) => {
+        if (where.githubId === "123") return githubIdLookups++ === 0 ? null : raced;
+        return null;
+      });
+      user.create.mockRejectedValue(uniqueViolation(["githubId"]));
+      user.update.mockResolvedValue({ id: "user-raced" });
+      apiToken.create.mockResolvedValue({});
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).userId).toBe("user-raced");
+      expect(user.create).toHaveBeenCalledTimes(1);
+      expect(githubIdLookups).toBe(2);
+      expect(user.update).toHaveBeenCalledTimes(1);
+      const call = user.update.mock.calls[0][0];
+      expect(call.where).toEqual({ id: "user-raced" });
+      expect(call.data.email).toBe("web@example.com");
+      expect(decryptGithubPat(call.data.githubPat)).toBe("gho_owner");
+      expect(apiToken.create.mock.calls[0][0].data).toMatchObject({ userId: "user-raced" });
+    });
+
+    it("answers 409 when the create fails on the email and no row has the githubId (re-read finds nothing)", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      githubLists([]);
+      noRowsAnywhere();
+      user.create.mockRejectedValue(uniqueViolation(["email"]));
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("account_exists_link_required");
+      expect(user.update).not.toHaveBeenCalled();
+    });
+
+    it("answers 409 when the update of the re-read row hits a unique violation as well", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      githubLists([]);
+      let githubIdLookups = 0;
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string } }) =>
+        where.githubId === "123" && githubIdLookups++ > 0
+          ? { id: "user-raced", githubId: "123", email: placeholder, githubPat: null }
+          : null,
+      );
+      user.create.mockRejectedValue(uniqueViolation(["githubId"]));
+      user.update.mockRejectedValue(uniqueViolation(["email"]));
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(409);
+    });
+
+    it("any other create error is not turned into a 409 or a retry, even when a row with the githubId exists by then", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      githubLists([]);
+      let githubIdLookups = 0;
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string } }) =>
+        where.githubId === "123" && githubIdLookups++ > 0
+          ? { id: "user-raced", githubId: "123", email: placeholder, githubPat: null }
+          : null,
+      );
+      user.create.mockRejectedValue(new Error("database is locked"));
+
+      await expect(POST(makeReq({ githubAccessToken: "gho_owner" }))).rejects.toThrow("database is locked");
+      expect(githubIdLookups).toBe(1);
+      expect(user.update).not.toHaveBeenCalled();
+      expect(apiToken.create).not.toHaveBeenCalled();
+    });
+
+    // A Prisma error code that is not a unique violation (P2034: write
+    // conflict) must reach the caller as it did before, not as the 409.
+    const prismaError = (code: string) => Object.assign(new Error("prisma error"), { code });
+
+    it("a Prisma error with another code on create is rethrown: no re-read, no update, no 409", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      githubLists([]);
+      let githubIdLookups = 0;
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string } }) =>
+        where.githubId === "123" && githubIdLookups++ > 0
+          ? { id: "user-raced", githubId: "123", email: placeholder, githubPat: null }
+          : null,
+      );
+      user.create.mockRejectedValue(prismaError("P2034"));
+
+      await expect(POST(makeReq({ githubAccessToken: "gho_owner" }))).rejects.toThrow("prisma error");
+      expect(githubIdLookups).toBe(1);
+      expect(user.update).not.toHaveBeenCalled();
+      expect(apiToken.create).not.toHaveBeenCalled();
+    });
+
+    it("a Prisma error with another code on the identity update is rethrown, not answered as 409", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string } }) =>
+        where.githubId === "123" ? { id: "user-new", githubId: "123", email: "old@example.com", githubPat: null } : null,
+      );
+      user.update.mockRejectedValue(prismaError("P2034"));
+
+      await expect(POST(makeReq({ githubAccessToken: "gho_owner" }))).rejects.toThrow("prisma error");
+      expect(apiToken.create).not.toHaveBeenCalled();
+    });
+
+    describe("an existing identity row", () => {
+      const identity = { id: "user-new", githubId: "123", email: "old@example.com", githubPat: null };
+      function identityOnly() {
+        user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string } }) =>
+          where.githubId === "123" ? identity : null,
+        );
+        user.update.mockResolvedValue({ id: "user-new" });
+        apiToken.create.mockResolvedValue({});
+      }
+
+      it("adopts a new public email only when GitHub lists it as verified", async () => {
+        fetchMock.mockResolvedValue(gh("New@Example.com"));
+        githubLists([{ email: "new@example.com", verified: true }]);
+        identityOnly();
+
+        const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+        expect(res.status).toBe(200);
+        expect(user.update.mock.calls[0][0].data.email).toBe("new@example.com");
+      });
+
+      it("keeps the old email when the new public email is not verified", async () => {
+        fetchMock.mockResolvedValue(gh("new@example.com"));
+        githubLists([{ email: "new@example.com", verified: false }]);
+        identityOnly();
+
+        const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+        expect(res.status).toBe(200);
+        expect(user.update.mock.calls[0][0].data.email).toBe("old@example.com");
+      });
+
+      it("503 and no update when the new public email cannot be checked", async () => {
+        fetchMock.mockResolvedValue(gh("new@example.com"));
+        githubEmailLookupFails();
+        identityOnly();
+
+        const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+        expect(res.status).toBe(503);
+        expect(user.update).not.toHaveBeenCalled();
+        expect(apiToken.create).not.toHaveBeenCalled();
+      });
+
+      it("does not ask GitHub when the public email is the stored one or absent", async () => {
+        fetchMock.mockResolvedValue(gh("old@example.com"));
+        identityOnly();
+        await POST(makeReq({ githubAccessToken: "gho_owner" }));
+        fetchMock.mockResolvedValue(gh(null));
+        await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+        expect(emailsFetch).not.toHaveBeenCalled();
+        expect(user.update.mock.calls.map((c) => c[0].data.email)).toEqual(["old@example.com", "old@example.com"]);
+      });
     });
   });
 
