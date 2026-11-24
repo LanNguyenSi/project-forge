@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **The dashboard lists your projects.** A "Your projects" card on `/dashboard` shows the projects recorded for the signed-in user (repository link opening in a new tab, name and date, newest first, up to 20 with a line saying how many more exist), with a loading state, an error state that leaves the rest of the page usable, and an empty state with a link to `/create`. It reads the new session-authenticated `GET /api/dashboard/projects` (own rows only, `limit` 1-50, default 20), which applies the same filter as `GET /api/v1/projects`: soft-deleted rows and publishes still in flight are not listed. Only projects published through the API or an agent are recorded; projects published from the web form write no record and do not appear, and the card says so. The dashboard also no longer reads a `githubOwner` field that `GET /api/dashboard` never returned: the connected state follows `githubPatConnected` alone.
+
 ### Changed
 
 - **The app's base image is pinned by digest.** All three `Dockerfile` stages (`builder`, `deps`, `runner`) now start `FROM node:24-slim@sha256:<digest>` (the multi-arch index digest of the tag, one digest shared by all stages) instead of the bare `node:24-slim`, so a rebuild or a rollback always builds on the same base image content instead of whatever the tag points at on that day; a rebuild of an older checkout gets the runtime that checkout was released with. The tag stays in front of the `@`, so Renovate keeps tracking it and is expected to open a digest pull request (all three `FROM` lines in one) when the digest for `24-slim` changes, possibly delayed by the preset's 7-day minimum release age; no renovate config change was needed. `tests/unit/ops-config.test.ts` pins the form and `docs/deployment.md` documents it ("Base image").
