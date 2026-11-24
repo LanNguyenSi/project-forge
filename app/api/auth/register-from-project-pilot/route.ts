@@ -8,10 +8,11 @@
  *   Errors:   400 missing fields
  *             401 invalid token / login mismatch
  *             403 forbidden_github_login (login not in ALLOWED_GITHUB_LOGINS)
- *             409 account_exists_link_required (only for a password-less row
- *                 that holds the email or the placeholder `github-<id>@noreply`
- *                 without a githubId; a password account no longer causes it,
- *                 see "Email collisions" below)
+ *             409 account_exists_link_required (a password-less row without a
+ *                 githubId holds the email, or a password account without a
+ *                 githubId holds the email and any row is already on the
+ *                 placeholder `github-<id>@noreply`; a password account alone
+ *                 no longer causes it, see "Email collisions" below)
  *             500 internal
  *             503 GitHub unreachable
  *
@@ -198,8 +199,9 @@ export async function POST(req: NextRequest) {
     if (existingByEmail && !existingByEmail.githubId) {
       if (!existingByEmail.passwordHash) return linkRequired();
       // The placeholder is reserved for GitHub sign-ins (registration refuses
-      // it), so a row on it is never a password row; one without a githubId
-      // is a legacy GitHub-only row and is not claimed here either.
+      // it), so a row on it is never a password row. Any row already on it
+      // (a legacy GitHub-only row, or one that has a githubId) is refused
+      // with the 409 and not claimed here.
       const existingPlaceholder = await prisma.user.findUnique({ where: { email: placeholderEmail } });
       if (existingPlaceholder) return linkRequired();
       rowEmail = placeholderEmail;

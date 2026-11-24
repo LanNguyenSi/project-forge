@@ -520,6 +520,9 @@ describe("GitHub sign-in email verification", () => {
       passwordHash: null,
       githubId: "1001",
       githubPat: "gho_owner",
+      // No login anywhere: the owner comes from the placeholder, never from the
+      // squatted email's local part.
+      githubOwner: "github-1001",
     });
     expect(user.id).toBe(rows[1].id);
     expect(store.user.update).not.toHaveBeenCalled();

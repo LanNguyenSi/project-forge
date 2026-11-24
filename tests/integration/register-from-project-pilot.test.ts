@@ -159,17 +159,23 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       // token belongs to the new row.
       expect(user.update).not.toHaveBeenCalled();
       expect(user.updateMany).not.toHaveBeenCalled();
+      // The last lookup asks the placeholder, not the GitHub email again.
+      expect(user.findUnique.mock.calls.map((c) => c[0].where)).toEqual([
+        { githubId: "123" },
+        { email: "victim@example.com" },
+        { email: "github-123@noreply" },
+      ]);
       expect(apiToken.updateMany.mock.calls[0][0].where).toMatchObject({ userId: "user-new" });
       expect(apiToken.create.mock.calls[0][0].data).toMatchObject({ userId: "user-new" });
     });
 
     it("matches that row by githubId on the next call and keeps its email while the GitHub email is held by the password account", async () => {
       fetchMock.mockResolvedValue(ghUser);
-      // by githubId: the identity row; by email: the password account.
+      // by githubId and by the placeholder email: the identity row; by the
+      // GitHub email: the password account.
+      const identityRow = { id: "user-new", githubId: "123", email: "github-123@noreply", githubPat: null };
       user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string; email?: string } }) => {
-        if (where.githubId === "123") {
-          return { id: "user-new", githubId: "123", email: "github-123@noreply", githubPat: null };
-        }
+        if (where.githubId === "123" || where.email === "github-123@noreply") return identityRow;
         if (where.email === "victim@example.com") return passwordRow;
         return null;
       });
@@ -185,6 +191,22 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       expect(call.where).toEqual({ id: "user-new" });
       expect(call.data.email).toBe("github-123@noreply");
       expect(apiToken.create.mock.calls[0][0].data).toMatchObject({ userId: "user-new" });
+    });
+
+    it("keeps the stored email of an identity row when GitHub reports no public email", async () => {
+      fetchMock.mockResolvedValue({ ...ghUser, email: null });
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string; email?: string } }) =>
+        where.githubId === "123"
+          ? { id: "user-new", githubId: "123", email: "kept@example.com", githubPat: null }
+          : null,
+      );
+      user.update.mockResolvedValue({ id: "user-new" });
+      apiToken.create.mockResolvedValue({});
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(200);
+      expect(user.update.mock.calls[0][0].data.email).toBe("kept@example.com");
     });
 
     it("moves an identity row to the GitHub email once no other row holds it", async () => {

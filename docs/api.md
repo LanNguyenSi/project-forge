@@ -43,8 +43,10 @@ The stored credential is the last one saved by one of these:
   the verified primary address from the account's address list is used, or the
   placeholder if there is none. If GitHub cannot be asked (an error or
   timeout), the sign-in fails without writing anything and can be retried. A sign-in whose verified email
-  belongs to an email/password account, or to an account linked to another
-  GitHub id, is refused and writes no token. A sign-in that claims an older
+  belongs to an email/password account that has no linked GitHub id gets a
+  separate account under the placeholder `github-<id>@noreply`, and the
+  password account is not touched (no token, no revocation). Only an account
+  linked to another GitHub id is refused, and writes no token. A sign-in that claims an older
   GitHub-only account (one that has no `githubId` and no password yet) also
   revokes that account's API tokens and signs out its sessions from before the
   claim, so those tokens have to be issued again.
@@ -191,8 +193,9 @@ under the placeholder email `github-<id>@noreply`, which holds the GitHub token
 and the returned API token, and later calls find that user by the GitHub id.
 This is the same rule as the web GitHub sign-in. An account that already has
 another GitHub id is not diverted. The 409 above remains only for a
-password-less row without a GitHub id (see the table); the web GitHub sign-in
-claims such a row once GitHub verifies the email.
+password-less row without a GitHub id on the email, and for any row already on
+the placeholder while a password account holds the email (see the table); the
+web GitHub sign-in claims a password-less row once GitHub verifies the email.
 
 Errors use the shape `{ ok: false, error: <code>, message }`:
 
@@ -202,6 +205,6 @@ Errors use the shape `{ ok: false, error: <code>, message }`:
 | 413 | Request body over the 64 KiB cap |
 | 401 | GitHub token verification failed, or `githubLogin` differs from the verified login |
 | 403 | The login is not in `ALLOWED_GITHUB_LOGINS` (when that variable is set) |
-| 409 | A row that has no linked GitHub id and no password (one created by an older GitHub sign-in on the web UI; web sign-ins now record the id) holds the GitHub email or the placeholder `github-<id>@noreply` (see below). A password account holding the email no longer causes it |
+| 409 | A row that has no linked GitHub id and no password (one created by an older GitHub sign-in on the web UI; web sign-ins now record the id) holds the GitHub email, or a password account without a GitHub id holds the email and any row is already on the placeholder `github-<id>@noreply` (see below). A password account holding the email alone no longer causes it |
 | 503 | GitHub could not be reached |
 | 500 | Unexpected error during verification |
