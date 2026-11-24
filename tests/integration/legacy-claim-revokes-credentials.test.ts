@@ -58,6 +58,7 @@ let patGET: typeof import("@/app/api/dashboard/pat/route").GET;
 let patPOST: typeof import("@/app/api/dashboard/pat/route").POST;
 let tokensPOST: typeof import("@/app/api/dashboard/tokens/route").POST;
 let publishPOST: typeof import("@/app/api/publish/route").POST;
+let brokerPOST: typeof import("@/app/api/auth/register-from-project-pilot/route").POST;
 let nextAuthApi: typeof import("next-auth").default;
 let decryptGithubPat: typeof import("@/lib/github-pat").decryptGithubPat;
 let sessionOf: typeof import("next-auth").getServerSession;
@@ -87,6 +88,7 @@ beforeAll(async () => {
   ({ GET: patGET, POST: patPOST } = await import("@/app/api/dashboard/pat/route"));
   ({ POST: tokensPOST } = await import("@/app/api/dashboard/tokens/route"));
   ({ POST: publishPOST } = await import("@/app/api/publish/route"));
+  ({ POST: brokerPOST } = await import("@/app/api/auth/register-from-project-pilot/route"));
   nextAuthApi = (await import("next-auth")).default;
   ({ getServerSession: sessionOf } = await import("next-auth"));
 }, 60_000);
@@ -284,17 +286,27 @@ describe("sign-ins that are not a claim of a legacy row", () => {
     expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).sessionsValidAfter).toBeNull();
   });
 
-  it("a refused sign-in on a password account keeps its tokens and its sessions", async () => {
+  it("a sign-in on a password account's email opens a separate account and leaves the password account's tokens, sessions and credential alone", async () => {
     const row = await db.user.create({ data: { email: LEGACY_EMAIL, passwordHash: "hash", githubPat: "ghp_manual" } });
     const token = await createApiToken(db, row.id, "mine");
     const cookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
 
-    const { result } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_other" });
+    const { result, user } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_other" });
 
-    expect(result).toBe("/login?error=OAuthAccountNotLinked");
+    expect(result).toBe(true);
+    expect(user.id).not.toBe(row.id);
     expect(await tokenStatus(token.raw)).toBe(200);
     expect(await patStatus(cookie)).toEqual({ status: 200, kind: "manual" });
-    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).sessionsValidAfter).toBeNull();
+    const kept = await db.user.findUniqueOrThrow({ where: { id: row.id } });
+    expect(kept.sessionsValidAfter).toBeNull();
+    expect(kept.githubId).toBeNull();
+    expect(kept.passwordHash).toBe("hash");
+    // The GitHub token went to the new row only.
+    const identity = await db.user.findUniqueOrThrow({ where: { githubId: "1001" } });
+    expect(identity.id).toBe(user.id);
+    expect(identity).toMatchObject({ email: "github-1001@noreply", passwordHash: null });
+    expect(decryptGithubPat(identity.githubPat)).toBe("gho_other");
+    expect(await patStatus(await mintSessionFor(identity.id))).toEqual({ status: 200, kind: "oauth" });
   });
 
   it("a new GitHub account does not touch another user's tokens", async () => {
@@ -313,6 +325,76 @@ describe("sign-ins that are not a claim of a legacy row", () => {
     const row = await db.user.create({ data: { email: "plain@example.com", passwordHash: "hash", githubPat: "ghp_x" } });
 
     expect(await patStatus(await cookieFor({ userId: row.id }))).toEqual({ status: 200, kind: "manual" });
+  });
+});
+
+/** The broker route as the identity broker calls it; GitHub's GET /user answers with these fields. */
+async function brokerCall(opts: { githubId: number; login: string; email: string | null; accessToken: string }) {
+  fetchMock.mockImplementation(async (url: unknown) => {
+    expect(String(url)).toBe("https://api.github.com/user");
+    return new Response(
+      JSON.stringify({ id: opts.githubId, login: opts.login, name: null, avatar_url: "", email: opts.email }),
+      { status: 200 },
+    );
+  });
+  const res = await brokerPOST(
+    new NextRequest("http://localhost/api/auth/register-from-project-pilot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ githubAccessToken: opts.accessToken }),
+    }),
+  );
+  return { status: res.status, body: (await res.json()) as { userId?: string; apiToken?: string; error?: string } };
+}
+
+describe("broker registration and web sign-in on a password account's email", () => {
+  it("opens one separate account on the placeholder, keeps answering on it, and the web sign-in finds the same row", async () => {
+    const victim = await db.user.create({
+      data: { email: LEGACY_EMAIL, passwordHash: "hash", githubPat: "ghp_manual" },
+    });
+    const victimToken = await createApiToken(db, victim.id, "mine");
+    const gh = { githubId: 1001, login: "owner", email: LEGACY_EMAIL, accessToken: "gho_broker" };
+
+    // First call: a new row on the placeholder, the password row untouched.
+    const first = await brokerCall(gh);
+    expect(first.status).toBe(200);
+    expect(first.body.userId).not.toBe(victim.id);
+    const identity = await db.user.findUniqueOrThrow({ where: { githubId: "1001" } });
+    expect(identity).toMatchObject({ id: first.body.userId, email: "github-1001@noreply", passwordHash: null });
+    expect(decryptGithubPat(identity.githubPat)).toBe("gho_broker");
+    expect(await tokenStatus(first.body.apiToken!)).toBe(200);
+
+    // Second call: the same row by githubId, the placeholder email kept (the
+    // GitHub email is still held by the password account), a fresh token.
+    const second = await brokerCall({ ...gh, accessToken: "gho_broker2" });
+    expect(second.status).toBe(200);
+    expect(second.body.userId).toBe(identity.id);
+    expect(await tokenStatus(first.body.apiToken!)).toBe(401);
+    expect(await tokenStatus(second.body.apiToken!)).toBe(200);
+    expect(await db.user.count()).toBe(2);
+    expect((await db.user.findUniqueOrThrow({ where: { id: identity.id } })).email).toBe("github-1001@noreply");
+
+    // The web sign-in resolves to the same identity row.
+    const web = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_web" });
+    expect(web.result).toBe(true);
+    expect(web.user.id).toBe(identity.id);
+    expect(await db.user.count()).toBe(2);
+
+    // The password account was never touched and its token still works.
+    const kept = await db.user.findUniqueOrThrow({ where: { id: victim.id } });
+    expect(kept).toMatchObject({ githubId: null, passwordHash: "hash", githubPat: "ghp_manual", sessionsValidAfter: null });
+    expect(await tokenStatus(victimToken.raw)).toBe(200);
+  });
+
+  it("answers 409 when a row is already on the placeholder while a password account holds the email", async () => {
+    await db.user.create({ data: { email: LEGACY_EMAIL, passwordHash: "hash" } });
+    await db.user.create({ data: { email: "github-1001@noreply", githubPat: "gho_legacy" } });
+
+    const res = await brokerCall({ githubId: 1001, login: "owner", email: LEGACY_EMAIL, accessToken: "gho_broker" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("account_exists_link_required");
+    expect(await db.user.count()).toBe(2);
   });
 });
 

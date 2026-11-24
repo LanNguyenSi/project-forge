@@ -188,8 +188,8 @@ afterEach(() => {
 });
 
 describe("GitHub sign-in account matching", () => {
-  it("refuses a password account with the same email and leaves the row untouched", async () => {
-    const victim = row({ email: "victim@example.com", passwordHash: "hash", githubPat: "ghp_manual" });
+  it("creates a separate placeholder account for a password account's email and leaves the password row untouched", async () => {
+    const victim = row({ id: "v", email: "victim@example.com", passwordHash: "hash", githubPat: "ghp_manual" });
     const before = { ...victim };
 
     const { result, user } = await githubSignIn({
@@ -199,14 +199,52 @@ describe("GitHub sign-in account matching", () => {
       login: "victim",
     });
 
-    expect(result).toBe(REFUSED);
-    expect(rows).toHaveLength(1);
+    expect(result).toBe(true);
+    expect(rows).toHaveLength(2);
+    // The password row: nothing written, no token, no revocation, no cutoff.
     expect(plain(rows[0])).toEqual(before);
     expect(plain(rows[0]).githubPat).toBe("ghp_manual");
-    expect(user.id).toBe("1001"); // session id is not rewritten to the foreign row
     expect(store.user.update).not.toHaveBeenCalled();
     expect(store.user.updateMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.apiToken.updateMany).not.toHaveBeenCalled();
+    // The identity row: placeholder email, no password, the token only here.
+    expect(store.user.create).toHaveBeenCalledTimes(1);
+    expect(plain(rows[1])).toMatchObject({
+      email: "github-1001@noreply",
+      passwordHash: null,
+      githubId: "1001",
+      githubLogin: "victim",
+      githubPat: "gho_victim",
+      githubOwner: "victim",
+    });
+    expectStoredEncrypted(rows[1], "gho_victim");
+    expect(user.id).toBe(rows[1].id);
+    expect(user.id).not.toBe("v");
+  });
+
+  it("finds the separate account by its identity on the next sign-in and still leaves the password row untouched", async () => {
+    const victim = row({ id: "v", email: "victim@example.com", passwordHash: "hash", githubPat: "ghp_manual" });
+    const before = { ...victim };
+
+    const first = await githubSignIn({ id: "1001", email: "victim@example.com", token: "gho_a", login: "victim" });
+    expect(first.result).toBe(true);
+    const identityId = rows[1].id;
+
+    store.user.create.mockClear();
+    store.user.update.mockClear();
+    const second = await githubSignIn({ id: "1001", email: "victim@example.com", token: "gho_b", login: "victim" });
+
+    expect(second.result).toBe(true);
+    expect(second.user.id).toBe(identityId);
+    expect(rows).toHaveLength(2);
     expect(store.user.create).not.toHaveBeenCalled();
+    expect(store.user.update).toHaveBeenCalledTimes(1);
+    expect(store.user.update.mock.calls[0][0]).toMatchObject({ where: { id: identityId } });
+    expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply", githubPat: "gho_b" });
+    expect(plain(rows[0])).toEqual(before);
+    // Rule 1 does not ask GitHub about the email: only the first sign-in did.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("refuses an email match when the row is linked to another GitHub identity", async () => {
@@ -469,14 +507,68 @@ describe("GitHub sign-in email verification", () => {
     expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
   });
 
-  it("still refuses a password account when GitHub verifies that email", async () => {
+  it("gives a separate account to a sign-in whose verified email belongs to a password account", async () => {
     const victim = row({ id: "v", email: "victim@example.com", passwordHash: "hash" });
     const before = { ...victim };
+
+    const { result, user } = await githubSignIn({ id: "1001", email: "victim@example.com", token: "gho_owner" });
+
+    expect(result).toBe(true);
+    expect(plain(rows[0])).toEqual(before);
+    expect(plain(rows[1])).toMatchObject({
+      email: "github-1001@noreply",
+      passwordHash: null,
+      githubId: "1001",
+      githubPat: "gho_owner",
+      // No login anywhere: the owner comes from the placeholder, never from the
+      // squatted email's local part.
+      githubOwner: "github-1001",
+    });
+    expect(user.id).toBe(rows[1].id);
+    expect(store.user.update).not.toHaveBeenCalled();
+    expect(store.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  // The placeholder is where the identity row goes, so what sits on it decides
+  // the outcome by the same rules as any other row.
+  it("claims a legacy placeholder row when a password account holds the verified email", async () => {
+    const victim = row({ id: "v", email: "victim@example.com", passwordHash: "hash" });
+    row({ id: "legacy", email: "github-1001@noreply", githubPat: "gho_old" });
+    const before = { ...victim };
+
+    const { result, user } = await githubSignIn({ id: "1001", email: "victim@example.com", token: "gho_owner" });
+
+    expect(result).toBe(true);
+    expect(user.id).toBe("legacy");
+    expect(rows).toHaveLength(2);
+    expect(plain(rows[0])).toEqual(before);
+    expect(plain(rows[1])).toMatchObject({ githubId: "1001", githubPat: "gho_owner" });
+  });
+
+  it("refuses when a password account holds the verified email and the placeholder row is another identity's", async () => {
+    const victim = row({ id: "v", email: "victim@example.com", passwordHash: "hash" });
+    const taken = row({ id: "t", email: "github-1001@noreply", githubId: "2002" });
+    const before = [{ ...victim }, { ...taken }];
 
     const { result } = await githubSignIn({ id: "1001", email: "victim@example.com" });
 
     expect(result).toBe(REFUSED);
+    expect(rows).toEqual(before);
+    expect(store.user.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses without writing when the separate account's create loses a race (unique violation)", async () => {
+    const victim = row({ id: "v", email: "victim@example.com", passwordHash: "hash" });
+    const before = { ...victim };
+    store.user.create.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+    });
+
+    const { result, user } = await githubSignIn({ id: "1001", email: "victim@example.com" });
+
+    expect(result).toBe(REFUSED);
     expect(rows).toEqual([before]);
+    expect(user.id).toBe("1001");
   });
 
   it("claims a legacy row by a verified primary email (unchanged behaviour)", async () => {
@@ -759,7 +851,7 @@ describe("GitHub sign-in email verification", () => {
       expect(plain(rows[0])).toMatchObject({ email: "main@example.com", githubId: "1001" });
     });
 
-    it("still refuses a password account that owns the verified primary address", async () => {
+    it("gives a separate account to a sign-in whose verified primary address belongs to a password account", async () => {
       const victim = row({ id: "v", email: "main@example.com", passwordHash: "hash" });
       const before = { ...victim };
 
@@ -769,8 +861,9 @@ describe("GitHub sign-in email verification", () => {
         emails: [{ email: "main@example.com", primary: true, verified: true }],
       });
 
-      expect(result).toBe(REFUSED);
-      expect(rows).toEqual([before]);
+      expect(result).toBe(true);
+      expect(plain(rows[0])).toEqual(before);
+      expect(plain(rows[1])).toMatchObject({ email: "github-1001@noreply", githubId: "1001" });
     });
 
     it.each([
