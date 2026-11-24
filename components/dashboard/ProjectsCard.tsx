@@ -91,14 +91,14 @@ export function ProjectsCard() {
               {state.projects.map((p) => (
                 <li
                   key={p.id}
-                  className="py-3 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1"
+                  className="py-1 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0 sm:gap-4"
                 >
                   {isHttpUrl(p.repoUrl) ? (
                     <a
                       href={p.repoUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm font-medium text-ember hover:text-ember-soft transition break-all"
+                      className="inline-flex min-h-11 items-center text-sm font-medium text-ember hover:text-ember-soft transition break-all"
                     >
                       {p.projectName || p.repoUrl}
                     </a>
