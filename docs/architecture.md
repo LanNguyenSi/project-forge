@@ -36,7 +36,7 @@ flowchart TD
     GH["GitHub"]
     AI["AI provider<br/>local, Groq or OpenAI"]
   end
-  APP -->|"repo create and git push<br/>(user's GitHub token),<br/>broker check GET /user"| GH
+  APP -->|"repo create and git push<br/>(user's GitHub token),<br/>broker check GET /user<br/>and GET /user/emails"| GH
   APP -->|"optional: enrichment,<br/>review, magic fill"| AI
 ```
 
@@ -301,7 +301,7 @@ token are read from env only.
 |---|---|---|
 | Email/password sign-up (`POST /api/auth/register`) and sign-in | Email and a password of at least 8 characters | Anyone who can reach the instance |
 | GitHub sign-in (NextAuth GitHub provider) | GitHub OAuth; the OAuth token is stored as the publish credential. A sign-in whose GitHub-verified email belongs to a password account gets its own account (under `github-<id>@noreply`) and never touches the password account | Anyone with a GitHub account, when `GITHUB_ID` and `GITHUB_SECRET` are set |
-| Broker registration (`POST /api/auth/register-from-project-pilot`, see [api.md](api.md#broker-registration)) | A GitHub access token, verified against GitHub's `GET /user` | Any GitHub login, or only the logins in `ALLOWED_GITHUB_LOGINS` when it is set |
+| Broker registration (`POST /api/auth/register-from-project-pilot`, see [api.md](api.md#broker-registration)) | A GitHub access token, verified against GitHub's `GET /user`; the email the user row is keyed on is checked against `GET /user/emails` (needs `user:email`) | Any GitHub login, or only the logins in `ALLOWED_GITHUB_LOGINS` when it is set |
 | v1 API (`/api/v1/*`) | `X-API-Key` header with a `pf_` token, validated by `validateApiToken` | Holders of a token issued in the dashboard or by broker registration |
 
 `ALLOWED_GITHUB_LOGINS` limits only broker registration; sign-up and GitHub

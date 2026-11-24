@@ -14,7 +14,9 @@
  *                 placeholder `github-<id>@noreply`; a password account alone
  *                 no longer causes it, see "Email collisions" below; also a
  *                 unique violation on the email when another GitHub identity
- *                 holds the address it would be keyed on)
+ *                 holds the address it would be keyed on, or a row without a
+ *                 githubId and without a password already sits on the
+ *                 placeholder while GitHub lists no verified address)
  *             500 internal
  *             503 upstream_unavailable (GitHub unreachable, or GitHub could
  *                 not list the account's emails; nothing is written)

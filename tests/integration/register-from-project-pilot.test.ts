@@ -416,7 +416,9 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     it("a create that loses the race on the githubId re-reads that row and continues as an update (token minted, email untouched)", async () => {
       fetchMock.mockResolvedValue(gh(null));
       githubLists([]);
-      const raced = { id: "user-raced", githubId: "123", email: placeholder, githubPat: null };
+      // The web sign-in made this row with an address of its own; the broker
+      // resolves the placeholder (nothing verified), so the two differ.
+      const raced = { id: "user-raced", githubId: "123", email: "web@example.com", githubPat: null };
       let githubIdLookups = 0;
       user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string; email?: string } }) => {
         if (where.githubId === "123") return githubIdLookups++ === 0 ? null : raced;
@@ -435,7 +437,7 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       expect(user.update).toHaveBeenCalledTimes(1);
       const call = user.update.mock.calls[0][0];
       expect(call.where).toEqual({ id: "user-raced" });
-      expect(call.data.email).toBe(placeholder);
+      expect(call.data.email).toBe("web@example.com");
       expect(decryptGithubPat(call.data.githubPat)).toBe("gho_owner");
       expect(apiToken.create.mock.calls[0][0].data).toMatchObject({ userId: "user-raced" });
     });
@@ -484,6 +486,38 @@ describe("POST /api/auth/register-from-project-pilot", () => {
       await expect(POST(makeReq({ githubAccessToken: "gho_owner" }))).rejects.toThrow("database is locked");
       expect(githubIdLookups).toBe(1);
       expect(user.update).not.toHaveBeenCalled();
+      expect(apiToken.create).not.toHaveBeenCalled();
+    });
+
+    // A Prisma error code that is not a unique violation (P2034: write
+    // conflict) must reach the caller as it did before, not as the 409.
+    const prismaError = (code: string) => Object.assign(new Error("prisma error"), { code });
+
+    it("a Prisma error with another code on create is rethrown: no re-read, no update, no 409", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      githubLists([]);
+      let githubIdLookups = 0;
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string } }) =>
+        where.githubId === "123" && githubIdLookups++ > 0
+          ? { id: "user-raced", githubId: "123", email: placeholder, githubPat: null }
+          : null,
+      );
+      user.create.mockRejectedValue(prismaError("P2034"));
+
+      await expect(POST(makeReq({ githubAccessToken: "gho_owner" }))).rejects.toThrow("prisma error");
+      expect(githubIdLookups).toBe(1);
+      expect(user.update).not.toHaveBeenCalled();
+      expect(apiToken.create).not.toHaveBeenCalled();
+    });
+
+    it("a Prisma error with another code on the identity update is rethrown, not answered as 409", async () => {
+      fetchMock.mockResolvedValue(gh(null));
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string } }) =>
+        where.githubId === "123" ? { id: "user-new", githubId: "123", email: "old@example.com", githubPat: null } : null,
+      );
+      user.update.mockRejectedValue(prismaError("P2034"));
+
+      await expect(POST(makeReq({ githubAccessToken: "gho_owner" }))).rejects.toThrow("prisma error");
       expect(apiToken.create).not.toHaveBeenCalled();
     });
 
