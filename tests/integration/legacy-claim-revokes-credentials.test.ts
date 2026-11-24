@@ -328,9 +328,16 @@ describe("sign-ins that are not a claim of a legacy row", () => {
   });
 });
 
-/** The broker route as the identity broker calls it; GitHub's GET /user answers with these fields. */
+/**
+ * The broker route as the identity broker calls it; GitHub's GET /user answers
+ * with these fields and GET /user/emails lists the email as verified.
+ */
 async function brokerCall(opts: { githubId: number; login: string; email: string | null; accessToken: string }) {
   fetchMock.mockImplementation(async (url: unknown) => {
+    if (String(url) === "https://api.github.com/user/emails") {
+      const list = opts.email ? [{ email: opts.email, primary: true, verified: true }] : [];
+      return new Response(JSON.stringify(list), { status: 200 });
+    }
     expect(String(url)).toBe("https://api.github.com/user");
     return new Response(
       JSON.stringify({ id: opts.githubId, login: opts.login, name: null, avatar_url: "", email: opts.email }),
