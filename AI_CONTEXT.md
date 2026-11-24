@@ -36,7 +36,7 @@ project-forge/
 │   │   ├── publish/route.ts      # GitHub repo creation & push
 │   │   ├── ai-assist/route.ts    # AI form enrichment (session auth)
 │   │   ├── health/route.ts       # Public liveness probe (compose healthcheck)
-│   │   └── dashboard/            # profile (route.ts), API tokens (tokens/), GitHub PAT (pat/)
+│   │   └── dashboard/            # profile (route.ts), API tokens (tokens/), GitHub PAT (pat/), recorded projects (projects/)
 │   ├── docs/page.tsx             # Swagger UI API docs
 │   ├── styleguide/page.tsx       # UI primitives showcase
 │   ├── page.tsx                  # Public landing page (sends signed-in users to /dashboard)
@@ -60,6 +60,8 @@ project-forge/
 │   │   ├── ForgeMark.tsx         # Ember-to-gold flame brand mark
 │   │   ├── PublicNav.tsx         # Top nav shared by the public pages
 │   │   └── SkipLink.tsx          # Skip link (WCAG 2.4.1) + MAIN_CONTENT_ID
+│   ├── dashboard/                # Dashboard cards
+│   │   └── ProjectsCard.tsx      # "Your projects" list (recorded API/agent publishes)
 │   ├── SessionProvider.tsx       # Client wrapper for the NextAuth session provider
 │   ├── ProjectForm.tsx           # Main project intake form
 │   ├── PreviewPanel.tsx          # Generated scaffold preview

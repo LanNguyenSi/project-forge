@@ -44,6 +44,7 @@ const INVENTORY: Record<string, Entry> = {
   "app/api/dashboard/tokens/route.ts": { how: "session-cutoff", why: "re-reads the cutoff after creating a token and revokes it when stale" },
   "app/api/publish/route.ts": { how: "session-cutoff", why: "cutoff from the row read that supplies the token" },
   "app/api/dashboard/route.ts": { how: "no-credential", why: "only says whether a usable token exists (readGithubPat decides, the value is never returned)" },
+  "app/api/dashboard/projects/route.ts": { how: "no-credential", why: "session id only, lists the caller's own usage rows" },
   "app/api/dashboard/tokens/[id]/route.ts": { how: "no-credential", why: "revokes the caller's own token" },
   "app/api/generate/route.ts": { how: "no-credential", why: "session id only" },
   "app/api/ai-assist/route.ts": { how: "no-credential", why: "session id only" },

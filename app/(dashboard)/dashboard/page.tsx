@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageShell } from "@/components/ui/PageShell";
 import { Button, Card, Badge } from "@/components/ui/primitives";
+import { ProjectsCard } from "@/components/dashboard/ProjectsCard";
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
@@ -22,9 +23,7 @@ export default function DashboardPage() {
         .then((r) => r.json())
         .then((data) => {
           if (data.ok) {
-            setGithubConnected(
-              !!(data.user.githubPatConnected || data.user.githubOwner),
-            );
+            setGithubConnected(!!data.user.githubPatConnected);
           }
           setLoaded(true);
         })
@@ -99,6 +98,9 @@ export default function DashboardPage() {
               </Button>
             </Card>
           )}
+
+          {/* ── Your projects ─────────────────────────── */}
+          <ProjectsCard />
 
           {/* ── How it works ─────────────────────────── */}
           <div>
