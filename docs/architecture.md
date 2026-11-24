@@ -300,7 +300,7 @@ token are read from env only.
 | Entry point | Credential | Who can use it |
 |---|---|---|
 | Email/password sign-up (`POST /api/auth/register`) and sign-in | Email and a password of at least 8 characters | Anyone who can reach the instance |
-| GitHub sign-in (NextAuth GitHub provider) | GitHub OAuth; the OAuth token is stored as the publish credential | Anyone with a GitHub account, when `GITHUB_ID` and `GITHUB_SECRET` are set |
+| GitHub sign-in (NextAuth GitHub provider) | GitHub OAuth; the OAuth token is stored as the publish credential. A sign-in whose GitHub-verified email belongs to a password account gets its own account (under `github-<id>@noreply`) and never touches the password account | Anyone with a GitHub account, when `GITHUB_ID` and `GITHUB_SECRET` are set |
 | Broker registration (`POST /api/auth/register-from-project-pilot`, see [api.md](api.md#broker-registration)) | A GitHub access token, verified against GitHub's `GET /user` | Any GitHub login, or only the logins in `ALLOWED_GITHUB_LOGINS` when it is set |
 | v1 API (`/api/v1/*`) | `X-API-Key` header with a `pf_` token, validated by `validateApiToken` | Holders of a token issued in the dashboard or by broker registration |
 

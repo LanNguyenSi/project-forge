@@ -128,33 +128,117 @@ describe("POST /api/auth/register-from-project-pilot", () => {
     expect(apiToken.create).toHaveBeenCalledTimes(1);
   });
 
-  it("409 when the verified GitHub email collides with a local-auth account (no githubId)", async () => {
-    fetchMock.mockResolvedValue({
-      id: 123,
-      login: "newcomer",
-      name: null,
-      avatar_url: "",
-      email: "victim@example.com",
+  describe("when the GitHub email is held by another row", () => {
+    const ghUser = { id: 123, login: "newcomer", name: null, avatar_url: "", email: "victim@example.com" };
+    const passwordRow = { id: "local-victim", email: "victim@example.com", passwordHash: "hashed", githubId: null };
+
+    // findUnique is asked by githubId, then by the GitHub email, then (only
+    // for a password row) by the placeholder.
+    function lookups(...answers: unknown[]) {
+      for (const answer of answers) user.findUnique.mockResolvedValueOnce(answer);
+      user.findUnique.mockResolvedValue(null);
+    }
+
+    it("gives the identity its own row under the placeholder email when a password account (no githubId) holds the email", async () => {
+      fetchMock.mockResolvedValue(ghUser);
+      lookups(null, passwordRow, null);
+      user.create.mockResolvedValue({ id: "user-new" });
+      apiToken.create.mockResolvedValue({});
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.userId).toBe("user-new");
+      expect(body.apiToken).toMatch(/^pf_/);
+      expect(user.create).toHaveBeenCalledTimes(1);
+      const data = user.create.mock.calls[0][0].data;
+      expect(data).toMatchObject({ githubId: "123", githubLogin: "newcomer", email: "github-123@noreply" });
+      expect(decryptGithubPat(data.githubPat)).toBe("gho_owner");
+      // The password row is neither written nor handed a token, and the new
+      // token belongs to the new row.
+      expect(user.update).not.toHaveBeenCalled();
+      expect(user.updateMany).not.toHaveBeenCalled();
+      expect(apiToken.updateMany.mock.calls[0][0].where).toMatchObject({ userId: "user-new" });
+      expect(apiToken.create.mock.calls[0][0].data).toMatchObject({ userId: "user-new" });
     });
-    // No existing githubId match…
-    user.findUnique
-      .mockResolvedValueOnce(null)
-      // …but a local-auth user already owns the email.
-      .mockResolvedValueOnce({
-        id: "local-victim",
-        email: "victim@example.com",
-        passwordHash: "hashed",
-        githubId: null,
+
+    it("matches that row by githubId on the next call and keeps its email while the GitHub email is held by the password account", async () => {
+      fetchMock.mockResolvedValue(ghUser);
+      // by githubId: the identity row; by email: the password account.
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string; email?: string } }) => {
+        if (where.githubId === "123") {
+          return { id: "user-new", githubId: "123", email: "github-123@noreply", githubPat: null };
+        }
+        if (where.email === "victim@example.com") return passwordRow;
+        return null;
       });
+      user.update.mockResolvedValue({ id: "user-new" });
+      apiToken.create.mockResolvedValue({});
 
-    const res = await POST(makeReq({ githubAccessToken: "valid" }));
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
 
-    expect(res.status).toBe(409);
-    const body = await res.json();
-    expect(body.error).toBe("account_exists_link_required");
-    // Must NOT have created or mutated a user row.
-    expect(user.create).not.toHaveBeenCalled();
-    expect(user.update).not.toHaveBeenCalled();
+      expect(res.status).toBe(200);
+      expect(user.create).not.toHaveBeenCalled();
+      expect(user.update).toHaveBeenCalledTimes(1);
+      const call = user.update.mock.calls[0][0];
+      expect(call.where).toEqual({ id: "user-new" });
+      expect(call.data.email).toBe("github-123@noreply");
+      expect(apiToken.create.mock.calls[0][0].data).toMatchObject({ userId: "user-new" });
+    });
+
+    it("moves an identity row to the GitHub email once no other row holds it", async () => {
+      fetchMock.mockResolvedValue(ghUser);
+      user.findUnique.mockImplementation(async ({ where }: { where: { githubId?: string; email?: string } }) =>
+        where.githubId === "123"
+          ? { id: "user-new", githubId: "123", email: "github-123@noreply", githubPat: null }
+          : null,
+      );
+      user.update.mockResolvedValue({ id: "user-new" });
+      apiToken.create.mockResolvedValue({});
+
+      const res = await POST(makeReq({ githubAccessToken: "gho_owner" }));
+
+      expect(res.status).toBe(200);
+      expect(user.update.mock.calls[0][0].data.email).toBe("victim@example.com");
+    });
+
+    it("409 when a password-less row (an older GitHub-only sign-in) holds the email and has no githubId", async () => {
+      fetchMock.mockResolvedValue(ghUser);
+      lookups(null, { id: "legacy", email: "victim@example.com", passwordHash: null, githubId: null });
+
+      const res = await POST(makeReq({ githubAccessToken: "valid" }));
+
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toBe("account_exists_link_required");
+      // Must NOT have created or mutated a user row.
+      expect(user.create).not.toHaveBeenCalled();
+      expect(user.update).not.toHaveBeenCalled();
+    });
+
+    it("409 when a password account holds the email and a legacy row without githubId already sits on the placeholder", async () => {
+      fetchMock.mockResolvedValue(ghUser);
+      lookups(null, passwordRow, { id: "legacy", email: "github-123@noreply", passwordHash: null, githubId: null });
+
+      const res = await POST(makeReq({ githubAccessToken: "valid" }));
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("account_exists_link_required");
+      expect(user.create).not.toHaveBeenCalled();
+      expect(user.update).not.toHaveBeenCalled();
+    });
+
+    it("does not divert a password account that already has another githubId (create under the GitHub email, as before)", async () => {
+      fetchMock.mockResolvedValue(ghUser);
+      lookups(null, { ...passwordRow, githubId: "999" });
+      user.create.mockResolvedValue({ id: "user-new" });
+      apiToken.create.mockResolvedValue({});
+
+      await POST(makeReq({ githubAccessToken: "valid" }));
+
+      expect(user.create.mock.calls[0][0].data.email).toBe("victim@example.com");
+    });
   });
 
   it("invalidates + re-issues on repeat calls (hash-at-rest means the old raw value can't be recovered)", async () => {

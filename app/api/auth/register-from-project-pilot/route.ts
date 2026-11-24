@@ -8,9 +8,20 @@
  *   Errors:   400 missing fields
  *             401 invalid token / login mismatch
  *             403 forbidden_github_login (login not in ALLOWED_GITHUB_LOGINS)
- *             409 account_exists_link_required
+ *             409 account_exists_link_required (only for a password-less row
+ *                 that holds the email or the placeholder `github-<id>@noreply`
+ *                 without a githubId; a password account no longer causes it,
+ *                 see "Email collisions" below)
  *             500 internal
  *             503 GitHub unreachable
+ *
+ * Email collisions: registration does not verify the email, so a password
+ * account holding the GitHub user's email may belong to someone who only typed
+ * the address. When the email is held by a password account without a
+ * githubId, the identity gets its own row under the placeholder
+ * `github-<id>@noreply` (the same rule as the web GitHub sign-in, lib/auth.ts);
+ * the password account is not touched and receives no token. Later calls match
+ * that row by githubId. A row of another GitHub identity is not diverted.
  *
  * project-forge does NOT blindly trust the caller (project-pilot). The
  * access-token is re-verified against `api.github.com/user`. A compromised
@@ -155,24 +166,43 @@ export async function POST(req: NextRequest) {
   // Lookup by githubId first (stable across GitHub rename).
   const existingByGithubId = await prisma.user.findUnique({ where: { githubId } });
 
-  // Email-collision guard: if the verified GitHub email matches a local-auth
-  // account that has NO githubId yet, we refuse to silently merge the two.
-  // Otherwise anyone who controls that email on GitHub could claim the local
-  // account. Surface a structured 409 so project-pilot can prompt the user
-  // to sign in locally first and link GitHub explicitly.
+  // Email-collision guard. The email comes from GET /user and registration
+  // does not verify emails, so a row holding it proves nothing about who owns
+  // it. Rows that hold the email and have no githubId:
+  //  - a password account: not merged and not touched (anyone who controls the
+  //    email on GitHub could otherwise take the account over, and the typed-in
+  //    owner of a password account could read the token). The identity gets
+  //    its own row under the placeholder email, the same rule as the web
+  //    GitHub sign-in (lib/auth.ts), so the person who owns the address on
+  //    GitHub is not locked out by whoever registered it first;
+  //  - a password-less row (made by an earlier GitHub-only sign-in): not
+  //    claimed here, the web sign-in does that with a verified email. Surface a
+  //    structured 409 so project-pilot can prompt the user to sign in on
+  //    project-forge directly.
+  // A row with a githubId (another identity) is left as before.
+  const placeholderEmail = `github-${githubId}@noreply`;
+  let rowEmail: string | null = githubEmail;
+  const linkRequired = () =>
+    NextResponse.json(
+      {
+        ok: false,
+        error: "account_exists_link_required",
+        message:
+          "An account with this email already exists. Sign in with your " +
+          "existing credentials first, then link GitHub.",
+      },
+      { status: 409 },
+    );
   if (!existingByGithubId && githubEmail) {
     const existingByEmail = await prisma.user.findUnique({ where: { email: githubEmail } });
     if (existingByEmail && !existingByEmail.githubId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "account_exists_link_required",
-          message:
-            "An account with this email already exists. Sign in with your " +
-            "existing credentials first, then link GitHub.",
-        },
-        { status: 409 },
-      );
+      if (!existingByEmail.passwordHash) return linkRequired();
+      // The placeholder is reserved for GitHub sign-ins (registration refuses
+      // it), so a row on it is never a password row; one without a githubId
+      // is a legacy GitHub-only row and is not claimed here either.
+      const existingPlaceholder = await prisma.user.findUnique({ where: { email: placeholderEmail } });
+      if (existingPlaceholder) return linkRequired();
+      rowEmail = placeholderEmail;
     }
   }
 
@@ -186,12 +216,21 @@ export async function POST(req: NextRequest) {
   const existingPat = existingByGithubId ? await readGithubPat(existingByGithubId) : null;
   const preserveManualPat = !!existingPat && !existingPat.startsWith("gho_");
 
+  // An identity row keeps its email when the current GitHub email is held by
+  // another row (typically the password account this identity was kept apart
+  // from): the unique index would otherwise fail every later call.
+  let updatedEmail = existingByGithubId?.email ?? null;
+  if (existingByGithubId && githubEmail && githubEmail !== existingByGithubId.email) {
+    const holder = await prisma.user.findUnique({ where: { email: githubEmail } });
+    if (!holder) updatedEmail = githubEmail;
+  }
+
   const user = existingByGithubId
     ? await prisma.user.update({
         where: { id: existingByGithubId.id },
         data: {
           githubLogin: githubUser.login,
-          email: githubEmail ?? existingByGithubId.email,
+          email: updatedEmail,
           // githubOwner/passwordHash stay untouched.
           ...(preserveManualPat ? {} : { githubPat: encryptGithubPat(githubAccessToken) }),
         },
@@ -200,7 +239,7 @@ export async function POST(req: NextRequest) {
         data: {
           githubId,
           githubLogin: githubUser.login,
-          email: githubEmail,
+          email: rowEmail,
           // Store the verified OAuth access-token as the GitHub PAT so a
           // project-pilot SSO user can publish immediately, without connecting
           // GitHub a second time on the forge side. pilot's OAuth requests the

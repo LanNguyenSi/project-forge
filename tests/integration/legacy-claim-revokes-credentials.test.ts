@@ -284,17 +284,27 @@ describe("sign-ins that are not a claim of a legacy row", () => {
     expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).sessionsValidAfter).toBeNull();
   });
 
-  it("a refused sign-in on a password account keeps its tokens and its sessions", async () => {
+  it("a sign-in on a password account's email opens a separate account and leaves the password account's tokens, sessions and credential alone", async () => {
     const row = await db.user.create({ data: { email: LEGACY_EMAIL, passwordHash: "hash", githubPat: "ghp_manual" } });
     const token = await createApiToken(db, row.id, "mine");
     const cookie = await cookieFor({ userId: row.id, authAt: OLD_AUTH_AT() });
 
-    const { result } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_other" });
+    const { result, user } = await githubSignIn({ githubId: "1001", email: LEGACY_EMAIL, accessToken: "gho_other" });
 
-    expect(result).toBe("/login?error=OAuthAccountNotLinked");
+    expect(result).toBe(true);
+    expect(user.id).not.toBe(row.id);
     expect(await tokenStatus(token.raw)).toBe(200);
     expect(await patStatus(cookie)).toEqual({ status: 200, kind: "manual" });
-    expect((await db.user.findUniqueOrThrow({ where: { id: row.id } })).sessionsValidAfter).toBeNull();
+    const kept = await db.user.findUniqueOrThrow({ where: { id: row.id } });
+    expect(kept.sessionsValidAfter).toBeNull();
+    expect(kept.githubId).toBeNull();
+    expect(kept.passwordHash).toBe("hash");
+    // The GitHub token went to the new row only.
+    const identity = await db.user.findUniqueOrThrow({ where: { githubId: "1001" } });
+    expect(identity.id).toBe(user.id);
+    expect(identity).toMatchObject({ email: "github-1001@noreply", passwordHash: null });
+    expect(decryptGithubPat(identity.githubPat)).toBe("gho_other");
+    expect(await patStatus(await mintSessionFor(identity.id))).toEqual({ status: 200, kind: "oauth" });
   });
 
   it("a new GitHub account does not touch another user's tokens", async () => {

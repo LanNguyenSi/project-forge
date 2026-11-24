@@ -79,15 +79,31 @@ async function resolveGithubEmail(
  *        claim the legacy row. A placeholder row would bind the githubId to a
  *        new account for good.
  *      Then the row with the resulting email, if any:
- *      - it has a passwordHash (a local account) or another githubId: refused,
- *        the row is not touched and no token is written;
+ *      - it has a passwordHash and no githubId (a local account): the row is
+ *        not touched, no token is written to it and nothing is revoked. The
+ *        sign-in moves on to the placeholder `github-<id>@noreply` and treats
+ *        the row under that email by these same rules, so the person who
+ *        proved the address with GitHub gets their own account (step 3)
+ *        instead of being refused for good. Registration does not verify the
+ *        email, so such a row may belong to someone who only typed the
+ *        address; it is neither claimed (the real owner of a password they
+ *        chose would lose the account) nor merged (the GitHub token would be
+ *        reachable through the password). The placeholder is reserved for
+ *        this: registration refuses `*noreply` addresses, so no password row
+ *        can sit on it;
+ *      - it has another githubId (with or without a password): refused, the
+ *        row is not touched and no token is written. That is a different
+ *        GitHub identity, and a separate account for this one would only hide
+ *        the collision;
  *      - it has neither (a row an earlier GitHub-only sign-in created, before
  *        githubId was recorded here): claimed, githubId is set, and in the same
  *        transaction its API tokens are revoked and its older sessions are cut
  *        off. Such a row can only come from the GitHub sign-in itself, because
  *        registration always sets a password.
  *   3. Neither: a new row is created with the identity, under the verified
- *      email or the placeholder.
+ *      email or the placeholder. A later sign-in finds it by the githubId
+ *      (rule 1). If the create loses a race on a unique index, the sign-in is
+ *      refused and the retry matches the row that won.
  */
 async function signInWithGithub(
   user: { id: string; email?: string | null },
@@ -125,12 +141,21 @@ async function signInWithGithub(
     return true;
   }
 
-  const email = await resolveGithubEmail(user.email, account.access_token, placeholderEmail);
+  let email = await resolveGithubEmail(user.email, account.access_token, placeholderEmail);
   // Could not ask GitHub: write nothing, a retry decides.
   if (email === null) return GITHUB_SIGN_IN_FAILED;
+
+  let byEmail = await prisma.user.findUnique({ where: { email } });
+  // A password account holds the verified address and has no GitHub identity.
+  // It is left as it is (see the rules above) and this identity gets its own
+  // row under the placeholder. A password row that already has a githubId is
+  // not diverted: it belongs to another GitHub identity and stays refused.
+  if (byEmail?.passwordHash && !byEmail.githubId) {
+    email = placeholderEmail;
+    byEmail = await prisma.user.findUnique({ where: { email } });
+  }
   const tokenFields = tokenFieldsFor(email);
 
-  const byEmail = await prisma.user.findUnique({ where: { email } });
   if (byEmail) {
     if (byEmail.passwordHash || byEmail.githubId) return GITHUB_SIGN_IN_REFUSED;
     // Conditional write: the row must still be unlinked and password-less when

@@ -183,6 +183,17 @@ is stored as the user's publish credential, except when the stored credential
 is already a personal access token (any value other than a `gho_` OAuth
 token).
 
+Email collisions: registration does not verify the email, so a password
+account may hold an address its typist does not own. When the GitHub email
+belongs to a password account that has no linked GitHub id, the call does not
+fail and does not touch that account: the GitHub identity gets its own user
+under the placeholder email `github-<id>@noreply`, which holds the GitHub token
+and the returned API token, and later calls find that user by the GitHub id.
+This is the same rule as the web GitHub sign-in. An account that already has
+another GitHub id is not diverted. The 409 above remains only for a
+password-less row without a GitHub id (see the table); the web GitHub sign-in
+claims such a row once GitHub verifies the email.
+
 Errors use the shape `{ ok: false, error: <code>, message }`:
 
 | Status | Cause |
@@ -191,6 +202,6 @@ Errors use the shape `{ ok: false, error: <code>, message }`:
 | 413 | Request body over the 64 KiB cap |
 | 401 | GitHub token verification failed, or `githubLogin` differs from the verified login |
 | 403 | The login is not in `ALLOWED_GITHUB_LOGINS` (when that variable is set) |
-| 409 | An account with the same email already exists and has no linked GitHub id (an email/password account, or one created by an older GitHub sign-in on the web UI; web sign-ins now record the id) |
+| 409 | A row that has no linked GitHub id and no password (one created by an older GitHub sign-in on the web UI; web sign-ins now record the id) holds the GitHub email or the placeholder `github-<id>@noreply` (see below). A password account holding the email no longer causes it |
 | 503 | GitHub could not be reached |
 | 500 | Unexpected error during verification |
