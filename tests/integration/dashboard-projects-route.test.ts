@@ -98,6 +98,7 @@ describe("GET /api/dashboard/projects", () => {
     expect(body.ok).toBe(true);
     expect(body.total).toBe(2);
     expect(body.projects.map((p: { id: string }) => p.id)).toEqual(["c-new", "a-old"]);
+    expect(mFindMany.mock.calls[0][0]).toMatchObject({ orderBy: { createdAt: "desc" } });
     expect(body.projects[0]).toEqual({
       id: "c-new",
       repoUrl: "https://github.com/user-1/c-new",
