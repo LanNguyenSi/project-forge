@@ -703,6 +703,194 @@ describe("planforge output resolver", () => {
     }
   });
 
+  describe("resolved-path containment", () => {
+    function indexWith(overrides: {
+      architecture?: string;
+      tasks?: string;
+      planOutput?: string;
+      scaffoldkit?: string;
+    }): string {
+      return JSON.stringify({
+        generatedBy: "agent-planforge",
+        rootFiles: { agents: "AGENTS.md", architecture: overrides.architecture ?? "architecture-overview.md" },
+        directories: { ai: ".ai", tasks: overrides.tasks ?? "tasks" },
+        planning: { planOutput: overrides.planOutput ?? "planning/plan-output.json" },
+        exports: { scaffoldkit: overrides.scaffoldkit ?? "exports/scaffoldkit-input.json" },
+        ai: { agents: ".ai/AGENTS.md" },
+      });
+    }
+
+    async function withWarnSpy(run: () => Promise<void>): Promise<string[]> {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await run();
+        return warnSpy.mock.calls.map((call) => String(call[0]));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    }
+
+    it("rejects an index entry that goes through a symlinked directory pointing outside tempDir, and logs only the key", async () => {
+      const tempDir = await makeTempDir();
+      const outside = await makeTempDir();
+      tempDirs.push(tempDir, outside);
+      await fs.writeFile(path.join(outside, "architecture.md"), "# secret\n");
+      await fs.mkdir(path.join(outside, "tasks"), { recursive: true });
+      await fs.symlink(outside, path.join(tempDir, "linked"));
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        indexWith({ architecture: "linked/architecture.md", tasks: "linked/tasks" })
+      );
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      const warnings = await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      // The lexical check alone passes both entries; only the real path shows
+      // they leave tempDir.
+      expect(resolved.architecturePath).toBe(path.join(tempDir, "architecture-overview.md"));
+      expect(resolved.tasksDir).toBe(path.join(tempDir, "tasks"));
+      expect(warnings).toHaveLength(2);
+      expect(warnings.join("\n")).toContain("rootFiles.architecture");
+      expect(warnings.join("\n")).toContain("directories.tasks");
+      expect(warnings.join("\n")).not.toContain("linked");
+      expect(warnings.join("\n")).not.toContain(outside);
+    });
+
+    it("rejects a symlink to a file outside tempDir", async () => {
+      const tempDir = await makeTempDir();
+      const outside = await makeTempDir();
+      tempDirs.push(tempDir, outside);
+      await fs.writeFile(path.join(outside, "plan.json"), "{}\n");
+      await fs.symlink(path.join(outside, "plan.json"), path.join(tempDir, "plan-link.json"));
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        indexWith({ planOutput: "plan-link.json" })
+      );
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.planOutputPath).toBe(path.join(tempDir, "plan-output.json"));
+    });
+
+    it("rejects a symlink into a sibling directory that shares the temp dir's string prefix", async () => {
+      const tempDir = await makeTempDir();
+      const sibling = `${tempDir}-evil`;
+      await fs.mkdir(sibling);
+      tempDirs.push(tempDir, sibling);
+      await fs.writeFile(path.join(sibling, "architecture.md"), "# evil\n");
+      await fs.symlink(sibling, path.join(tempDir, "near"));
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        indexWith({ architecture: "near/architecture.md" })
+      );
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.architecturePath).toBe(path.join(tempDir, "architecture-overview.md"));
+    });
+
+    it("rejects a lexical `../` entry into a sibling directory that shares the temp dir's string prefix", async () => {
+      const tempDir = await makeTempDir();
+      const sibling = `${tempDir}-evil`;
+      await fs.mkdir(sibling);
+      tempDirs.push(tempDir, sibling);
+      await fs.writeFile(path.join(sibling, "architecture.md"), "# evil\n");
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        indexWith({ architecture: `../${path.basename(sibling)}/architecture.md` })
+      );
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.architecturePath).toBe(path.join(tempDir, "architecture-overview.md"));
+    });
+
+    it("rejects an entry whose real path cannot be resolved because of a symlink loop", async () => {
+      const tempDir = await makeTempDir();
+      tempDirs.push(tempDir);
+      await fs.symlink("loop-b", path.join(tempDir, "loop-a"));
+      await fs.symlink("loop-a", path.join(tempDir, "loop-b"));
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        indexWith({ architecture: "loop-a" })
+      );
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.architecturePath).toBe(path.join(tempDir, "architecture-overview.md"));
+    });
+
+    it("keeps the lexical result for an entry below a regular file (ENOTDIR) without a warning", async () => {
+      const tempDir = await makeTempDir();
+      tempDirs.push(tempDir);
+      await fs.writeFile(path.join(tempDir, "docs.md"), "# not a directory\n");
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        indexWith({ architecture: "docs.md/architecture.md" })
+      );
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      const warnings = await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.architecturePath).toBe(path.join(tempDir, "docs.md", "architecture.md"));
+      expect(warnings).toEqual([]);
+    });
+
+    it("resolves an entry that names tempDir itself to tempDir", async () => {
+      const tempDir = await makeTempDir();
+      tempDirs.push(tempDir);
+      await fs.writeFile(path.join(tempDir, "planforge-index.json"), indexWith({ tasks: "." }));
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      const warnings = await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.tasksDir).toBe(tempDir);
+      expect(warnings).toEqual([]);
+    });
+
+    it("keeps resolving existing in-bounds entries and entries that do not exist yet", async () => {
+      const tempDir = await makeTempDir();
+      tempDirs.push(tempDir);
+      await fs.mkdir(path.join(tempDir, "docs"), { recursive: true });
+      await fs.writeFile(path.join(tempDir, "docs", "architecture.md"), "# arch\n");
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        indexWith({
+          architecture: "docs/architecture.md",
+          // Not on disk: only the lexical check applies, as before.
+          planOutput: "missing/plan-output.json",
+        })
+      );
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      const warnings = await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.architecturePath).toBe(path.join(tempDir, "docs", "architecture.md"));
+      expect(resolved.planOutputPath).toBe(path.join(tempDir, "missing", "plan-output.json"));
+      expect(warnings).toEqual([]);
+    });
+  });
+
   it("rejects an index whose handoff block is present but malformed", async () => {
     // The optional-handoff branch must tolerate an ABSENT handoff only — a
     // present-but-broken handoff still invalidates the whole index (otherwise a

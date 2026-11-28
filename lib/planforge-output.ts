@@ -80,12 +80,42 @@ async function readPlanforgeIndex(indexPath: string): Promise<PlanforgeIndex | n
   }
 }
 
-function resolveArtifactPath(
+// True when `target` is `base` itself or lies below it. The separator is
+// appended to the base side so a sibling that merely shares the string prefix
+// (e.g. "/tmp/session-evil" vs "/tmp/session") is never mistaken for "inside".
+function isInside(base: string, target: string): boolean {
+  if (target === base) return true;
+  return target.startsWith(base.endsWith(path.sep) ? base : base + path.sep);
+}
+
+// Resolved-path containment: the candidate's real path (every symlink on the
+// way followed) must lie inside the real path of tempDir. A candidate or a
+// directory above it that does not exist (ENOENT/ENOTDIR) has nothing to
+// follow, so only the lexical check applies to it; any other failure (a
+// symlink loop, EACCES) is treated as not contained.
+async function isRealPathInside(tempDir: string, candidate: string): Promise<boolean> {
+  let realCandidate: string;
+  try {
+    realCandidate = await fs.realpath(candidate);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  }
+  let realTempDir: string;
+  try {
+    realTempDir = await fs.realpath(tempDir);
+  } catch {
+    return false;
+  }
+  return isInside(realTempDir, realCandidate);
+}
+
+async function resolveArtifactPath(
   tempDir: string,
   relativePath: string | undefined,
   fallbackPath: string,
   indexKey: string
-): string {
+): Promise<string> {
   if (!relativePath) {
     return fallbackPath;
   }
@@ -101,17 +131,19 @@ function resolveArtifactPath(
   // "/etc/passwd", was already contained before this guard too: path.join
   // re-roots a subsequent absolute segment under tempDir instead of treating it
   // as absolute, so this guard specifically closes the `../` traversal class.)
-  // Compare fully resolved (symlink-unaware — nothing else in this module
-  // realpaths its inputs either, so lexical containment matches the rest of
-  // the module's trust model; a symlink placed inside tempDir that points
-  // outside it is still followed) paths with a trailing separator appended to
-  // the temp dir side, so a sibling directory that merely shares the same
-  // string prefix (e.g. "/tmp/session-evil" vs "/tmp/session") is never
-  // mistaken for "inside".
+  // Two checks, both must pass. First the lexical one: the fully resolved
+  // candidate must lie inside the resolved tempDir. Second, when the candidate
+  // exists, the real path (symlinks followed) of the candidate must lie inside
+  // the real path of tempDir, so an existing entry that goes through a symlink
+  // under tempDir pointing outside it is rejected too; a candidate that does
+  // not exist keeps the lexical check only. Extraction already refuses
+  // archives that contain links; this check does not rely on that. Both compare with a trailing separator on
+  // the base side, so a sibling directory that merely shares the same string
+  // prefix is never mistaken for "inside".
   const resolvedTempDir = path.resolve(tempDir);
   const resolvedCandidate = path.resolve(candidate);
   const isContained =
-    resolvedCandidate === resolvedTempDir || resolvedCandidate.startsWith(resolvedTempDir + path.sep);
+    isInside(resolvedTempDir, resolvedCandidate) && (await isRealPathInside(tempDir, candidate));
 
   if (!isContained) {
     // Signal the rejection without leaking the attacker-controlled path value
@@ -142,25 +174,25 @@ export async function resolvePlanforgeOutputPaths(tempDir: string): Promise<Reso
   return {
     hasIndex: true,
     indexPath,
-    tasksDir: resolveArtifactPath(
+    tasksDir: await resolveArtifactPath(
       tempDir,
       index.directories?.tasks,
       path.join(tempDir, "tasks"),
       "directories.tasks"
     ),
-    architecturePath: resolveArtifactPath(
+    architecturePath: await resolveArtifactPath(
       tempDir,
       index.rootFiles?.architecture,
       path.join(tempDir, "architecture-overview.md"),
       "rootFiles.architecture"
     ),
-    scaffoldkitInputPath: resolveArtifactPath(
+    scaffoldkitInputPath: await resolveArtifactPath(
       tempDir,
       index.exports?.scaffoldkit,
       path.join(tempDir, "scaffoldkit-input.json"),
       "exports.scaffoldkit"
     ),
-    planOutputPath: resolveArtifactPath(
+    planOutputPath: await resolveArtifactPath(
       tempDir,
       index.planning?.planOutput,
       path.join(tempDir, "plan-output.json"),
