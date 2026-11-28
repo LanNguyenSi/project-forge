@@ -23,6 +23,9 @@
  *      before. scaffoldkit is no longer invoked client-side.
  */
 import { spawn } from "node:child_process";
+import * as fs from "node:fs/promises";
+import type { Stats } from "node:fs";
+import * as path from "node:path";
 
 export interface RunPlanforgeOptions {
   /** Base URL of the planforge service, e.g. `http://planforge:8223`. */
@@ -250,14 +253,19 @@ export async function runPlanforgeViaHttp(
 /**
  * Pipe the base64 gzipped tarball into `tar -xzf - -C outdir`. Going
  * through the system `tar` binary keeps the dep tree minimal and matches
- * what the server-side wrote it with, so round-trip semantics (symlinks,
- * empty dirs, modes) can't drift between packer and unpacker.
+ * what the server-side wrote it with, so round-trip semantics (empty dirs,
+ * modes) can't drift between packer and unpacker.
  *
  * `--no-same-owner` keeps extraction independent of the packer's uid: the
  * app container runs with every capability dropped (no CHOWN), where GNU tar
  * running as root would otherwise try to chown each entry to the archive's
  * owner and fail with "Cannot change ownership". Extracted files belong to
  * the extracting user instead.
+ *
+ * tar extracts symbolic links, hardlinks and special files from the archive,
+ * and the flags above cannot filter them, so after a clean exit the tree is
+ * walked with `lstat` and refused when it holds one (`findDisallowedEntry`,
+ * below). Genuine planforge output has none.
  *
  * The Next.js production image (node:24-slim, see
  * `Dockerfile`) has GNU tar preinstalled. Bind-mount-based dev on the
@@ -276,8 +284,24 @@ async function extractTarGzInto(outdir: string, base64: string): Promise<void> {
     });
     child.on("error", (err) => reject(err));
     child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new PlanforgeClientError(`tar exited ${code}: ${stderr.trim()}`));
+      if (code !== 0) {
+        reject(new PlanforgeClientError(`tar exited ${code}: ${stderr.trim()}`));
+        return;
+      }
+      // tar has no per-entry filter, so links and special files are caught
+      // after the fact. The caller's existing cleanup removes the temp dir
+      // when this rejects.
+      findDisallowedEntry(outdir).then((found) => {
+        if (found) {
+          reject(
+            new PlanforgeClientError(
+              `planforge archive contains a ${found.kind}: ${JSON.stringify(found.path)}`,
+            ),
+          );
+        } else {
+          resolve();
+        }
+      }, reject);
     });
     // tar can exit before consuming stdin (an archive it cannot open fails on
     // the first block while the pipe still holds the rest of the payload); the
@@ -287,4 +311,63 @@ async function extractTarGzInto(outdir: string, base64: string): Promise<void> {
     child.stdin.on("error", () => {});
     child.stdin.end(buf);
   });
+}
+
+/**
+ * Post-extraction check for the planforge output tree.
+ *
+ * The archive is unpacked by the system `tar`, which has no per-entry filter:
+ * GNU tar and bsdtar both extract symbolic links, hardlinks and special files
+ * (FIFOs, sockets, devices). A link that survives extraction would be followed
+ * by every later read of the tree (the preview walk, the artifact readers, the
+ * publish step), so the tree is refused as a whole when it holds one. Genuine
+ * planforge output is plain files and directories.
+ *
+ * The walk uses `lstat` and never descends through a link, so a symlinked
+ * directory is reported, not entered.
+ */
+function describeKind(stat: Stats): string | null {
+  if (stat.isSymbolicLink()) return "symbolic link";
+  if (stat.isDirectory()) return null;
+  if (stat.isFile()) {
+    // A hardlink has another name for the same inode, inside or outside the
+    // tree. Either way the content is not owned by this extraction.
+    return stat.nlink > 1 ? "hardlink" : null;
+  }
+  if (stat.isFIFO()) return "FIFO";
+  if (stat.isSocket()) return "socket";
+  if (stat.isBlockDevice() || stat.isCharacterDevice()) return "device file";
+  return "special file";
+}
+
+export interface DisallowedEntry {
+  /** Human-readable kind, e.g. "symbolic link" or "hardlink". */
+  kind: string;
+  /** Path relative to the walked root, with `/` separators. */
+  path: string;
+}
+
+/**
+ * Returns the first entry under `root` (sorted order, depth first) that is
+ * anything but a regular file with one name or a directory, or null when the
+ * tree is plain. A link's target is never read or reported.
+ */
+export async function findDisallowedEntry(root: string): Promise<DisallowedEntry | null> {
+  const walk = async (dir: string): Promise<DisallowedEntry | null> => {
+    const names = (await fs.readdir(dir)).sort();
+    for (const name of names) {
+      const full = path.join(dir, name);
+      const stat = await fs.lstat(full);
+      const kind = describeKind(stat);
+      if (kind) {
+        return { kind, path: path.relative(root, full).split(path.sep).join("/") };
+      }
+      if (stat.isDirectory()) {
+        const found = await walk(full);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return walk(root);
 }
