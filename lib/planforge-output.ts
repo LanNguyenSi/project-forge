@@ -134,9 +134,10 @@ async function resolveArtifactPath(
   // Two checks, both must pass. First the lexical one: the fully resolved
   // candidate must lie inside the resolved tempDir. Second, when the candidate
   // exists, the real path (symlinks followed) of the candidate must lie inside
-  // the real path of tempDir, so a symlink under tempDir that points outside it
-  // is rejected too. Extraction already refuses archives that contain links;
-  // this check does not rely on that. Both compare with a trailing separator on
+  // the real path of tempDir, so an existing entry that goes through a symlink
+  // under tempDir pointing outside it is rejected too; a candidate that does
+  // not exist keeps the lexical check only. Extraction already refuses
+  // archives that contain links; this check does not rely on that. Both compare with a trailing separator on
   // the base side, so a sibling directory that merely shares the same string
   // prefix is never mistaken for "inside".
   const resolvedTempDir = path.resolve(tempDir);

@@ -834,6 +834,38 @@ describe("planforge output resolver", () => {
       expect(resolved.architecturePath).toBe(path.join(tempDir, "architecture-overview.md"));
     });
 
+    it("keeps the lexical result for an entry below a regular file (ENOTDIR) without a warning", async () => {
+      const tempDir = await makeTempDir();
+      tempDirs.push(tempDir);
+      await fs.writeFile(path.join(tempDir, "docs.md"), "# not a directory\n");
+      await fs.writeFile(
+        path.join(tempDir, "planforge-index.json"),
+        indexWith({ architecture: "docs.md/architecture.md" })
+      );
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      const warnings = await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.architecturePath).toBe(path.join(tempDir, "docs.md", "architecture.md"));
+      expect(warnings).toEqual([]);
+    });
+
+    it("resolves an entry that names tempDir itself to tempDir", async () => {
+      const tempDir = await makeTempDir();
+      tempDirs.push(tempDir);
+      await fs.writeFile(path.join(tempDir, "planforge-index.json"), indexWith({ tasks: "." }));
+
+      let resolved!: Awaited<ReturnType<typeof resolvePlanforgeOutputPaths>>;
+      const warnings = await withWarnSpy(async () => {
+        resolved = await resolvePlanforgeOutputPaths(tempDir);
+      });
+
+      expect(resolved.tasksDir).toBe(tempDir);
+      expect(warnings).toEqual([]);
+    });
+
     it("keeps resolving existing in-bounds entries and entries that do not exist yet", async () => {
       const tempDir = await makeTempDir();
       tempDirs.push(tempDir);
